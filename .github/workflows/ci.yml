@@ -1,0 +1,45 @@
+name: CI
+
+on:
+  push:
+    branches: ['**']
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    # Linux is deliberate: it is the only place the case-sensitive PSR-4 mapping
+    # of modules/ is actually enforced. Windows will never catch a casing mistake.
+    runs-on: ubuntu-latest
+
+    strategy:
+      fail-fast: false
+      matrix:
+        php: ['8.2', '8.3', '8.4', '8.5']
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 #v7.0.1
+
+      - uses: shivammathur/setup-php@f3e473d116dcccaddc5834248c87452386958240 #v2
+        with:
+          php-version: ${{ matrix.php }}
+          extensions: json, mbstring, pdo, pdo_sqlite
+          coverage: none
+          tools: composer:v2
+
+      - name: Validate composer.json
+        run: composer validate --strict
+
+      - name: Install dependencies
+        uses: ramsey/composer-install@65e4f84970763564f46a70b8a54b90d033b3bdda #v4
+
+      - name: Coding standard
+        run: composer run cs
+
+      - name: Static analysis
+        run: composer run stan
+
+      - name: Tests
+        run: composer run test

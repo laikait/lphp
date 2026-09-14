@@ -1,0 +1,210 @@
+<?php
+
+declare(strict_types=1);
+
+namespace App\Engine\Data;
+
+/**
+ * Rows held in memory.
+ *
+ * This is not a placeholder for the real thing. A repository tested against
+ * this is tested at full speed, with no database to install, no fixtures to
+ * load and no cleanup between tests -- and because it is written against the
+ * same DataSource interface as everything else, the test is exercising the real
+ * repository, the real query and the real hydration, not a mock that agrees
+ * with whatever the code does.
+ *
+ * It honours the same semantics a SQL source must: criteria combine with AND,
+ * null never takes part in an ordering comparison, LIKE uses % and _, and a
+ * count ignores limit and offset. Where the two could disagree, this follows
+ * SQL, because the day the source changes is not the day to discover a
+ * difference.
+ *
+ * What it is not is a database. There are no transactions, no concurrency and
+ * no durability, and sorting a hundred thousand rows in PHP is not a plan.
+ */
+final class ArraySource implements DataSource
+{
+    /** @var array<string, list<array<string, mixed>>> */
+    private array $collections = [];
+
+    /** @param array<string, list<array<string, mixed>>> $collections */
+    public function __construct(array $collections = [])
+    {
+        $this->collections = $collections;
+    }
+
+    /** @param list<array<string, mixed>> $rows */
+    public function seed(string $collection, array $rows): void
+    {
+        $this->collections[$collection] = $rows;
+    }
+
+    /** @return list<array<string, mixed>> */
+    public function all(string $collection): array
+    {
+        return $this->collections[$collection] ?? [];
+    }
+
+    public function has(string $collection): bool
+    {
+        return isset($this->collections[$collection]);
+    }
+
+    public function truncate(string $collection): void
+    {
+        $this->collections[$collection] = [];
+    }
+
+    // ---- reading ----------------------------------------------------------
+
+    /** @return list<array<string, mixed>> */
+    public function fetch(Query $query): iterable
+    {
+        $rows = $this->matching($query);
+        $rows = $this->sorted($rows, $query->orders());
+
+        $limit = $query->limitValue();
+        $rows = \array_slice($rows, $query->offsetValue(), $limit ?? null);
+
+        $columns = $query->columns();
+
+        if ($columns === []) {
+            return $rows;
+        }
+
+        // Column selection has to be real here too, or a test passes against
+        // this source and fails against one where the column is genuinely
+        // absent from the result.
+        return \array_map(
+            static fn(array $row): array => \array_intersect_key($row, \array_flip($columns)),
+            $rows,
+        );
+    }
+
+    /** The count ignores limit and offset, the way a SQL count does. */
+    public function count(Query $query): int
+    {
+        return \count($this->matching($query));
+    }
+
+    /** @return list<array<string, mixed>> */
+    private function matching(Query $query): array
+    {
+        $rows = $this->collections[$query->collection()] ?? [];
+
+        foreach ($query->criteria() as $criterion) {
+            $rows = \array_values(\array_filter(
+                $rows,
+                static fn(array $row): bool => $criterion->matches($row[$criterion->field] ?? null),
+            ));
+        }
+
+        return $rows;
+    }
+
+    /**
+     * @param list<array<string, mixed>> $rows
+     * @param list<Order>                $orders
+     *
+     * @return list<array<string, mixed>>
+     */
+    private function sorted(array $rows, array $orders): array
+    {
+        if ($orders === []) {
+            return $rows;
+        }
+
+        \usort($rows, static function (array $left, array $right) use ($orders): int {
+            foreach ($orders as $order) {
+                /** @var mixed $a */
+                $a = $left[$order->field] ?? null;
+                /** @var mixed $b */
+                $b = $right[$order->field] ?? null;
+
+                // Nulls sort last ascending, which is one of the two answers
+                // SQL engines give and the less surprising one.
+                $comparison = match (true) {
+                    $a === null && $b === null => 0,
+                    $a === null => 1,
+                    $b === null => -1,
+                    \is_string($a) && \is_string($b) => \strcmp($a, $b),
+                    default => $a <=> $b,
+                };
+
+                if ($comparison !== 0) {
+                    return $order->isDescending() ? -$comparison : $comparison;
+                }
+            }
+
+            return 0;
+        });
+
+        return $rows;
+    }
+
+    // ---- writing ----------------------------------------------------------
+
+    public function insert(string $collection, string $key, array $row): int|string|null
+    {
+        $this->collections[$collection] ??= [];
+
+        // An identity the row already carries is kept -- a country keyed by its
+        // code assigns its own -- and otherwise one is generated the way an
+        // auto-increment column would.
+        /** @var mixed $identity */
+        $identity = $row[$key] ?? null;
+
+        if ($identity === null) {
+            $identity = $this->nextIdentity($collection, $key);
+            $row[$key] = $identity;
+        }
+
+        $this->collections[$collection][] = $row;
+
+        return \is_int($identity) || \is_string($identity) ? $identity : null;
+    }
+
+    public function update(string $collection, string $key, int|string $identity, array $changes): int
+    {
+        $changed = 0;
+
+        foreach ($this->collections[$collection] ?? [] as $index => $row) {
+            if (($row[$key] ?? null) === $identity) {
+                $this->collections[$collection][$index] = [...$row, ...$changes];
+                ++$changed;
+            }
+        }
+
+        return $changed;
+    }
+
+    public function delete(string $collection, string $key, int|string $identity): int
+    {
+        $rows = $this->collections[$collection] ?? [];
+        $remaining = \array_values(\array_filter(
+            $rows,
+            static fn(array $row): bool => ($row[$key] ?? null) !== $identity,
+        ));
+
+        $this->collections[$collection] = $remaining;
+
+        return \count($rows) - \count($remaining);
+    }
+
+    private function nextIdentity(string $collection, string $key): int
+    {
+        $highest = 0;
+
+        foreach ($this->collections[$collection] ?? [] as $row) {
+            /** @var mixed $existing */
+            $existing = $row[$key] ?? null;
+
+            if (\is_int($existing) && $existing > $highest) {
+                $highest = $existing;
+            }
+        }
+
+        return $highest + 1;
+    }
+}

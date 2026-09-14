@@ -1,0 +1,31 @@
+/vendor/
+/system/Cache/*
+/system/Logs/*
+/system/Runtime/*
+# Created on demand by the file queue store; jobs are data, never source.
+/system/Queue/
+# Created on demand by the scheduler; a lock is one process's claim, not state.
+/system/Schedule/
+!/system/Cache/.gitignore
+!/system/Logs/.gitignore
+!/system/Runtime/.gitignore
+
+# Tooling caches
+/.php-cs-fixer.cache
+/.phpunit.result.cache
+
+# Local overrides
+/.env
+/.env.local
+/phpunit.xml.local
+/phpstan.neon.local
+
+# Editors / OS
+/.idea/
+/.vscode/
+/nbproject/
+*.swp
+*~
+Thumbs.db
+Desktop.ini
+.DS_Store

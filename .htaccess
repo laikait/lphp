@@ -1,0 +1,58 @@
+# Single front controller, plus denial of everything the application should not
+# serve directly.
+#
+# IMPORTANT: a front controller does NOT protect files the web server can reach
+# on its own. The specified layout puts index.php, vendor/, engine/ and modules/
+# in the same web-served directory, so this file is load-bearing. It also does
+# nothing at all if AllowOverride is None. Verify with:
+#
+#   curl -i http://localhost/framework/engine/Core/Application.php   -> must be 403
+#
+# For production, prefer a virtual host whose DocumentRoot is a directory
+# containing only index.php. See README.md.
+
+Options -Indexes
+
+<IfModule mod_rewrite.c>
+    RewriteEngine On
+
+    # Adjust to match the directory the application is served from, or drop it
+    # entirely when using a dedicated virtual host.
+    RewriteBase /framework/
+
+    # Application internals are never served, rewritten or not.
+    #
+    # templates/ is on this list for the same reason engine/ is: a view is
+    # a .php file, and a .php file Apache can reach is a .php file Apache
+    # will execute. Template assets are reachable as /assets/template/...
+    # through the asset manager, which is the only way in.
+    #
+    # config/ is on it because that is where the database credentials live.
+    # Requesting one of those files today would execute it and print nothing,
+    # which is not a defence -- it is a coincidence of the files currently
+    # returning an array and doing nothing else.
+    RewriteRule ^(engine|modules|templates|config|system|tests|bin|vendor)(/|$) - [F,L]
+
+    # Neither is project metadata.
+    RewriteRule ^(composer\.(json|lock)|phpunit\.xml|phpstan\.neon|\.php-cs-fixer.*|\.env.*|.*\.md)$ - [F,L]
+
+    # Anything else that is not a real file falls through to the front controller.
+    RewriteCond %{REQUEST_FILENAME} !-f
+    RewriteCond %{REQUEST_FILENAME} !-d
+    RewriteRule ^ index.php [L]
+</IfModule>
+
+# Belt and braces: if mod_rewrite is unavailable, deny the project metadata by
+# name anyway.
+#
+# This names files rather than extensions on purpose. A blanket deny on
+# "*.json" also refuses an import map, an i18n bundle or a Lottie animation
+# published through the asset manager -- and it refuses them at the web server,
+# before any of the framework's own checks run, so the failure looks like a
+# permissions problem rather than a policy. The list below is exactly the
+# metadata the rewrite rule above denies.
+<IfModule mod_authz_core.c>
+    <FilesMatch "^(composer\.(json|lock)|phpunit\.xml|phpstan\.neon|\.php-cs-fixer\..*|\.env.*|.*\.md)$">
+        Require all denied
+    </FilesMatch>
+</IfModule>

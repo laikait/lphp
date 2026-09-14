@@ -1,0 +1,12 @@
+parameters:
+    level: 8
+    tmpDir: system/Runtime/phpstan
+    paths:
+        - engine
+        - tests
+    treatPhpDocTypesAsCertain: false
+
+    typeAliases:
+        # Anything the container knows how to invoke: a closure, a function or
+        # "Class::method" string, an invokable object, or [target, method].
+        InvokableTarget: 'callable|array{0: object|class-string, 1: string}|string'

@@ -1,0 +1,230 @@
+<?php
+
+declare(strict_types=1);
+
+use App\Engine\Cli\CommandCollector;
+use App\Engine\Container\ServiceRegistrar;
+use App\Engine\Data\ArraySource;
+use App\Engine\Data\DataSource;
+use App\Engine\Hook\HookEngine;
+use App\Engine\Http\Response;
+use App\Engine\Model\Relation;
+use App\Engine\Model\RelationManager;
+use App\Engine\Module\ModuleContext;
+use App\Engine\Routing\RouteCollector;
+use App\Engine\Routing\Router;
+use App\Engine\Scheduler\ScheduleCollector;
+use App\Modules\Plugins\Example\Api\CustomerApi;
+use App\Modules\Plugins\Example\Api\CustomerPage;
+use App\Modules\Plugins\Example\Api\ListCustomers;
+use App\Modules\Plugins\Example\Commands\ShowCustomer;
+use App\Modules\Plugins\Example\Commands\SyncCustomers;
+use App\Modules\Plugins\Example\Data\CustomerQuery;
+use App\Modules\Plugins\Example\Data\CustomerRepository;
+use App\Modules\Plugins\Example\Filters\CustomerFilters;
+use App\Modules\Plugins\Example\Hooks\CustomerHooks;
+use App\Modules\Plugins\Example\Jobs\ReviewCustomers;
+use App\Modules\Plugins\Example\Model\Customer;
+use App\Modules\Shared\Model\User;
+
+/**
+ * A plugin module.
+ *
+ * This file is the whole contract. There is nothing to extend and nothing to
+ * implement: the closure receives a ModuleContext and describes what the module
+ * provides. Everything here is RECORDED, not executed -- by the time this
+ * returns, nothing has been bound, routed or hooked. The manager replays it all
+ * afterwards, by category, in a deterministic module order.
+ */
+return static function (ModuleContext $module): void {
+    $module
+        ->name('Example Customers')
+        ->version('0.1.0')
+        ->description('Demonstrates the module contract end to end.');
+
+    $module->config([
+        'page_size' => 25,
+    ]);
+
+    $module->services(static function (ServiceRegistrar $services): void {
+        // The registrar can write to the container and cannot read from it, so
+        // service location during registration is impossible by construction.
+        // A repository and a query are different jobs: one enforces the rules
+        // of writing a customer, the other reads fast. Both are singletons
+        // because both are stateless collaborators over a shared source.
+        $services->singleton(CustomerRepository::class);
+        $services->singleton(CustomerQuery::class);
+        $services->bind(ListCustomers::class);
+        $services->bind(CustomerPage::class);
+        $services->bind(CustomerApi::class);
+        $services->bind(SyncCustomers::class);
+        $services->bind(ShowCustomer::class);
+    });
+
+    $module->routes(static function (RouteCollector $routes): void {
+        // A root index, so that visiting the application says what it offers
+        // rather than 404-ing at the front door.
+        $routes->get('/', static fn (Router $router): array => [
+            'framework' => 'app-framework',
+            'links' => [
+                'customers' => $router->url('customers.index'),
+                'api.customers' => $router->url('api.v1.customers.index'),
+                'api.customer' => $router->url('api.v1.customers.show', ['id' => 1]),
+            ],
+            // The global asset() helper, used where it is meant to be used: a
+            // closure written in module.php, with no constructor to inject an
+            // AssetManager into. A class would take one by injection instead --
+            // see this module's Api/ handlers, which take everything that way.
+            //
+            // None of these URLs says where the file is. The plugin's script
+            // lives under modules/plugins/Example/assets/, a directory Apache
+            // is configured to refuse, and the URL knows only that it belongs
+            // to the plugin called Example.
+            'assets' => [
+                'app.css' => asset()->core('css/app.css'),
+                'app.js' => asset()->core('js/app.js'),
+                'plugin.js' => asset()->plugin('Example', 'js/example.js'),
+                'gateway.js' => asset()->gateway('Example', 'js/gateway.js'),
+            ],
+        ])->name('home');
+
+        // The same customers twice: once as a page, once as JSON. One
+        // kernel, one query, two renderings.
+        $routes->get('/customers', CustomerPage::class)->name('customers.index');
+        $routes->get('/customers.json', ListCustomers::class)->name('customers.json');
+
+        $routes->group('/api/v1', static function (RouteCollector $routes): void {
+            $routes->get('/customers', ListCustomers::class)->name('customers.index');
+
+            $routes->get('/customers/{id}', [CustomerApi::class, 'show'])
+                ->where('id', '\d+')
+                ->name('customers.show');
+
+            $routes->post('/customers', [CustomerApi::class, 'store'])
+                ->name('customers.store')
+                ->meta(['auth' => false]);
+            // Versioning is a route prefix plus route metadata. There is no
+            // version negotiator and no version resolver, because a URL prefix
+            // already answers "which version" unambiguously and a second
+            // mechanism would only let the two disagree. What the metadata adds
+            // is somewhere for the framework-side conventions to read it from:
+            // the shared module turns these into response headers.
+        }, name: 'api.v1.', meta: [
+            'api' => true,
+            'version' => 'v1',
+        ]);
+
+        // A deprecated version, kept answering while clients move off it. The
+        // dates are what RFC 8594 and RFC 9745 put in Deprecation and Sunset
+        // headers, so a client learns the endpoint is going away from the
+        // response rather than from a changelog it never read.
+        $routes->group('/api/v0', static function (RouteCollector $routes): void {
+            $routes->get('/customers', ListCustomers::class)->name('customers.index');
+        }, name: 'api.v0.', meta: [
+            'api' => true,
+            'version' => 'v0',
+            'deprecated' => '2026-01-01',
+            'sunset' => '2027-01-01',
+        ]);
+
+        $routes->get('/ping', static fn (): Response => new Response('pong'));
+    });
+
+    // Commands are declared exactly the way routes are, and for the same
+    // reason: this module owns a capability, and the shell is simply another
+    // way in to it. Nothing is scanned; a Commands/ directory is where these
+    // classes happen to live, not how they are found.
+    $module->commands(static function (CommandCollector $commands): void {
+        $commands->add('customer:sync', SyncCustomers::class)
+            ->describe('Pull customer records from the upstream system.')
+            ->argument('since', 'Only records changed on or after this date.', required: false, default: 'yesterday')
+            ->option('limit', 'Stop after this many records.', shortcut: 'l', default: '25')
+            ->flag('dry-run', 'Report what would change without writing anything.', shortcut: 'd')
+            ->note('--dry-run is the one to reach for first: it reads and prints, and touches nothing.');
+
+        // The same three handler forms a route accepts. This one is
+        // [class, method]; the one above is an invokable class; the one below
+        // is a closure whose parameters are injected.
+        $commands->add('customer:show', [ShowCustomer::class, 'show'])
+            ->describe('Print one customer.')
+            ->argument('id', 'The customer id.');
+
+        $commands->add('customer:count', static fn (CustomerQuery $customers): string => \sprintf(
+            '%d customer(s).',
+            $customers->total(),
+        ))->describe('Count the customers, without reading a row of them.');
+    });
+
+    // When this module's work runs unattended. Declared here rather than in a
+    // machine's crontab for the same reason the routes are declared here and
+    // not in a global route file: installing this module brings its schedule
+    // with it, removing the module takes it away, and a reviewer can see both.
+    $module->schedules(static function (ScheduleCollector $schedules): void {
+        // A console command, which is the shape the specification's own
+        // examples take. It is the same command a person runs by hand while
+        // debugging, with the same arguments -- checked here, as the
+        // application starts, rather than at two in the morning.
+        $schedules->command('customer:sync', '--limit=100')
+            ->describe('Pull anything the upstream system changed overnight.')
+            ->dailyAt('02:00')
+            ->withoutOverlapping(1800);
+
+        // A job, which is the queue integration in one line: the scheduler
+        // pushes and returns, and where the work actually happens is the
+        // queue's configuration rather than this file's business.
+        $schedules->job(ReviewCustomers::class)
+            ->describe('Walk the customer list and report what it found.')
+            ->weeklyOn(1, '03:30');
+
+        // A closure, called through the container. Cheap, idempotent, and
+        // allowed to overlap because two of it would cost nothing.
+        $schedules->call(
+            'customer:refresh-counts',
+            static function (CustomerQuery $customers): void {
+                $customers->forgetTotal();
+            },
+        )
+            ->describe('Drop the cached customer count so the next read is fresh.')
+            ->everyThirtyMinutes()
+            ->allowOverlapping();
+    });
+
+    $module->hook('customer.created', [CustomerHooks::class, 'onCreated'], priority: 20);
+
+    $module->filter('customer.name', [CustomerFilters::class, 'normaliseName'], priority: 10);
+
+    $module->onBoot(static function (
+        RelationManager $relations,
+        DataSource $source,
+        CustomerQuery $customers,
+        HookEngine $hooks,
+    ): void {
+        // Demo rows, for the in-memory source only. A real source is populated
+        // by this module's own migrations, which the database phase owns.
+        if ($source instanceof ArraySource) {
+            $source->seed('customers', [
+                ['id' => 1, 'name' => 'Ada Lovelace', 'email' => 'ada@example.test', 'ownerId' => 10],
+                ['id' => 2, 'name' => 'Grace Hopper', 'email' => 'grace@example.test', 'ownerId' => 11],
+                ['id' => 3, 'name' => 'Katherine Johnson', 'email' => 'katherine@example.test', 'ownerId' => null],
+            ]);
+        }
+
+        // Relations are declared at boot rather than at registration, and that
+        // is not an accident: this one crosses a module boundary, and the
+        // shared module's User only exists to be related to once every module
+        // has registered. The declaration is metadata -- nothing here loads
+        // anything, and nothing will load it later on its own.
+        $relations->declare(
+            Customer::class,
+            Relation::one('owner', User::class, localKey: 'ownerId', foreignKey: 'id'),
+        );
+
+        // Cache invalidation, declared where the dependency can be injected.
+        // The cached customer count has a five minute TTL, but a TTL is a
+        // backstop and not a plan: the thing that knows the count has changed
+        // is the event saying a customer was created, so that is what clears
+        // it. A cache whose only invalidation is time is a cache that is
+        // usually wrong for a while.
+        $hooks->add('customer.created', $customers->forgetTotal(...), 5, 'plugins/Example');
+    });
+};

@@ -1,0 +1,5 @@
+/* The active template's own stylesheet: /assets/template/css/theme.css */
+.customers { list-style: none; padding: 0; }
+.customers li { padding: .4rem 0; border-bottom: 1px solid #e7e7ee; }
+.customers .email { color: #6b6b78; margin-left: .5rem; }
+.promo--module { border-left: 3px solid #7a5af5; padding-left: .75rem; }
