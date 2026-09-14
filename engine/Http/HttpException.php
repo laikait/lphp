@@ -68,6 +68,58 @@ class HttpException extends FrameworkException
     }
 
     /**
+     * 403, for a request that was understood and refused.
+     *
+     * Distinct from 401, which the authentication phase owns: 401 means "say
+     * who you are", 403 means "I know who you are and the answer is still no".
+     * A failed CSRF check is this one -- the credentials were fine, the proof
+     * of origin was not.
+     */
+    public static function forbidden(string $message = ''): self
+    {
+        return new self(403, $message);
+    }
+
+    /**
+     * 413, naming the limit rather than only refusing.
+     *
+     * A client that is told "too large" and not how large has to bisect its way
+     * to the answer, and the usual outcome is that somebody decides the upload
+     * feature is broken.
+     */
+    public static function payloadTooLarge(int $limit = 0, string $message = ''): self
+    {
+        if ($message === '') {
+            $message = $limit > 0
+                ? \sprintf('The request body is larger than the %d bytes this endpoint accepts.', $limit)
+                : 'The request body is larger than this endpoint accepts.';
+        }
+
+        return new self(413, $message);
+    }
+
+    /**
+     * 429, carrying Retry-After.
+     *
+     * The header is the whole point of the status. Without it a client that is
+     * being throttled has no information except "not now", and a well-written
+     * one will retry immediately, which is the behaviour the limit exists to
+     * stop.
+     *
+     * @param array<string, string> $headers the limiter's own RateLimit-* headers
+     */
+    public static function tooManyRequests(int $retryAfter = 0, array $headers = []): self
+    {
+        return new self(
+            429,
+            $retryAfter > 0
+                ? \sprintf('Too many requests. Try again in %d second(s).', $retryAfter)
+                : 'Too many requests.',
+            $retryAfter > 0 ? ['Retry-After' => (string) $retryAfter, ...$headers] : $headers,
+        );
+    }
+
+    /**
      * 406, carrying what the endpoint could have produced.
      *
      * The list is the whole value of the response. A client that asked for

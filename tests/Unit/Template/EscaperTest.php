@@ -89,6 +89,21 @@ final class EscaperTest extends TestCase
     }
 
     /**
+     * A float that is not a number still prints, and prints quietly.
+     *
+     * fdiv() and sqrt(-1) are how these arrive -- ordinary arithmetic with a
+     * zero denominator, which an ERP computing a ratio does by accident. PHP
+     * 8.5 warns on casting NAN to a string, and a warning raised in the middle
+     * of rendering a page is the worst place to discover one.
+     */
+    public function test_a_non_finite_float_prints_without_a_warning(): void
+    {
+        self::assertSame('NAN', $this->e->html(\sqrt(-1)));
+        self::assertSame('INF', $this->e->html(\fdiv(1, 0)));
+        self::assertSame('-INF', $this->e->html(\fdiv(-1, 0)));
+    }
+
+    /**
      * "1" for true and "" for false is a silent surprise in markup; empty for
      * both false and null is at least predictable.
      */

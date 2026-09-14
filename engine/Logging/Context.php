@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace App\Engine\Logging;
 
+use App\Engine\Support\Coercion;
+
 /**
  * Turns whatever a caller passed as context into something safe to write down.
  *
@@ -118,8 +120,10 @@ final class Context
 
         if (\is_float($value)) {
             // NAN and INF are not representable in JSON and would either throw
-            // or silently become null.
-            return \is_finite($value) ? $value : (string) $value;
+            // or silently become null. Named rather than cast, because a logger
+            // that raises a warning while recording one has failed at the one
+            // thing it exists for. See Coercion::fromFloat().
+            return \is_finite($value) ? $value : Coercion::fromFloat($value);
         }
 
         if (\is_string($value)) {

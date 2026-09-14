@@ -63,6 +63,15 @@ use App\Engine\Queue\Worker;
 use App\Engine\Routing\Router;
 use App\Engine\Scheduler\Locks\FileLock;
 use App\Engine\Scheduler\Locks\MemoryLock;
+use App\Engine\Security\CounterStore;
+use App\Engine\Security\Counters\FileStore as CounterFileStore;
+use App\Engine\Security\Counters\MemoryStore as CounterMemoryStore;
+use App\Engine\Security\Csrf;
+use App\Engine\Security\Guard;
+use App\Engine\Security\RateLimiter;
+use App\Engine\Security\RequestLimits;
+use App\Engine\Security\SecurityHeaders;
+use App\Engine\Security\Signer;
 use App\Engine\Scheduler\ScheduleLock;
 use App\Engine\Scheduler\Scheduler;
 use App\Engine\Scheduler\ScheduleRegistry;
@@ -346,6 +355,48 @@ final class Bootstrap
         // with nothing to do.
         $hooks->add('schedule.finished', (new ScheduleLog($logs))(...), 10, 'engine');
 
+        // Security. Built here rather than resolved lazily because its whole
+        // job is to be attached to the request before anything else runs; a
+        // guard that is only constructed when something asks for it is a guard
+        // that never runs.
+        $signer = Signer::fromEnvironment($settings->string('security.key'));
+        $csrf = new Csrf(
+            $signer,
+            $settings->bool('security.csrf.check_origin', true),
+            $settings->int('security.csrf.lifetime', 7200) ?? 7200,
+        );
+        $limiter = new RateLimiter(self::counters($settings, $basePath));
+        $limits = new RequestLimits(
+            $settings->int('security.max_request_bytes', RequestLimits::DEFAULT_BYTES)
+                ?? RequestLimits::DEFAULT_BYTES,
+        );
+        $guard = new Guard($csrf, $limiter, $limits, $settings->bool('security.csrf.enabled', true));
+
+        $container->instance(Signer::class, $signer);
+        $container->instance(Csrf::class, $csrf);
+        $container->instance(RateLimiter::class, $limiter);
+        $container->instance(CounterStore::class, $limiter->store());
+        $container->instance(RequestLimits::class, $limits);
+        $container->instance(Guard::class, $guard);
+
+        $headers = self::securityHeaders($settings);
+        $container->instance(SecurityHeaders::class, $headers);
+
+        // Three listeners, on hooks the kernel already fires. This is what the
+        // ban on middleware looks like in practice: named events rather than a
+        // pipeline, and a refusal is an HttpException the kernel already knows
+        // how to render.
+        //
+        // The request limit runs at priority 1 so that it is ahead of anything
+        // an application attaches -- there is no point authenticating a body
+        // that is about to be refused for being too large.
+        $hooks->add('request.received', $guard->onRequest(...), 1, 'engine');
+        $hooks->add('dispatch.before', $guard->onDispatch(...), 5, 'engine');
+        $filters->add('response.instance', $guard->onResponse(...), 20, 'engine');
+        // Last, so that it sees every header a module decided to set and does
+        // not overwrite one. See SecurityHeaders.
+        $filters->add('response.instance', $headers(...), 90, 'engine');
+
         $application = new Application($container, $context, $basePath);
         $container->instance(Application::class, $application);
 
@@ -459,6 +510,54 @@ final class Bootstrap
             'memory', 'array' => new MemoryStore(),
             default => new SyncStore($runner),
         };
+    }
+
+    /**
+     * Where rate-limit counts live.
+     *
+     * A file by default and not the cache, for the reason CounterStore gives:
+     * a cache may forget, and a counter that forgets is not a limit. Memory is
+     * offered for tests and is never right in production -- a web request is a
+     * process that ends, so counts held in it have already been forgotten by
+     * the time the next request arrives.
+     *
+     * An unknown name falls back to the file store rather than to memory,
+     * because a typo in a deployment's configuration must not quietly turn
+     * rate limiting off.
+     */
+    private static function counters(Config $settings, string $basePath): CounterStore
+    {
+        return match ($settings->string('security.counters', 'file')) {
+            'memory', 'array' => new CounterMemoryStore(),
+            default => new CounterFileStore(Path::join($basePath, 'system', 'Security')),
+        };
+    }
+
+    /**
+     * The headers every response carries.
+     *
+     * Note what is not defaulted: a Content-Security-Policy. A generic one is
+     * either too loose to be a policy or too strict to survive the first page
+     * with an inline handler, and the one that gets turned off in a hurry is
+     * worse than the one that was never claimed. security:check says so out
+     * loud rather than leaving the absence to be noticed.
+     */
+    private static function securityHeaders(Config $settings): SecurityHeaders
+    {
+        $extra = [];
+
+        foreach ($settings->array('security.headers.extra') as $name => $value) {
+            if (\is_string($name) && \is_string($value)) {
+                $extra[$name] = $value;
+            }
+        }
+
+        return new SecurityHeaders(
+            $extra,
+            $settings->string('security.headers.csp', '') ?? '',
+            $settings->int('security.headers.hsts_days', 0) ?? 0,
+            $settings->bool('security.headers.hsts_subdomains', false),
+        );
     }
 
     /**
@@ -675,6 +774,40 @@ final class Bootstrap
                     // shared service, so that jobs which failed together do not
                     // retry together.
                     'jitter' => 0.0,
+                ],
+            ],
+            'security' => [
+                // The one secret the framework itself needs. Without it tokens
+                // are unsigned -- still double-submit, still cross-origin
+                // safe, but a sibling subdomain could plant a matching pair.
+                // security:check reports which mode is running.
+                'key' => Env::string('APP_KEY'),
+                'csrf' => [
+                    'enabled' => Env::bool('CSRF_ENABLED', true),
+                    // Checked when present, absent means "cannot tell". See
+                    // Security\Csrf for why Referer is not checked too.
+                    'check_origin' => true,
+                    // Two hours. Long enough that an ordinary form does not go
+                    // stale while somebody writes; short enough to matter.
+                    'lifetime' => 7200,
+                ],
+                // file or memory. Never the cache: a cache may forget, and a
+                // counter that forgets is not a limit. See CounterStore.
+                'counters' => 'file',
+                // Refused with 413 before anything reads the body.
+                'max_request_bytes' => Env::int('MAX_REQUEST_BYTES', RequestLimits::DEFAULT_BYTES),
+                'headers' => [
+                    // Deliberately empty. A useful policy names this
+                    // application's own sources; a generic one is the kind
+                    // that gets switched off. See Bootstrap::securityHeaders().
+                    'csp' => '',
+                    // Off, and only ever sent over HTTPS. It is the one header
+                    // here that cannot be taken back -- a browser that has
+                    // seen it refuses plain HTTP for the whole max-age.
+                    'hsts_days' => 0,
+                    'hsts_subdomains' => false,
+                    // Added to the four defaults; an empty value removes one.
+                    'extra' => [],
                 ],
             ],
             'scheduler' => [

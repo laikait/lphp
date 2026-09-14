@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace App\Engine\Template;
 
+use App\Engine\Support\Coercion;
+
 /**
  * Escaping, by context.
  *
@@ -100,8 +102,15 @@ final class Escaper
             return $value === true ? '1' : '';
         }
 
-        if (\is_int($value) || \is_float($value)) {
+        if (\is_int($value)) {
             return (string) $value;
+        }
+
+        // Not a plain cast: fdiv() and sqrt(-1) produce floats that PHP 8.5
+        // warns about converting, and a warning raised while rendering a page
+        // is the worst possible moment for one.
+        if (\is_float($value)) {
+            return Coercion::fromFloat($value);
         }
 
         if ($value instanceof \Stringable) {

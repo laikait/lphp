@@ -112,6 +112,23 @@ return static function (ModuleContext $module): void {
         }, name: 'api.v1.', meta: [
             'api' => true,
             'version' => 'v1',
+            // Opted out, explicitly, one group at a time.
+            //
+            // CSRF defends against a browser attaching credentials it holds
+            // ambiently -- a cookie -- to a request some other site made. An
+            // API authenticated by a bearer token has no such credential: the
+            // token has to be put on the request by whoever is making it, and
+            // another site cannot do that. So the check would cost every API
+            // client a token round-trip and buy nothing.
+            //
+            // Note what is NOT true: "api" does not imply this. An API that
+            // authenticates with a session cookie needs CSRF exactly as much
+            // as a form does, which is why the framework makes nobody write
+            // this line and makes everybody who wants it write it here.
+            'csrf' => false,
+            // Enough for a real client, low enough that a script hammering
+            // this endpoint is stopped before it becomes somebody's evening.
+            'rate_limit' => '60/1m',
         ]);
 
         // A deprecated version, kept answering while clients move off it. The

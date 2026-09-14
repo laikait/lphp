@@ -100,6 +100,25 @@ final class CoercionTest extends TestCase
         self::assertNull(Coercion::toString([]));
     }
 
+    /**
+     * The three floats that are not numbers are named, not cast.
+     *
+     * PHP 8.5 raises a warning when NAN is coerced to a string, so a plain cast
+     * here would make a route parameter, a schema field or a log line emit a
+     * warning of its own. These are the strings PHP has always produced; what
+     * the naming removes is the warning, not the output.
+     */
+    public function test_a_non_finite_float_has_a_name_rather_than_a_cast(): void
+    {
+        self::assertSame('NAN', Coercion::fromFloat(\NAN));
+        self::assertSame('INF', Coercion::fromFloat(\INF));
+        self::assertSame('-INF', Coercion::fromFloat(-\INF));
+
+        self::assertSame('12.5', Coercion::fromFloat(12.5));
+        self::assertSame('NAN', Coercion::toString(\NAN));
+        self::assertSame('INF', Coercion::toString(\INF));
+    }
+
     #[DataProvider('booleans')]
     public function test_values_with_one_boolean_reading(mixed $value, bool $expected): void
     {

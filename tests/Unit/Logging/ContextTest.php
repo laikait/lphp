@@ -33,13 +33,20 @@ final class ContextTest extends TestCase
         );
     }
 
-    /** NAN and INF have no JSON representation and would become null silently. */
+    /**
+     * NAN and INF have no JSON representation and would become null silently.
+     *
+     * The exact strings are asserted, not merely their type. PHP 8.5 warns when
+     * NAN is coerced to a string, so this layer names all three itself -- and a
+     * test that only checked for "a string" would keep passing if somebody put
+     * the cast back and reintroduced the warning.
+     */
     public function test_a_non_finite_float_becomes_text(): void
     {
-        $normalised = $this->context->normalise(['n' => \NAN, 'i' => \INF]);
-
-        self::assertIsString($normalised['n']);
-        self::assertIsString($normalised['i']);
+        self::assertSame(
+            ['n' => 'NAN', 'i' => 'INF', 'm' => '-INF'],
+            $this->context->normalise(['n' => \NAN, 'i' => \INF, 'm' => -\INF]),
+        );
     }
 
     public function test_an_object_becomes_its_class_name(): void
