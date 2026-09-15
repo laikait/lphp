@@ -1120,7 +1120,7 @@ final class ArchitectureTest extends TestCase
         self::assertMatchesRegularExpression(
             '/^\^\d+\.\d+$/',
             $declared,
-            'require.php is expected to be a caret constraint such as ^8.1.',
+            'require.php is expected to be a caret constraint such as ^8.2.',
         );
 
         $parts = \explode('.', \substr($declared, 1));
@@ -1348,20 +1348,6 @@ final class ArchitectureTest extends TestCase
      * `php -S` hands one over as plain text to anybody on the same network as
      * the developer.
      */
-    /**
-     * PHP 8.1's built-in server does not skip a shebang line in its router, so
-     * `declare(strict_types=1)` stops being the first statement and every
-     * request is a fatal error. Only CI's 8.1 job would notice; a developer on
-     * a newer PHP never would, which is why it is pinned here.
-     */
-    public function test_the_development_router_starts_with_the_open_tag(): void
-    {
-        $router = \file_get_contents($this->basePath('server'));
-
-        self::assertIsString($router);
-        self::assertStringStartsWith("<?php\n\ndeclare(strict_types=1);", \str_replace("\r\n", "\n", $router));
-    }
-
     public function test_the_development_server_denies_what_the_web_server_denies(): void
     {
         $htaccess = \file_get_contents($this->basePath('.htaccess'));

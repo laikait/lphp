@@ -66,6 +66,11 @@ note.
 - **Documentation**: `STABILITY.md`, `UPGRADING.md`, this file, and a README
   section on what is not built.
 
+### Changed
+
+- **PHP 8.2 or newer is required.** Support for 8.1, which reached end of life
+  in December 2025, is dropped.
+
 ### Decided against the specification
 
 - **Twig is a required dependency and the default engine**, where §25 and

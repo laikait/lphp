@@ -12,11 +12,6 @@ jobs:
   # The full gate. Linux is deliberate: it is the only place the case-sensitive
   # PSR-4 mapping of modules/ is actually enforced, and Windows will never catch
   # a casing mistake.
-  #
-  # 8.2 is the floor here rather than 8.1 because the DEV TOOLCHAIN requires it
-  # -- PHPUnit 11 and php-cs-fixer's Symfony components all declare php >=8.2.
-  # That is a fact about the tools, not about the framework, and the job below
-  # is what keeps the two from being confused.
   Gate:
     runs-on: ubuntu-latest
 
@@ -44,9 +39,9 @@ jobs:
       - name: Coding standard
         run: composer run cs
 
-      # phpstan.neon pins the analysed range to 8.1-8.5, so this step is also
-      # where 8.2-only syntax is caught -- on every version in the matrix, not
-      # just the oldest one.
+      # phpstan.neon pins the analysed range to 8.2-8.5, so this step is also
+      # where syntax newer than 8.2 is caught -- on every version in the
+      # matrix, not just the oldest one.
       - name: Static analysis
         run: composer run stan
 
@@ -65,11 +60,11 @@ jobs:
         continue-on-error: true
         run: php -d opcache.enable_cli=1 tests/Benchmark/run.php --rounds=5
 
-  # composer.json says the framework runs on ^8.1. This job is what makes that
+  # composer.json says the framework runs on ^8.2. This job is what makes that
   # a claim about the FRAMEWORK rather than about its test suite.
   #
   # --no-dev on purpose: a deployment installs no dev dependencies, so this is
-  # the dependency set a real 8.1 host would have. It cannot run PHPUnit, and it
+  # the dependency set a real 8.2 host would have. It cannot run PHPUnit, and it
   # does not need to -- what is in question here is whether the shipped code
   # parses and boots on the oldest supported runtime, and every line of it is
   # either linted or executed below.
@@ -81,7 +76,7 @@ jobs:
 
       - uses: shivammathur/setup-php@f3e473d116dcccaddc5834248c87452386958240 #v2
         with:
-          php-version: '8.1'
+          php-version: '8.2'
           extensions: json, mbstring, pdo, pdo_sqlite, fileinfo
           coverage: none
           tools: composer:v2
@@ -89,7 +84,7 @@ jobs:
       - name: Install runtime dependencies only
         run: composer install --no-dev --no-interaction --no-progress
 
-      # Parsing is the failure mode that 8.2-only syntax produces, and a parse
+      # Parsing is the failure mode that newer-than-8.2 syntax produces, and a parse
       # error in a file no request happens to reach is still a broken release.
       - name: Lint every shipped file
         run: |

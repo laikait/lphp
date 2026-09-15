@@ -16,21 +16,17 @@ explicit rather than ORM-driven.
 
 ## Requirements
 
-- PHP 8.1 or newer, with `ext-json`, `ext-mbstring` and `ext-pdo`
+- PHP 8.2 or newer, with `ext-json`, `ext-mbstring` and `ext-pdo`
 - Composer 2
 - A PDO driver for whichever database you use. `pdo_sqlite` is enough to run
   the test suite, which includes real database integration tests.
 - `ext-fileinfo` if you accept uploads — `UploadPolicy` uses it to check a
   file's contents against its name, and says so rather than passing silently.
 
-**Running it needs 8.1; developing it needs 8.2.** PHPUnit 11 and
-php-cs-fixer's Symfony components all require 8.2, so `composer install`
-with dev dependencies does too. That is a fact about the tools, not about the
-framework, and nothing keeps it honest by itself — so `phpstan.neon` analyses
-across 8.1–8.5, which reports 8.2-only syntax on every run whatever PHP you
-have, and an architecture test fails if that range and `composer.json` ever
-stop agreeing. CI runs the full gate on 8.2–8.5 and, separately, installs
-`--no-dev` on 8.1 to lint, boot and serve a request.
+`phpstan.neon` analyses across 8.2–8.5, which reports syntax newer than 8.2
+on every run whatever PHP you have, and an architecture test fails if that
+range and `composer.json` ever stop agreeing. CI runs the full gate on 8.2–8.5
+and, separately, installs `--no-dev` on 8.2 to lint, boot and serve a request.
 
 ## Quick start
 
@@ -3851,7 +3847,7 @@ changes version only when its own contract does.
 **A release, step by step:**
 
 1. `composer check` green locally, and CI green on both jobs: the gate on
-   8.2–8.5 and the 8.1 runtime job, which installs `--no-dev`, lints, boots and
+   8.2–8.5 and the 8.2 runtime job, which installs `--no-dev`, lints, boots and
    serves the default pages.
 2. The checks in [Deployment and security](#deployment-and-security) through a
    real web server, not only the test suite — every security defect this project

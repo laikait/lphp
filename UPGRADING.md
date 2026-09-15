@@ -14,6 +14,13 @@ order. An entry that cannot say who is affected is not finished.
 No version has been released yet. These notes are for code written against the
 repository as it stood at that commit, and they become the 0.1.0 notes.
 
+### PHP 8.2 is the minimum
+
+- **Changed:** `composer.json` requires `php` `^8.2`; it was `^8.1`.
+- **Affected:** a host running PHP 8.1. Composer refuses to install there, and
+  the development server fails on every request.
+- **Do:** upgrade the host to PHP 8.2 or newer before upgrading the framework.
+
 ### A fresh install ships no demo modules
 
 - **Changed:** `modules/plugins/Example` and `modules/gateways/Example` are no
