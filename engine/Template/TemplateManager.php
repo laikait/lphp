@@ -40,7 +40,7 @@ final class TemplateManager
     /** Namespaced names look like "@plugin.Example/invoice". */
     public const NAMESPACE_PREFIX = '@';
 
-    /** @var array<string, TemplateEngine> keyed by extension, longest first */
+    /** @var array<string, TemplateEngine> keyed by extension, in the order they are tried */
     private array $engines = [];
 
     /** @var array<string, TemplateFile|null> resolved and missing, within this process */
@@ -75,6 +75,16 @@ final class TemplateManager
      * One extension, one engine. Two engines claiming ".twig" would make which
      * one rendered a file depend on registration order, which is exactly the
      * kind of thing that works on one machine.
+     *
+     * **Registration order is precedence**, and that one IS deliberate. Where a
+     * directory holds both home.twig and home.php, the engine added first
+     * renders; Bootstrap adds Twig and then PHP, so Twig is the default and PHP
+     * the fallback. Within one engine its extensions are tried in the order it
+     * lists them, which is why an engine lists "html.twig" before "twig": the
+     * name "home.html" with ".twig" is the same file as "home" with
+     * ".html.twig", and the longer claim should win.
+     *
+     * Precedence between directories still comes first -- see find().
      */
     public function addEngine(TemplateEngine $engine): void
     {
@@ -88,11 +98,6 @@ final class TemplateManager
 
             $this->engines[$extension] = $engine;
         }
-
-        // Longest extension first, so "html.twig" is matched before "twig" and
-        // "php" never swallows "html.php".
-        \uksort($this->engines, static fn(string $a, string $b): int
-            => [\substr_count($b, '.'), \strlen($b)] <=> [\substr_count($a, '.'), \strlen($a)]);
 
         $this->resolved = [];
     }

@@ -6,6 +6,7 @@ namespace App\Engine\Logging;
 
 use App\Engine\Error\ErrorContext;
 use App\Engine\Http\HttpException;
+use App\Engine\Http\Request;
 
 /**
  * The bridge from error.reported to the log.
@@ -31,16 +32,29 @@ final class ErrorLog
 
     public function __construct(private readonly LogManager $logs) {}
 
-    public function __invoke(\Throwable $e, ErrorContext $context): void
+    /**
+     * error.reported passes the request being served, when there is one.
+     *
+     * What it contributes is what the request was: its method and path. Which
+     * request it was -- the id a user
+     * quotes from a response header -- is added to every record by the log's
+     * enricher, so it is not repeated here. The query string and the body are
+     * deliberately left out: that is where a token or a password is, and an
+     * error log is read by more people than the request was.
+     */
+    public function __invoke(\Throwable $e, ErrorContext $context, ?Request $request = null): void
     {
-        $this->logs->channel(self::CHANNEL)->log(
-            self::levelFor($e),
-            self::summarise($e),
-            [
-                'exception' => $e,
-                'audience' => $context->value,
-            ],
-        );
+        $fields = [
+            'exception' => $e,
+            'audience' => $context->value,
+        ];
+
+        if ($request !== null) {
+            $fields['method'] = $request->method();
+            $fields['path'] = $request->path();
+        }
+
+        $this->logs->channel(self::CHANNEL)->log(self::levelFor($e), self::summarise($e), $fields);
     }
 
     public static function levelFor(\Throwable $e): Level

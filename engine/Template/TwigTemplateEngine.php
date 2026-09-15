@@ -5,16 +5,19 @@ declare(strict_types=1);
 namespace App\Engine\Template;
 
 /**
- * Templates written in Twig, when Twig is installed.
+ * Templates written in Twig: the default engine.
  *
- * Optional in the real sense: nothing else in engine/Template/ mentions Twig,
- * an architecture test says so, and an application that never registers this
- * engine never loads a line of it. The PHP engine is what makes that possible —
- * there is always something to render with.
+ * What Twig buys is automatic escaping -- a value printed without thinking
+ * about it is escaped, so a forgotten escape is a visible double-encoding
+ * rather than a hole -- and a syntax a designer can be handed without also
+ * being handed PHP. What it costs is a dependency and, optionally, a
+ * compilation cache. Bootstrap registers it ahead of the PHP engine, so where a
+ * directory holds both page.twig and page.php, this one renders.
  *
- * What Twig buys is automatic escaping and a syntax that a designer can be
- * handed without also being handed PHP. What it costs is a dependency and a
- * compilation cache. Both are reasonable; neither is imposed.
+ * Nothing else in engine/Template/ mentions Twig, and an architecture test
+ * keeps it that way: the manager speaks to engines through TemplateEngine, so
+ * replacing Twig later is one class and one line in Bootstrap, not a search
+ * through the template layer.
  *
  * **The loader mirrors the registry.** Every search path the manager would
  * look in is given to Twig in the same order, and module namespaces become Twig
@@ -34,11 +37,6 @@ final class TwigTemplateEngine implements TemplateEngine
         private readonly ?string $cacheDirectory = null,
         private readonly bool $debug = false,
     ) {}
-
-    public static function isAvailable(): bool
-    {
-        return \class_exists(\Twig\Environment::class);
-    }
 
     public function extensions(): array
     {
@@ -73,17 +71,13 @@ final class TwigTemplateEngine implements TemplateEngine
      *
      * Modules register their template directories during the Register stage,
      * so an Environment built at wiring time would have an empty loader. Being
-     * lazy also means an application that has Twig installed but renders only
-     * PHP templates never pays for it.
+     * lazy also means a request that renders no Twig template -- an API call,
+     * an asset -- never builds an Environment at all.
      */
     public function twig(): \Twig\Environment
     {
         if ($this->twig instanceof \Twig\Environment) {
             return $this->twig;
-        }
-
-        if (!self::isAvailable()) {
-            throw TemplateException::twigIsNotInstalled();
         }
 
         $loader = new \Twig\Loader\FilesystemLoader();

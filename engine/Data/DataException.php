@@ -8,6 +8,67 @@ use App\Engine\Error\FrameworkException;
 
 final class DataException extends FrameworkException
 {
+    // ---- bulk writes ------------------------------------------------------
+
+    public static function bulkQueryCarries(string $collection, string $operation, string $what): self
+    {
+        return new self(\sprintf(
+            'A bulk %s on "%s" was given a query with %s. A bulk write touches every row the criteria match '
+            . 'and nothing else about the query applies -- UPDATE and DELETE with an order or a limit mean '
+            . 'different things on different databases. Build the query from criteria only.',
+            $operation,
+            $collection,
+            $what,
+        ));
+    }
+
+    /**
+     * Refused on purpose. "Every row" should be written, not arrived at by a
+     * filter somebody forgot to apply.
+     */
+    public static function bulkWithoutCriteria(string $collection, string $operation): self
+    {
+        return new self(\sprintf(
+            'A bulk %s on "%s" was given a query with no criteria, which would touch every row. If that is '
+            . 'really what is meant, say so with a criterion that matches everything, such as whereNotNull() '
+            . 'on the key.',
+            $operation,
+            $collection,
+        ));
+    }
+
+    public static function bulkRowWithoutColumns(string $collection): self
+    {
+        return new self(\sprintf('A bulk insert into "%s" was given a row with no columns.', $collection));
+    }
+
+    /**
+     * @param list<string> $expected
+     * @param list<string> $actual
+     */
+    public static function inconsistentBulkRows(string $collection, int $index, array $expected, array $actual): self
+    {
+        return new self(\sprintf(
+            'A bulk insert into "%s" needs every row to name the same columns. Row %d names [%s]; the first '
+            . 'names [%s]. Missing columns are not filled with NULL, because NULL would override the '
+            . 'column\'s default.',
+            $collection,
+            $index,
+            \implode(', ', $actual),
+            \implode(', ', $expected),
+        ));
+    }
+
+    public static function bulkUnsupported(string $collection, string $source): self
+    {
+        return new self(\sprintf(
+            'The data source behind "%s" (%s) does not implement BulkWrites, so it cannot write a set of rows '
+            . 'in one operation. Write them one at a time, or use a source that can.',
+            $collection,
+            $source,
+        ));
+    }
+
     public static function operatorNeedsAList(string $field, Operator $operator): self
     {
         return new self(\sprintf(

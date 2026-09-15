@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Engine\Error;
 
+use App\Engine\Http\Request;
 use App\Engine\Template\TemplateManager;
 
 /**
@@ -44,13 +45,13 @@ final class ErrorPage
      * That is the right way round: a template is a production artefact, and the
      * trace is what development is for.
      */
-    public function render(ErrorDocument $document): string
+    public function render(ErrorDocument $document, ?Request $request = null): string
     {
         if ($document->detail('trace') !== null) {
             return self::builtIn($document);
         }
 
-        return $this->fromTemplate($document) ?? self::builtIn($document);
+        return $this->fromTemplate($document, $request) ?? self::builtIn($document);
     }
 
     /**
@@ -63,7 +64,24 @@ final class ErrorPage
         return [self::DIRECTORY . '/' . $document->status, self::DIRECTORY . '/error'];
     }
 
-    private function fromTemplate(ErrorDocument $document): ?string
+    /**
+     * The data an error template is given: the document, and where home is.
+     *
+     * "Home" comes from the request because a lost visitor's way back is the
+     * one link an error page must get right, and under Apache in a subdirectory
+     * "/" is somebody else's site. With no request -- a fatal before one was
+     * known -- the template falls back to "/" itself.
+     *
+     * @return array<string, mixed>
+     */
+    private function data(ErrorDocument $document, ?Request $request): array
+    {
+        return $request === null
+            ? ['error' => $document]
+            : ['error' => $document, 'home' => $request->basePath() . '/'];
+    }
+
+    private function fromTemplate(ErrorDocument $document, ?Request $request): ?string
     {
         if ($this->templates === null) {
             return null;
@@ -75,7 +93,7 @@ final class ErrorPage
             }
 
             try {
-                return $this->templates->render($name, ['error' => $document]);
+                return $this->templates->render($name, $this->data($document, $request));
             } catch (\Throwable) {
                 // Deliberately swallowed. Whatever went wrong in the error
                 // template, the caller still needs a page, and the built-in one

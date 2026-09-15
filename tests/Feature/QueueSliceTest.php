@@ -22,10 +22,10 @@ use App\Engine\Queue\Stores\MemoryStore;
 use App\Engine\Queue\Stores\SyncStore;
 use App\Engine\Queue\Worker;
 use App\Engine\Queue\WorkerOptions;
-use App\Modules\Plugins\Example\Jobs\WelcomeCustomer;
 use App\Tests\Fixtures\Logging\CollectingWriter;
 use App\Tests\Fixtures\Queue\FailingJob;
 use App\Tests\Fixtures\Queue\RecordingJob;
+use App\Tests\Fixtures\Showcase\Plugins\Example\Jobs\WelcomeCustomer;
 use App\Tests\Support\TestCase;
 
 /**

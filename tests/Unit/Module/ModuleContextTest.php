@@ -189,6 +189,84 @@ final class ModuleContextTest extends TestCase
         }
     }
 
+    // ---- versions and dependencies ----------------------------------------
+
+    public function test_a_module_declares_what_it_depends_on(): void
+    {
+        $context = $this->context();
+        $context->requires('shared', '^1.0')->optionally('plugins/Crm');
+
+        $dependencies = $context->declaredDependencies();
+
+        self::assertCount(2, $dependencies);
+        self::assertSame('shared', $dependencies[0]->id);
+        self::assertFalse($dependencies[0]->optional);
+        self::assertSame('^1.0', (string) $dependencies[0]->constraint);
+        self::assertSame('plugins/Crm', $dependencies[1]->id);
+        self::assertTrue($dependencies[1]->optional);
+        self::assertTrue($dependencies[1]->constraint->isAny());
+    }
+
+    /**
+     * A bare name is refused, because the specification's own tree has a
+     * plugin and a gateway both called Example.
+     */
+    public function test_a_dependency_is_named_by_id_not_by_name(): void
+    {
+        $this->expectException(ModuleException::class);
+        $this->expectExceptionMessage('which is not a module id');
+
+        $this->context()->requires('Billing');
+    }
+
+    public function test_a_dependency_cannot_be_declared_twice(): void
+    {
+        $context = $this->context();
+        $context->requires('plugins/Billing', '^1.0');
+
+        $this->expectException(ModuleException::class);
+        $this->expectExceptionMessage('twice');
+
+        $context->optionally('plugins/Billing', '^2.0');
+    }
+
+    /** Refused where it is written, not when another module first compares against it. */
+    public function test_a_constraint_is_checked_where_it_is_written(): void
+    {
+        $this->expectException(ModuleException::class);
+        $this->expectExceptionMessage('In module "plugins/Example"');
+
+        $this->context()->requires('plugins/Billing', 'the latest one');
+    }
+
+    public function test_a_version_is_checked_where_it_is_written(): void
+    {
+        $this->expectException(ModuleException::class);
+        $this->expectExceptionMessage('Module "plugins/Example" declares version "1.0"');
+
+        $this->context()->version('1.0');
+    }
+
+    public function test_a_module_knows_whether_it_declared_a_version(): void
+    {
+        $context = $this->context();
+
+        self::assertFalse($context->declaresVersion());
+        self::assertSame('0.0.0', $context->moduleVersion());
+
+        $context->version('1.2.0');
+
+        self::assertTrue($context->declaresVersion());
+    }
+
+    public function test_dependencies_follow_the_stage_rule_like_every_other_declaration(): void
+    {
+        $this->expectException(ModuleException::class);
+        $this->expectExceptionMessage('requires()');
+
+        $this->context(ModuleStage::Registering)->requires('shared');
+    }
+
     // ---- the contract shape -----------------------------------------------
 
     /**
@@ -232,6 +310,31 @@ final class ModuleContextTest extends TestCase
         $definition = ModuleDefinition::create(ModuleKind::Plugin, '/m/plugins/Alpha', 'Alpha');
 
         self::assertEquals($definition, ModuleDefinition::fromArray($definition->toArray()));
+    }
+
+    /**
+     * An asset request is answered before modules load, so this listener could
+     * only ever run in a test that booted first. Refused while its author is
+     * still writing it, rather than discovered in production never running.
+     */
+    public function test_a_filter_on_asset_responses_is_refused(): void
+    {
+        $this->expectException(ModuleException::class);
+        $this->expectExceptionMessageMatches('/"plugins\/Example" attached a filter to asset\.response/');
+
+        $this->context()->filter('asset.response', static fn(mixed $response): mixed => $response);
+    }
+
+    public function test_the_directory_facts_survive_the_cache_round_trip(): void
+    {
+        $definition = ModuleDefinition::create(ModuleKind::Gateway, '/m/gateways/Pay', 'Pay', hasAssets: true);
+
+        $restored = ModuleDefinition::fromArray($definition->toArray());
+
+        self::assertTrue($restored->hasAssets);
+        self::assertFalse($restored->hasTemplates);
+        self::assertTrue(ModuleDefinition::isCachedShape($definition->toArray()));
+        self::assertFalse(ModuleDefinition::isCachedShape([...$definition->toArray(), 'kind' => 'library']));
     }
 
     public function test_a_definition_points_at_its_entry_file(): void

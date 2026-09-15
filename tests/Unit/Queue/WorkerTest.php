@@ -6,6 +6,8 @@ namespace App\Tests\Unit\Queue;
 
 use App\Engine\Container\Container;
 use App\Engine\Hook\HookEngine;
+use App\Engine\Observability\TraceKind;
+use App\Engine\Observability\Tracer;
 use App\Engine\Queue\Backoff;
 use App\Engine\Queue\JobOutcome;
 use App\Engine\Queue\JobRunner;
@@ -18,6 +20,7 @@ use App\Engine\Queue\WorkerOptions;
 use App\Tests\Fixtures\Queue\FailingJob;
 use App\Tests\Fixtures\Queue\InjectedJob;
 use App\Tests\Fixtures\Queue\RecordingJob;
+use App\Tests\Fixtures\Queue\TracedJob;
 use App\Tests\Fixtures\Queue\UnhandleableJob;
 use App\Tests\Support\TestCase;
 
@@ -305,5 +308,78 @@ final class WorkerTest extends TestCase
         $this->worker->runOnce($this->options());
 
         self::assertSame(0, $finished);
+    }
+
+    // ---- correlation ---------------------------------------------------------
+
+    /**
+     * The chain survives the queue: queued inside a request, run later as a job
+     * with an id of its own and the request's correlation.
+     */
+    public function test_a_job_carries_the_correlation_of_the_work_that_queued_it(): void
+    {
+        [$queue, $worker, $tracer] = $this->traced();
+        TracedJob::reset();
+
+        $request = $tracer->beginRequest(\App\Engine\Http\Request::create('GET', '/invoices/run'));
+        $queue->push(new TracedJob());
+        $tracer->end($request);
+
+        $worker->runOnce($this->options());
+
+        $ranAs = TracedJob::$ranAs;
+        self::assertNotNull($ranAs);
+        self::assertSame(TraceKind::Job, $ranAs->kind);
+        self::assertSame($request->id, $ranAs->correlationId);
+        self::assertNotSame($request->id, $ranAs->id);
+        self::assertSame([], $tracer->stack(), 'the job trace ended');
+    }
+
+    public function test_a_failing_job_ends_its_trace_too(): void
+    {
+        [$queue, $worker, $tracer] = $this->traced();
+
+        $queue->push(new TracedJob(fail: true));
+        $worker->runOnce($this->options());
+
+        self::assertSame([], $tracer->stack());
+    }
+
+    /** A retried failure is still part of the chain that caused it. */
+    public function test_retrying_a_failed_job_keeps_its_correlation(): void
+    {
+        [$queue, $worker, $tracer] = $this->traced();
+
+        $request = $tracer->beginRequest(\App\Engine\Http\Request::create('GET', '/'));
+        $id = $queue->push(new TracedJob(fail: true));
+        $tracer->end($request);
+
+        $worker->runOnce($this->options(tries: 1));
+        self::assertTrue($queue->retry($id));
+
+        self::assertSame($request->id, $queue->store()->reserve(Queue::DEFAULT, 60)?->correlationId);
+    }
+
+    /** A job queued by an older version has no correlation, and simply starts its own chain. */
+    public function test_an_envelope_without_a_correlation_is_still_read(): void
+    {
+        $queued = QueuedJob::fromArray(['id' => 'a', 'queue' => 'default', 'class' => 'X', 'payload' => 'x']);
+
+        self::assertNotNull($queued);
+        self::assertNull($queued->correlationId);
+        self::assertSame('chain-0000001', QueuedJob::fromArray([...$queued->toArray(), 'correlationId' => 'chain-0000001'])?->correlationId);
+    }
+
+    /** @return array{Queue, Worker, Tracer} */
+    private function traced(): array
+    {
+        $tracer = new Tracer();
+        $container = new Container();
+        $container->instance(Tracer::class, $tracer);
+
+        $runner = new JobRunner($container, $this->hooks, $tracer);
+        $queue = new Queue(new MemoryStore(), $runner, $this->hooks, Queue::DEFAULT, $tracer);
+
+        return [$queue, new Worker($queue, $runner, $this->hooks, Backoff::fixed(0)), $tracer];
     }
 }

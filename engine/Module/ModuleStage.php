@@ -15,6 +15,9 @@ enum ModuleStage: string
 {
     case Discovered = 'discovered';
     case Loading = 'loading';
+    // Between Load and Register: every declaration is known and none has taken
+    // effect, which is the only moment dependencies can be checked as a whole.
+    case Resolving = 'resolving';
     case Registering = 'registering';
     case Booting = 'booting';
     case Ready = 'ready';

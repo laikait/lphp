@@ -31,6 +31,9 @@ final class FilterEngine
     /** @var array<string, int> */
     private array $depth = [];
 
+    /** @var (\Closure(string, Callback, int): void)|null */
+    private ?\Closure $observer = null;
+
     public function __construct(private bool $debug = false)
     {
         $this->chain = new CallbackChain();
@@ -86,8 +89,19 @@ final class FilterEngine
                 /** @var callable $callable */
                 $callable = $listener->callback;
 
-                /** @var mixed $result */
-                $result = $callable(...$listener->limit([$value, ...\array_values($arguments)]));
+                if ($this->observer === null) {
+                    /** @var mixed $result */
+                    $result = $callable(...$listener->limit([$value, ...\array_values($arguments)]));
+                } else {
+                    $started = \hrtime(true);
+
+                    try {
+                        /** @var mixed $result */
+                        $result = $callable(...$listener->limit([$value, ...\array_values($arguments)]));
+                    } finally {
+                        ($this->observer)($filter, $listener, \hrtime(true) - $started);
+                    }
+                }
 
                 if ($this->debug && $result === null && $value !== null) {
                     throw FilterException::returnedNull($filter, $listener);
@@ -101,6 +115,20 @@ final class FilterEngine
         }
 
         return $value;
+    }
+
+    /**
+     * Be told how long each listener took.
+     *
+     * The same seam as HookEngine::observe(), with the same rules: called after
+     * every listener including one that threw, never fires anything itself,
+     * and null detaches. This engine does not know what is listening.
+     *
+     * @param (\Closure(string, Callback, int): void)|null $observer
+     */
+    public function observe(?\Closure $observer): void
+    {
+        $this->observer = $observer;
     }
 
     public function remove(string $filter, mixed $callback, ?int $priority = null): bool

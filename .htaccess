@@ -33,10 +33,28 @@ Options -Indexes
     # returning an array and doing nothing else.
     RewriteRule ^(engine|modules|templates|config|system|tests|bin|vendor)(/|$) - [F,L]
 
-    # Neither is project metadata.
-    RewriteRule ^(composer\.(json|lock)|phpunit\.xml|phpstan\.neon|\.php-cs-fixer.*|\.env.*|.*\.md)$ - [F,L]
+    # Neither is project metadata, nor the development router.
+    #
+    # "server" is on this list because it is a PHP file without a .php name,
+    # which is the worst of both: Apache will not execute it, so it hands the
+    # source over instead. Under its old name it was worse still -- Apache
+    # would have run a router meant for `php -S`. Either way it has no business
+    # answering a request on a real web server.
+    RewriteRule ^(composer\.(json|lock)|phpunit\.xml|phpstan\.neon|\.php-cs-fixer.*|\.env.*|.*\.md|server)$ - [F,L]
 
     # Anything else that is not a real file falls through to the front controller.
+    # Apache receives Authorization and does not pass it on: it treats the
+    # header as its own business, so $_SERVER never sees it and a bearer token
+    # the client definitely sent is invisible to PHP. The failure is silent and
+    # only happens on a real server -- token auth works under php -S and in
+    # every test, then answers 401 to everything once deployed.
+    #
+    # The framework also recovers it from getallheaders() where that exists, so
+    # this is the belt to that pair of braces. Both are needed: getallheaders()
+    # is absent under FastCGI, and this rule is absent from an nginx install.
+    RewriteCond %{HTTP:Authorization} .
+    RewriteRule .* - [E=HTTP_AUTHORIZATION:%{HTTP:Authorization}]
+
     RewriteCond %{REQUEST_FILENAME} !-f
     RewriteCond %{REQUEST_FILENAME} !-d
     RewriteRule ^ index.php [L]
@@ -52,7 +70,7 @@ Options -Indexes
 # permissions problem rather than a policy. The list below is exactly the
 # metadata the rewrite rule above denies.
 <IfModule mod_authz_core.c>
-    <FilesMatch "^(composer\.(json|lock)|phpunit\.xml|phpstan\.neon|\.php-cs-fixer\..*|\.env.*|.*\.md)$">
+    <FilesMatch "^(composer\.(json|lock)|phpunit\.xml|phpstan\.neon|\.php-cs-fixer\..*|\.env.*|.*\.md|server)$">
         Require all denied
     </FilesMatch>
 </IfModule>

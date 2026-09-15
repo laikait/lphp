@@ -7,6 +7,10 @@ namespace App\Engine\Module;
 use App\Engine\Asset\AssetKind;
 use App\Engine\Asset\AssetRegistry;
 use App\Engine\Asset\AssetSource;
+use App\Engine\Auth\AccessCollector;
+use App\Engine\Auth\AccessRegistry;
+use App\Engine\Auth\AuthException;
+use App\Engine\Auth\AuthGuard;
 use App\Engine\Cli\CommandCollector;
 use App\Engine\Cli\CommandRegistry;
 use App\Engine\Config\Config;
@@ -18,12 +22,11 @@ use App\Engine\Routing\RouteCollector;
 use App\Engine\Routing\Router;
 use App\Engine\Scheduler\ScheduleCollector;
 use App\Engine\Scheduler\ScheduleRegistry;
-use App\Engine\Support\Path;
 use App\Engine\Template\TemplateRegistry;
 use App\Engine\Template\TemplateSource;
 
 /**
- * Drives the module lifecycle: Discover, Load, Register, Boot, Ready.
+ * Drives the module lifecycle: Discover, Load, Resolve, Register, Boot, Ready.
  *
  * What is legal in each stage:
  *
@@ -31,10 +34,18 @@ use App\Engine\Template\TemplateSource;
  *              module.php files under the configured roots, each candidate is
  *              checked for containment, and definitions are built from plain
  *              scalars. This is the stage a cache can replace wholesale.
+ *              A request for an asset stops here -- see prepareAssets().
  *
  *   Load       Each module.php closure runs and RECORDS its declarations.
  *              Nothing is bound, routed or hooked yet, so a module cannot
  *              observe whether it happened to load before or after another.
+ *              A module named in modules.disabled is skipped here: its
+ *              module.php never runs at all.
+ *
+ *   Resolve    Dependencies are checked across every module at once -- missing,
+ *              disabled, wrong version, circular -- and the registration order
+ *              is fixed. It is the only moment every declaration is known and
+ *              none has taken effect. See DependencyResolver.
  *
  *   Register   Declarations are replayed across every module, BY CATEGORY:
  *              config, then assets and templates, then services, then
@@ -59,6 +70,19 @@ final class ModuleManager
 
     private bool $ran = false;
 
+    private bool $resolved = false;
+
+    private bool $discovered = false;
+
+    private bool $fromCache = false;
+
+    private bool $disabledApplied = false;
+
+    private bool $assetsPublished = false;
+
+    /** @var (\Closure(string, ?string, int): void)|null */
+    private ?\Closure $observer = null;
+
     public function __construct(
         private readonly Container $container,
         private readonly Config $config,
@@ -69,6 +93,7 @@ final class ModuleManager
         private readonly TemplateRegistry $templates = new TemplateRegistry(),
         private readonly CommandRegistry $commands = new CommandRegistry(),
         private readonly ScheduleRegistry $schedules = new ScheduleRegistry(),
+        private readonly AccessRegistry $access = new AccessRegistry(),
         private readonly ModuleRegistry $registry = new ModuleRegistry(),
         private readonly string $basePath = '',
     ) {}
@@ -92,97 +117,123 @@ final class ModuleManager
 
         $this->ran = true;
 
-        $this->discover();
+        // Load and boot are timed per module inside their loops, because those
+        // are the two stages that run a module's own code. The other three are
+        // the framework's work, and a total is the useful number for them.
+        $this->timed('discover', null, $this->discover(...));
         $this->load();
-        $this->register();
+        $this->timed('resolve', null, $this->resolve(...));
+        $this->timed('register', null, $this->register(...));
         $this->boot();
 
         $this->stage = ModuleStage::Ready;
     }
 
+    /**
+     * Be told how long each stage took, and for load and boot, each module.
+     *
+     * The observer receives the stage name, the module id where the stage is
+     * per-module (null otherwise), and nanoseconds. It is the seam module timing
+     * attaches to; this class does not know what observes it.
+     *
+     * Only run() is timed. A caller driving the stages one by one is a test or a
+     * tool, and is timing things itself.
+     *
+     * @param (\Closure(string, ?string, int): void)|null $observer
+     */
+    public function observe(?\Closure $observer): void
+    {
+        $this->observer = $observer;
+    }
+
+    /** @param \Closure(): void $work */
+    private function timed(string $stage, ?string $module, \Closure $work): void
+    {
+        $observer = $this->observer;
+
+        if ($observer === null || !$this->ran) {
+            $work();
+
+            return;
+        }
+
+        $started = \hrtime(true);
+
+        try {
+            $work();
+        } finally {
+            $observer($stage, $module, \hrtime(true) - $started);
+        }
+    }
+
     // ---- discover ---------------------------------------------------------
 
     /**
-     * Scan the configured roots for module.php files.
+     * Find the installed modules: from the discovery cache when there is one
+     * and this is not a debug process, otherwise by scanning. Idempotent.
      *
      * No module code runs here, which is what makes this stage cacheable and
      * what makes a broken module fail at Load with a clear message rather than
-     * during a filesystem walk.
+     * during a filesystem walk. See ModuleDiscovery for the walk itself.
+     *
+     * Nothing here WRITES the cache. It used to be written by the first request
+     * that found it missing, behind a setting, and that is the version of a
+     * cache that gets built on a developer's laptop halfway through adding a
+     * module. It is a deployment artefact now, built by cache:warm.
      */
     public function discover(): void
     {
+        if ($this->discovered) {
+            return;
+        }
+
+        $this->discovered = true;
         $this->stage = ModuleStage::Discovered;
 
-        if ($this->readDiscoveryCache()) {
+        $discovery = ModuleDiscovery::fromConfig($this->config, $this->basePath);
+
+        if ($this->readDiscoveryCache($discovery)) {
+            $this->fromCache = true;
+
             return;
         }
 
-        foreach ($this->moduleRoots() as $kindValue => $relative) {
-            $kind = ModuleKind::tryFrom($kindValue);
-
-            if ($kind === null) {
-                continue;
-            }
-
-            $root = Path::isAbsolute($relative) ? $relative : Path::join($this->basePath, $relative);
-
-            $kind->isContainer()
-                ? $this->discoverContainer($kind, $root)
-                : $this->discoverModule($kind, $root, $kind->value);
-        }
-
-        $this->writeDiscoveryCache();
-    }
-
-    private function discoverContainer(ModuleKind $kind, string $root): void
-    {
-        if (!\is_dir($root)) {
-            return;
-        }
-
-        $entries = \scandir($root);
-
-        if ($entries === false) {
-            return;
-        }
-
-        foreach ($entries as $entry) {
-            if ($entry === '.' || $entry === '..') {
-                continue;
-            }
-
-            $this->discoverModule($kind, Path::join($root, $entry), $entry);
+        foreach ($discovery->scan() as $definition) {
+            $this->registry->add($definition);
         }
     }
 
-    private function discoverModule(ModuleKind $kind, string $path, string $directory): void
+    /** Whether discovery was answered by the cache rather than by a scan. */
+    public function discoveredFromCache(): bool
     {
-        if (!\is_dir($path) || !\is_file(Path::join($path, 'module.php'))) {
-            return;
-        }
-
-        $this->registry->add(ModuleDefinition::create($kind, $path, $directory));
+        return $this->fromCache;
     }
 
-    /** @return array<string, string> */
-    private function moduleRoots(): array
+    // ---- the asset path ---------------------------------------------------
+
+    /**
+     * Everything a request for /assets/... needs from the modules, and nothing
+     * else: which are installed, which are switched off, and which have an
+     * assets/ directory. No module.php runs, no service is bound, nothing boots.
+     *
+     * This is the specification's "/assets/... should not initialize billing"
+     * taken literally, and the reason it can be is that publishing a module's
+     * assets was never a declaration -- having the directory is the declaration
+     * (see publishAssets()), so discovery already knows the whole answer.
+     *
+     * The cost is that module code cannot take part in delivering an asset.
+     * That was already true wherever the web server serves assets itself, which
+     * is the recommended production setup, and a hook that only works when PHP
+     * happens to be serving is worse than one that is refused. ModuleContext
+     * refuses a module filter on asset.response for that reason.
+     *
+     * Safe to follow with run(): nothing here is repeated.
+     */
+    public function prepareAssets(): void
     {
-        /** @var mixed $paths */
-        $paths = $this->config->get('modules.paths', []);
-
-        if (!\is_array($paths)) {
-            return [];
-        }
-
-        $roots = [];
-
-        foreach ($paths as $kind => $path) {
-            if (\is_string($kind) && \is_string($path)) {
-                $roots[$kind] = $path;
-            }
-        }
-
-        return $roots;
+        $this->discover();
+        $this->applyDisabled();
+        $this->publishAssets();
     }
 
     // ---- load -------------------------------------------------------------
@@ -198,6 +249,11 @@ final class ModuleManager
     {
         $this->stage = ModuleStage::Loading;
 
+        // Before anything runs, so a disabled module's code is never executed:
+        // not its module.php, not a class it would have autoloaded. "Disabled"
+        // that still ran the declarations would be a module half on.
+        $this->applyDisabled();
+
         foreach ($this->registry->definitions() as $definition) {
             if ($this->registry->context($definition->id) !== null) {
                 continue;
@@ -206,21 +262,83 @@ final class ModuleManager
             $context = new ModuleContext($definition);
             $context->enterStage(ModuleStage::Loading);
 
-            /** @var mixed $entry */
-            $entry = require $definition->entryFile;
+            $this->timed('load', $definition->id, static function () use ($definition, $context): void {
+                /** @var mixed $entry */
+                $entry = require $definition->entryFile;
 
-            if (!$entry instanceof \Closure) {
-                throw ModuleException::entryMustReturnClosure(
-                    $definition->id,
-                    $definition->entryFile,
-                    \get_debug_type($entry),
-                );
-            }
+                if (!$entry instanceof \Closure) {
+                    throw ModuleException::entryMustReturnClosure(
+                        $definition->id,
+                        $definition->entryFile,
+                        \get_debug_type($entry),
+                    );
+                }
 
-            $entry($context);
+                $entry($context);
+            });
 
             $this->registry->setContext($context);
         }
+    }
+
+    /**
+     * Switch off what modules.disabled names.
+     *
+     * Two refusals. An id that is not installed, because a typo here would
+     * leave the module running while the configuration says it is off. And
+     * shared, because every other module may rely on it without saying so --
+     * disabling it would break modules that never declared a dependency.
+     */
+    private function applyDisabled(): void
+    {
+        if ($this->disabledApplied) {
+            return;
+        }
+
+        $this->disabledApplied = true;
+
+        /** @var mixed $configured */
+        $configured = $this->config->get('modules.disabled', []);
+
+        if (!\is_array($configured)) {
+            return;
+        }
+
+        foreach ($configured as $id) {
+            if (!\is_string($id) || $id === '') {
+                continue;
+            }
+
+            if ($id === ModuleKind::Shared->value) {
+                throw ModuleException::sharedCannotBeDisabled();
+            }
+
+            $this->registry->disable($id);
+        }
+    }
+
+    // ---- resolve ----------------------------------------------------------
+
+    /**
+     * Check every dependency and fix the registration order.
+     *
+     * Idempotent, and called by register() if nobody called it first, so code
+     * that drives the stages one at a time cannot register in an order nobody
+     * checked.
+     */
+    public function resolve(): void
+    {
+        if ($this->resolved) {
+            return;
+        }
+
+        $this->stage = ModuleStage::Resolving;
+
+        $this->registry->setOrder(
+            (new DependencyResolver())->resolve($this->registry->contexts(), $this->registry->disabledIds()),
+        );
+
+        $this->resolved = true;
     }
 
     // ---- register ---------------------------------------------------------
@@ -228,10 +346,14 @@ final class ModuleManager
     /**
      * Replay every module's declarations, by category rather than per module.
      *
-     * See the class docblock: this ordering is the point.
+     * See the class docblock: this ordering is the point. "Per category" means
+     * within each category the modules go in resolved order, so a module's
+     * services are bound after the services of everything it requires.
      */
     public function register(): void
     {
+        $this->resolve();
+
         $this->stage = ModuleStage::Registering;
 
         $this->shareCollaborators();
@@ -296,6 +418,21 @@ final class ModuleManager
         $this->schedules->assertUnique();
 
         foreach ($contexts as $context) {
+            $collector = new AccessCollector($this->access, $context->id());
+
+            foreach ($context->declaredAccess() as $declare) {
+                $declare($collector);
+            }
+        }
+
+        // Both checks wait until every module has spoken, because either could
+        // legitimately be satisfied by a module that has not registered yet: a
+        // role may inherit one the shared module declares, and a route may ask
+        // for a capability the module that enforces it defines.
+        $this->access->assertConsistent();
+        $this->assertRoutesAskForDeclaredCapabilities();
+
+        foreach ($contexts as $context) {
             foreach ($context->declaredHooks() as $hook) {
                 $this->hooks->add(
                     $hook['name'],
@@ -327,13 +464,47 @@ final class ModuleManager
     }
 
     /**
-     * Publish every module that has an assets/ directory.
+     * Every capability a route asks for has to be one some module declared.
+     *
+     * The failure this prevents is a quiet one. A route asking for
+     * "invoice.viod" refuses everybody -- including the administrator with
+     * every role -- and looks like a routing fault or a broken login rather
+     * than a typo, because the one thing it never says is "that capability
+     * does not exist". Here it is a boot failure naming the route.
+     *
+     * The same reason the scheduler checks its commands exist as they are
+     * declared: a mistake in a declaration should be found by whoever wrote it,
+     * not by whoever was wrongly refused at two in the morning.
+     */
+    private function assertRoutesAskForDeclaredCapabilities(): void
+    {
+        foreach ($this->router->routes() as $route) {
+            foreach (AuthGuard::capabilitiesFor($route) as $capability) {
+                if ($this->access->hasPermission($capability)) {
+                    continue;
+                }
+
+                throw AuthException::undeclaredCapability(
+                    $capability,
+                    \sprintf('route %s %s', $route->method(), $route->path()),
+                );
+            }
+        }
+    }
+
+    /**
+     * Publish every enabled module that has an assets/ directory.
      *
      * A module does not declare this and cannot opt out of it, which is a
      * deliberate asymmetry with everything else in module.php. Publishing is
      * not a decision a module gets to make differently from its neighbours: the
      * URL space is /assets/plugin/<name>/ for every plugin, so a declaration
      * could only ever say "yes" or be wrong. Having the directory is the "yes".
+     * A disabled module publishes nothing -- its files stay unreachable.
+     *
+     * Whether the directory exists was answered by discovery, so this asks the
+     * filesystem nothing. Idempotent, because the asset path runs it before a
+     * full boot might.
      *
      * The shared module is deliberately excluded. Its id is just "shared" with
      * no name of its own, so there is no URL that could address it, and giving
@@ -343,6 +514,12 @@ final class ModuleManager
      */
     private function publishAssets(): void
     {
+        if ($this->assetsPublished) {
+            return;
+        }
+
+        $this->assetsPublished = true;
+
         foreach ($this->registry->definitions() as $definition) {
             $kind = match ($definition->kind) {
                 ModuleKind::Plugin => AssetKind::Plugin,
@@ -350,17 +527,15 @@ final class ModuleManager
                 ModuleKind::Shared => null,
             };
 
-            if ($kind === null) {
+            if ($kind === null || !$definition->hasAssets) {
                 continue;
             }
 
-            $root = $definition->file('assets');
-
-            if (!\is_dir($root)) {
-                continue;
-            }
-
-            $this->assets->register(new AssetSource($kind, $definition->directory, $root));
+            $this->assets->register(new AssetSource(
+                $kind,
+                $definition->directory,
+                $definition->file(ModuleDefinition::ASSETS),
+            ));
         }
     }
 
@@ -381,9 +556,7 @@ final class ModuleManager
     private function publishTemplates(): void
     {
         foreach ($this->registry->definitions() as $definition) {
-            $root = $definition->file('Templates');
-
-            if (!\is_dir($root)) {
+            if (!$definition->hasTemplates) {
                 continue;
             }
 
@@ -391,7 +564,7 @@ final class ModuleManager
                 ? ModuleKind::Shared->value
                 : \rtrim($definition->kind->value, 's') . '.' . $definition->directory;
 
-            $this->templates->add($namespace, $root, TemplateSource::MODULE);
+            $this->templates->add($namespace, $definition->file(ModuleDefinition::TEMPLATES), TemplateSource::MODULE);
         }
     }
 
@@ -412,6 +585,9 @@ final class ModuleManager
             Router::class => $this->router,
             HookEngine::class => $this->hooks,
             FilterEngine::class => $this->filters,
+            // So an onBoot callback can ask whether an optional dependency is
+            // enabled, by injection rather than by reaching for a manager.
+            ModuleRegistry::class => $this->registry,
         ] as $id => $instance) {
             if (!$this->container->resolved($id)) {
                 $this->container->instance($id, $instance);
@@ -428,9 +604,11 @@ final class ModuleManager
         foreach ($this->registry->contexts() as $context) {
             $context->enterStage(ModuleStage::Booting);
 
-            foreach ($context->declaredBootCallbacks() as $callback) {
-                $this->container->call($callback);
-            }
+            $this->timed('boot', $context->id(), function () use ($context): void {
+                foreach ($context->declaredBootCallbacks() as $callback) {
+                    $this->container->call($callback);
+                }
+            });
 
             $this->hooks->do('module.booted', $context->definition);
         }
@@ -442,20 +620,25 @@ final class ModuleManager
 
     // ---- discovery cache --------------------------------------------------
 
-    private function cacheEnabled(): bool
+    /**
+     * Use the cache if cache:warm built one -- unless this is a debug process.
+     *
+     * The file existing is the switch, the same way it is for the configuration
+     * cache: there is no setting to forget in either direction. Debug is the
+     * exception, and it is the specification's own line between the two modes
+     * -- "uncached module discovery" in development. A developer who warmed the
+     * cache once to try it and then added a module would otherwise spend an
+     * afternoon finding out why the module does not exist.
+     *
+     * A cache built under other roots is ignored as well; see
+     * ModuleRegistry::readCache().
+     */
+    private function readDiscoveryCache(ModuleDiscovery $discovery): bool
     {
-        return (bool) $this->config->get('modules.cache', false);
-    }
-
-    private function readDiscoveryCache(): bool
-    {
-        return $this->cacheEnabled() && $this->registry->readCache(ModuleRegistry::cacheFile($this->basePath));
-    }
-
-    private function writeDiscoveryCache(): void
-    {
-        if ($this->cacheEnabled()) {
-            $this->registry->writeCache(ModuleRegistry::cacheFile($this->basePath));
+        if ((bool) $this->config->get('app.debug', false)) {
+            return false;
         }
+
+        return $this->registry->readCache(ModuleRegistry::cacheFile($this->basePath), $discovery->roots());
     }
 }

@@ -49,9 +49,9 @@ final class ErrorSliceTest extends TestCase
         self::assertSame(404, $response->status());
         self::assertSame('text/html; charset=UTF-8', $response->contentType());
 
-        // templates/default/views/errors/404.php, through the ordinary layout.
+        // templates/default/views/errors/404.twig, extending the ordinary layout.
         self::assertStringContainsString('That page is not here', $response->body());
-        self::assertStringContainsString('<footer>', $response->body());
+        self::assertStringContainsString('<footer class="site-footer">', $response->body());
     }
 
     public function test_a_status_without_its_own_template_falls_to_the_generic_one(): void

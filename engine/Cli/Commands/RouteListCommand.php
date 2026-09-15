@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Engine\Cli\Commands;
 
+use App\Engine\Auth\AuthGuard;
 use App\Engine\Cli\Output;
 use App\Engine\Routing\Route;
 use App\Engine\Routing\Router;
@@ -49,13 +50,14 @@ final class RouteListCommand
         );
 
         $output->table(
-            ['METHOD', 'PATH', 'NAME', 'MODULE', 'HANDLER'],
+            ['METHOD', 'PATH', 'NAME', 'MODULE', 'ACCESS', 'HANDLER'],
             \array_map(
                 static fn(Route $route): array => [
                     $route->method(),
                     $route->path(),
                     $route->routeName() ?? '-',
                     $route->module() ?? '-',
+                    self::describeAccess($route),
                     self::describeHandler($route->handler()),
                 ],
                 $routes,
@@ -63,6 +65,25 @@ final class RouteListCommand
         );
 
         return 0;
+    }
+
+    /**
+     * What a route requires before it will run.
+     *
+     * Worth a column of its own because requiring a login is opt-in, which
+     * means the interesting routes are the ones that say "public" here and
+     * change something. Reading it down the page is how somebody notices --
+     * and security:check turns the same question into a warning.
+     */
+    private static function describeAccess(Route $route): string
+    {
+        $capabilities = AuthGuard::capabilitiesFor($route);
+
+        if ($capabilities !== []) {
+            return \implode(' + ', $capabilities);
+        }
+
+        return $route->metaValue(AuthGuard::AUTH_META) === true ? 'login' : 'public';
     }
 
     private static function describeHandler(mixed $handler): string

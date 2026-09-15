@@ -238,6 +238,110 @@ final class Grammar
         ];
     }
 
+    // ---- writing many -----------------------------------------------------
+
+    /**
+     * How many placeholders one statement may carry on this driver.
+     *
+     * SQLite's limit was 999 until 3.32 and is still compiled lower on some
+     * distributions, SQL Server's is 2100 including a few it reserves, and MySQL
+     * and PostgreSQL both stop at 65535. The low figures are used where a build
+     * may differ, because the cost of a smaller statement is a second round trip
+     * and the cost of a larger one is an error on somebody else's server.
+     */
+    public function maxBindings(): int
+    {
+        return match ($this->driver) {
+            'mysql', 'pgsql' => 65535,
+            'sqlsrv' => 2000,
+            default => 999,
+        };
+    }
+
+    /**
+     * One multi-row INSERT per batch that fits the driver's placeholder limit.
+     *
+     * @param list<string>               $columns the column order every row is written in
+     * @param list<array<string, mixed>> $rows
+     *
+     * @return list<array{sql: string, bindings: list<mixed>}>
+     */
+    public function compileInsertMany(string $collection, array $columns, array $rows): array
+    {
+        if ($columns === []) {
+            throw DatabaseException::noColumnsToInsert($collection);
+        }
+
+        $table = $this->identifier($collection);
+        $columnList = $this->columnList($columns);
+        $tuple = '(' . \implode(', ', \array_fill(0, \count($columns), '?')) . ')';
+        $perStatement = \max(1, \intdiv($this->maxBindings(), \count($columns)));
+
+        $statements = [];
+
+        foreach (\array_chunk($rows, $perStatement) as $batch) {
+            $bindings = [];
+
+            foreach ($batch as $row) {
+                foreach ($columns as $column) {
+                    $bindings[] = $row[$column] ?? null;
+                }
+            }
+
+            $statements[] = [
+                'sql' => \sprintf(
+                    'INSERT INTO %s (%s) VALUES %s',
+                    $table,
+                    $columnList,
+                    \implode(', ', \array_fill(0, \count($batch), $tuple)),
+                ),
+                'bindings' => $bindings,
+            ];
+        }
+
+        return $statements;
+    }
+
+    /**
+     * @param list<Criterion>      $criteria
+     * @param array<string, mixed> $changes
+     *
+     * @return array{sql: string, bindings: list<mixed>}
+     */
+    public function compileUpdateWhere(string $collection, array $criteria, array $changes): array
+    {
+        if ($changes === []) {
+            throw DatabaseException::noRowsToUpdate($collection);
+        }
+
+        $assignments = \implode(', ', \array_map(
+            fn(string $column): string => $this->identifier($column) . ' = ?',
+            \array_keys($changes),
+        ));
+
+        $where = $this->compileWhere($criteria);
+
+        return [
+            'sql' => \sprintf('UPDATE %s SET %s%s', $this->identifier($collection), $assignments, $where['sql']),
+            'bindings' => [...\array_values($changes), ...$where['bindings']],
+        ];
+    }
+
+    /**
+     * @param list<Criterion> $criteria
+     *
+     * @return array{sql: string, bindings: list<mixed>}
+     */
+    public function compileDeleteWhere(string $collection, array $criteria): array
+    {
+        $where = $this->compileWhere($criteria);
+
+        return [
+            'sql' => \sprintf('DELETE FROM %s%s', $this->identifier($collection), $where['sql']),
+            'bindings' => $where['bindings'],
+        ];
+    }
+
     /** @return array{sql: string, bindings: list<mixed>} */
     public function compileDelete(string $collection, string $key, int|string $identity): array
     {

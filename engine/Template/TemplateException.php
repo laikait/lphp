@@ -103,12 +103,4 @@ final class TemplateException extends FrameworkException
             $previous,
         ))->withheld();
     }
-
-    public static function twigIsNotInstalled(): self
-    {
-        return new self(
-            'Twig templates were requested but twig/twig is not installed. '
-            . 'Run "composer require twig/twig". PHP templates work without it, which is the point of it being optional.',
-        );
-    }
 }

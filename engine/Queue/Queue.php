@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Engine\Queue;
 
 use App\Engine\Hook\HookEngine;
+use App\Engine\Observability\Tracer;
 
 /**
  * The queue an application is handed.
@@ -40,6 +41,7 @@ final class Queue
         private readonly JobRunner $runner,
         private readonly HookEngine $hooks,
         private readonly string $default = self::DEFAULT,
+        private readonly ?Tracer $tracer = null,
     ) {}
 
     public function store(): QueueStore
@@ -70,6 +72,10 @@ final class Queue
             payload: $this->serialise($job),
             availableAt: \time() + \max(0, $delay),
             createdAt: \time(),
+            // The chain this job belongs to. The worker that runs it, maybe an
+            // hour later on another machine, logs under this correlation, which
+            // is what makes "what did that request cause" answerable.
+            correlationId: $this->tracer?->current()->correlationId,
         );
 
         $this->hooks->do('job.queued', $queued, $job);
@@ -126,6 +132,9 @@ final class Queue
                 payload: $failure->payload,
                 availableAt: \time(),
                 createdAt: $failure->createdAt,
+                // Still the chain that caused it. Somebody retrying a failure is
+                // usually reading its log lines at the same time.
+                correlationId: $failure->correlationId,
             ));
         }
 

@@ -209,6 +209,42 @@ final class RequestTest extends TestCase
         self::assertSame('POST', $request->method());
     }
 
+    /**
+     * Apache receives Authorization and does not pass it on.
+     *
+     * The header is not in $_SERVER at all -- Apache treats it as its own
+     * business unless CGIPassAuth is set or a rewrite copies it -- so a bearer
+     * token the client definitely sent is invisible. The failure is silent and
+     * environment-specific: token authentication passes every test, works under
+     * php -S, and answers 401 to everything once deployed.
+     *
+     * This covers the rewrite path. The getallheaders() fallback cannot be
+     * exercised from a unit test, because the function only exists under a web
+     * SAPI and reports what the real server received.
+     */
+    public function test_an_authorization_header_survives_an_internal_rewrite(): void
+    {
+        $headers = \App\Engine\Http\Headers::fromServer([
+            'REQUEST_METHOD' => 'GET',
+            // What .htaccess puts there with E=HTTP_AUTHORIZATION.
+            'REDIRECT_HTTP_AUTHORIZATION' => 'Bearer a-token',
+        ]);
+
+        self::assertSame('Bearer a-token', $headers['authorization'] ?? null);
+    }
+
+    /** A header the server did pass through is never second-guessed. */
+    public function test_a_real_authorization_header_is_left_alone(): void
+    {
+        $headers = \App\Engine\Http\Headers::fromServer([
+            'REQUEST_METHOD' => 'GET',
+            'HTTP_AUTHORIZATION' => 'Bearer the-real-one',
+            'REDIRECT_HTTP_AUTHORIZATION' => 'Bearer a-stale-copy',
+        ]);
+
+        self::assertSame('Bearer the-real-one', $headers['authorization'] ?? null);
+    }
+
     public function test_cookies_are_readable(): void
     {
         $request = Request::create('GET', '/', ['cookies' => ['session' => 'abc']]);

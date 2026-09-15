@@ -20,7 +20,7 @@ use App\Engine\Error\ErrorHandler;
 use App\Engine\Hook\HookEngine;
 use App\Engine\Http\Request;
 use App\Engine\Template\TemplateManager;
-use App\Modules\Plugins\Example\Data\CustomerQuery;
+use App\Tests\Fixtures\Showcase\Plugins\Example\Data\CustomerQuery;
 use App\Tests\Support\TestCase;
 
 /**

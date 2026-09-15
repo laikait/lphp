@@ -6,7 +6,10 @@ namespace App\Engine\Cli;
 
 use App\Engine\Cli\Commands\AboutCommand;
 use App\Engine\Cli\Commands\AssetListCommand;
+use App\Engine\Cli\Commands\AuthAccessCommand;
+use App\Engine\Cli\Commands\AuthHashCommand;
 use App\Engine\Cli\Commands\CacheClearCommand;
+use App\Engine\Cli\Commands\CacheWarmCommand;
 use App\Engine\Cli\Commands\ConfigCacheCommand;
 use App\Engine\Cli\Commands\ConfigListCommand;
 use App\Engine\Cli\Commands\HelpCommand;
@@ -19,6 +22,10 @@ use App\Engine\Cli\Commands\RouteListCommand;
 use App\Engine\Cli\Commands\ScheduleListCommand;
 use App\Engine\Cli\Commands\ScheduleRunCommand;
 use App\Engine\Cli\Commands\ScheduleUnlockCommand;
+use App\Engine\Cli\Commands\SecurityCheckCommand;
+use App\Engine\Cli\Commands\SecurityKeyCommand;
+use App\Engine\Cli\Commands\SessionGcCommand;
+use App\Engine\Cli\Commands\SessionTableCommand;
 use App\Engine\Cli\Commands\TemplateListCommand;
 
 /**
@@ -124,9 +131,46 @@ final class CoreCommands
             ->flag('all', 'Release every held lock.')
             ->note('Locks expire on their own. Releasing one whose task is still running starts a second copy.');
 
+        $commands->add('security:check', SecurityCheckCommand::class)
+            ->describe('Audit what this deployment actually has switched on.')
+            ->flag('verbose', 'Also show the checks that passed.', shortcut: 'v')
+            ->note('Exits 1 on a problem, so it can be a deployment step rather than a thing to remember.');
+
+        $commands->add('security:key', SecurityKeyCommand::class)
+            ->describe('Print a new APP_KEY.')
+            ->flag('bare', 'The key alone, for APP_KEY=$(...) in a script.')
+            ->note('It prints and does not write. Replacing a live key invalidates every token signed with it.');
+
+        $commands->add('auth:access', AuthAccessCommand::class)
+            ->describe('Every capability, every role, and which routes check them.')
+            ->flag('verbose', 'Also list the routes that require nobody.', shortcut: 'v')
+            ->note('Roles are shown flattened, because that is what a check actually sees.');
+
+        $commands->add('auth:hash', AuthHashCommand::class)
+            ->describe('Hash a password, for seeding the first account.')
+            ->argument('password', 'The password to hash.')
+            ->flag('bare', 'The hash alone, to paste into a seed.')
+            ->note('It prints and does not write: the framework does not know where your users live.');
+
+        $commands->add('session:gc', SessionGcCommand::class)
+            ->describe('Delete sessions past their lifetime.')
+            ->flag('quiet', 'Say nothing, for a schedule that only needs a failure to be noisy.', shortcut: 'q')
+            ->note('Nothing expires because it was swept -- expiry is decided on read. This reclaims the space.');
+
+        $commands->add('session:table', SessionTableCommand::class)
+            ->describe('Print the CREATE TABLE the database session store needs.')
+            ->option('driver', 'Which SQL dialect. Defaults to the configured connection.')
+            ->option('table', 'Table name.', default: 'sessions')
+            ->flag('bare', 'The statement alone, to pipe somewhere.')
+            ->note('It prints and does not run: creating tables is not something an application account should be able to do.');
+
         $commands->add('cache:clear', CacheClearCommand::class)
             ->describe('Delete the configuration, module, template and application caches.')
             ->flag('expired', 'Only remove entries that have expired, leaving the rest warm.')
             ->note('None of them invalidates itself on a file edit, which is why clearing them is a deployment step.');
+
+        $commands->add('cache:warm', CacheWarmCommand::class)
+            ->describe('Build the production boot path: the configuration and module discovery caches.')
+            ->note('Refuses with APP_DEBUG on, because a debug process never reads the module cache.');
     }
 }

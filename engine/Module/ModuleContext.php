@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Engine\Module;
 
+use App\Engine\Auth\AccessCollector;
 use App\Engine\Cli\CommandCollector;
 use App\Engine\Container\ServiceRegistrar;
 use App\Engine\Routing\RouteCollector;
@@ -49,6 +50,9 @@ use App\Engine\Scheduler\ScheduleCollector;
  */
 final class ModuleContext
 {
+    /** The one filter a module may not attach to. See filter(). */
+    public const ASSET_RESPONSE_FILTER = 'asset.response';
+
     private ModuleStage $stage = ModuleStage::Discovered;
 
     private string $name;
@@ -56,6 +60,17 @@ final class ModuleContext
     private string $version = '0.0.0';
 
     private string $description = '';
+
+    /**
+     * Whether version() was called, as distinct from the default.
+     *
+     * Only for the error message: "requires ^1.0 but it declares no version at
+     * all" is a different fix from "requires ^1.0 but it is 0.4.0".
+     */
+    private bool $versionDeclared = false;
+
+    /** @var array<string, Dependency> keyed by module id */
+    private array $dependencies = [];
 
     /** @var list<\Closure(ServiceRegistrar): void> */
     private array $serviceRegistrars = [];
@@ -68,6 +83,9 @@ final class ModuleContext
 
     /** @var list<\Closure(ScheduleCollector): void> */
     private array $scheduleRegistrars = [];
+
+    /** @var list<\Closure(AccessCollector): void> */
+    private array $accessRegistrars = [];
 
     /** @var array<string, mixed> */
     private array $config = [];
@@ -95,10 +113,20 @@ final class ModuleContext
         });
     }
 
+    /**
+     * MAJOR.MINOR.PATCH, checked here.
+     *
+     * Decorative until modules could depend on each other; compared from then
+     * on, so a version that cannot be compared is refused at the line that
+     * wrote it rather than when another module first asks. See Version.
+     */
     public function version(string $version): self
     {
         return $this->declaring('version', function () use ($version): void {
+            Version::parse($version, $this->definition->id);
+
             $this->version = $version;
+            $this->versionDeclared = true;
         });
     }
 
@@ -106,6 +134,50 @@ final class ModuleContext
     {
         return $this->declaring('description', function () use ($description): void {
             $this->description = $description;
+        });
+    }
+
+    // ---- dependencies -----------------------------------------------------
+
+    /**
+     * This module cannot work without that one.
+     *
+     * ```php
+     * $module->requires('plugins/Customer', '^1.0');
+     * ```
+     *
+     * The application refuses to boot if the other module is missing, disabled
+     * or the wrong version, and this module registers after it. Declared here,
+     * in the module's own file, for the reason everything else is: installing a
+     * module brings its requirements with it, and a reviewer sees them next to
+     * the routes that depend on them.
+     *
+     * Depending on `shared` is allowed and worth doing when the version matters;
+     * it is not needed for ordering, because shared always registers first.
+     */
+    public function requires(string $id, string $constraint = VersionConstraint::ANY): self
+    {
+        return $this->declaring('requires', function () use ($id, $constraint): void {
+            $this->recordDependency($id, $constraint, optional: false);
+        });
+    }
+
+    /**
+     * This module works better alongside that one, and works without it.
+     *
+     * When the other module is present and enabled it is held to the same rules
+     * as a required one -- its version must fit, and this module registers after
+     * it. When it is absent or disabled, nothing happens.
+     *
+     * Two ways to act on "is it there": listen for its hooks, which simply never
+     * fire without it and need no check at all; or inject ModuleRegistry in an
+     * onBoot callback and ask isEnabled(). The first is almost always the right
+     * one.
+     */
+    public function optionally(string $id, string $constraint = VersionConstraint::ANY): self
+    {
+        return $this->declaring('optionally', function () use ($id, $constraint): void {
+            $this->recordDependency($id, $constraint, optional: true);
         });
     }
 
@@ -179,6 +251,25 @@ final class ModuleContext
     }
 
     /**
+     * Declare what this module lets people do, and who may do it.
+     *
+     * The fourth registrar, and the argument for it is the one that applies to
+     * all of them: the module that ENFORCES a capability is the only place that
+     * knows what it means, so that is where it is defined. Installing the
+     * module brings its permissions with it and removing it takes them away --
+     * whereas a central list of permission strings goes stale the first time
+     * somebody deletes a feature and nobody remembers to prune it.
+     *
+     * @param \Closure(AccessCollector): void $registrar
+     */
+    public function access(\Closure $registrar): self
+    {
+        return $this->declaring('access', function () use ($registrar): void {
+            $this->accessRegistrars[] = $registrar;
+        });
+    }
+
+    /**
      * Contribute configuration, merged under this module's id.
      *
      * @param array<string, mixed> $values
@@ -214,6 +305,16 @@ final class ModuleContext
      */
     public function filter(string $filter, mixed $callback, int $priority = 10, ?int $acceptedArgs = null): self
     {
+        // Refused rather than recorded. An asset request is answered before any
+        // module loads (see ModuleManager::prepareAssets()), and in production
+        // the web server usually answers it without PHP at all, so this
+        // listener would run in a test that booted the application first and
+        // never anywhere that matters. A hook that works only by accident is
+        // worse than one that says no while its author is still writing it.
+        if ($filter === self::ASSET_RESPONSE_FILTER) {
+            throw ModuleException::assetFilterNeverRuns($this->definition->id);
+        }
+
         return $this->declaring('filter', function () use ($filter, $callback, $priority, $acceptedArgs): void {
             $this->filters[] = [
                 'name' => $filter,
@@ -270,6 +371,11 @@ final class ModuleContext
         return $this->description;
     }
 
+    public function declaresVersion(): bool
+    {
+        return $this->versionDeclared;
+    }
+
     public function stage(): ModuleStage
     {
         return $this->stage;
@@ -280,6 +386,12 @@ final class ModuleContext
     public function enterStage(ModuleStage $stage): void
     {
         $this->stage = $stage;
+    }
+
+    /** @return list<Dependency> in the order they were declared */
+    public function declaredDependencies(): array
+    {
+        return \array_values($this->dependencies);
     }
 
     /** @return list<\Closure(ServiceRegistrar): void> */
@@ -306,6 +418,12 @@ final class ModuleContext
         return $this->scheduleRegistrars;
     }
 
+    /** @return list<\Closure(AccessCollector): void> */
+    public function declaredAccess(): array
+    {
+        return $this->accessRegistrars;
+    }
+
     /** @return array<string, mixed> */
     public function declaredConfig(): array
     {
@@ -328,6 +446,31 @@ final class ModuleContext
     public function declaredBootCallbacks(): array
     {
         return $this->bootCallbacks;
+    }
+
+    /**
+     * Check the id and the constraint where they were written.
+     *
+     * Only the shape is checked here. Whether the other module exists, is
+     * enabled and fits is a question about every module at once, so it waits
+     * for DependencyResolver -- a module may name one that simply has not been
+     * loaded yet.
+     */
+    private function recordDependency(string $id, string $constraint, bool $optional): void
+    {
+        if (!Dependency::isValidId($id)) {
+            throw ModuleException::invalidDependencyId($this->definition->id, $id);
+        }
+
+        if (isset($this->dependencies[$id])) {
+            throw ModuleException::duplicateDependency($this->definition->id, $id);
+        }
+
+        $this->dependencies[$id] = new Dependency(
+            $id,
+            VersionConstraint::parse($constraint, $this->definition->id),
+            $optional,
+        );
     }
 
     /**

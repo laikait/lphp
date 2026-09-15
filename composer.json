@@ -8,13 +8,13 @@
         "ext-json": "*",
         "ext-mbstring": "*",
         "ext-pdo": "*",
-        "psr/container": "^2.0"
+        "psr/container": "^2.0",
+        "twig/twig": "^3.8"
     },
     "require-dev": {
         "friendsofphp/php-cs-fixer": "^3.75",
         "phpstan/phpstan": "^2.1",
-        "phpunit/phpunit": "^11.5",
-        "twig/twig": "^3.8"
+        "phpunit/phpunit": "^11.5"
     },
     "autoload": {
         "psr-4": {
@@ -39,7 +39,7 @@
         "sort-packages": true,
         "optimize-autoloader": true,
         "platform": {
-            "php": "8.1.0"
+            "php": "8.2.0"
         }
     },
     "scripts": {
@@ -54,12 +54,17 @@
             "@stan",
             "@test"
         ],
-        "serve": "php -S 127.0.0.1:8080",
-        "console": "php bin/console"
+        "serve": "php -S 127.0.0.1:8080 server",
+        "console": "php bin/console",
+        "bench": [
+            "Composer\\Config::disableProcessTimeout",
+            "php tests/Benchmark/run.php"
+        ]
     },
     "scripts-descriptions": {
         "check": "Full quality gate: coding standard, static analysis, tests.",
         "serve": "Run the development server on http://127.0.0.1:8080",
-        "console": "Run the framework console."
+        "console": "Run the framework console.",
+        "bench": "Benchmark every subject in the specification; --save and --compare to track a change."
     }
 }

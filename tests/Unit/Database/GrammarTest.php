@@ -263,4 +263,77 @@ final class GrammarTest extends TestCase
 
         $this->grammar()->compileInsert('customers', ['name) VALUES (1); --' => 'x']);
     }
+
+    // ---- writing many -----------------------------------------------------
+
+    public function test_a_multi_row_insert_is_one_statement_when_it_fits(): void
+    {
+        $statements = $this->grammar()->compileInsertMany('customers', ['name', 'email'], [
+            ['name' => 'Ada', 'email' => 'ada@example.test'],
+            ['email' => 'grace@example.test', 'name' => 'Grace'],
+        ]);
+
+        self::assertCount(1, $statements);
+        self::assertSame('INSERT INTO "customers" ("name", "email") VALUES (?, ?), (?, ?)', $statements[0]['sql']);
+        self::assertSame(['Ada', 'ada@example.test', 'Grace', 'grace@example.test'], $statements[0]['bindings'], 'bound in column order, whatever order the row was written in');
+    }
+
+    /**
+     * 999 placeholders on SQLite, four columns: 249 rows a statement. The batch
+     * boundary is where an off-by-one would lose or duplicate a row.
+     */
+    public function test_a_multi_row_insert_is_split_at_the_placeholder_limit(): void
+    {
+        $rows = \array_fill(0, 500, ['a' => 1, 'b' => 2, 'c' => 3, 'd' => 4]);
+
+        $statements = $this->grammar('sqlite')->compileInsertMany('t', ['a', 'b', 'c', 'd'], $rows);
+
+        self::assertSame([249, 249, 2], \array_map(
+            static fn(array $statement): int => \intdiv(\count($statement['bindings']), 4),
+            $statements,
+        ));
+
+        foreach ($statements as $statement) {
+            self::assertLessThanOrEqual(999, \count($statement['bindings']));
+            self::assertSame(\count($statement['bindings']), \substr_count($statement['sql'], '?'));
+        }
+    }
+
+    /** @return array<string, array{string, int}> */
+    public static function placeholderLimits(): array
+    {
+        return [
+            'sqlite' => ['sqlite', 999],
+            'mysql' => ['mysql', 65535],
+            'pgsql' => ['pgsql', 65535],
+            'sqlsrv' => ['sqlsrv', 2000],
+            'unknown driver gets the smallest' => ['odbc', 999],
+        ];
+    }
+
+    #[DataProvider('placeholderLimits')]
+    public function test_each_driver_has_a_placeholder_limit(string $driver, int $limit): void
+    {
+        self::assertSame($limit, $this->grammar($driver)->maxBindings());
+    }
+
+    public function test_a_set_based_update_binds_the_changes_before_the_criteria(): void
+    {
+        $query = $this->query()->whereIs('active', 1)->where('balance', Operator::Lt, 0);
+
+        $compiled = $this->grammar()->compileUpdateWhere('customers', $query->criteria(), ['active' => 0, 'name' => 'x']);
+
+        self::assertSame('UPDATE "customers" SET "active" = ?, "name" = ? WHERE "active" = ? AND "balance" < ?', $compiled['sql']);
+        self::assertSame([0, 'x', 1, 0], $compiled['bindings']);
+    }
+
+    public function test_a_set_based_delete_is_its_criteria(): void
+    {
+        $query = $this->query()->whereIn('id', [1, 2, 3]);
+
+        $compiled = $this->grammar()->compileDeleteWhere('customers', $query->criteria());
+
+        self::assertSame('DELETE FROM "customers" WHERE "id" IN (?, ?, ?)', $compiled['sql']);
+        self::assertSame([1, 2, 3], $compiled['bindings']);
+    }
 }

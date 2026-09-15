@@ -139,14 +139,29 @@ final class BootstrapTest extends TestCase
             'templates.active',
             'templates.cache',
             'modules.paths',
-            'modules.cache',
+            'modules.disabled',
+            'observability.profile',
+            'observability.slow_query_ms',
+            'observability.trust_incoming_ids',
             'cache.store',
             'cache.ttl',
             'queue.store',
             'queue.tries',
             'queue.backoff.cap',
+            'security.key',
+            'security.csrf.enabled',
+            'security.max_request_bytes',
+            'security.headers.csp',
             'scheduler.lock',
             'scheduler.lock_ttl',
+            'auth.password.options',
+            'auth.guest_roles',
+            'session.store',
+            'session.idle',
+            'session.absolute',
+            'session.grace',
+            'session.cookie.name',
+            'session.cookie.same_site',
         ] as $key) {
             self::assertTrue($config->has($key), $key . ' is missing from the defaults');
         }
@@ -155,7 +170,10 @@ final class BootstrapTest extends TestCase
         // may add to this, but a new block appearing here is the framework
         // growing a subsystem, which is a deliberate act rather than a drive-by.
         self::assertSame(
-            ['app', 'http', 'database', 'assets', 'cache', 'queue', 'scheduler', 'logging', 'templates', 'modules'],
+            [
+                'app', 'http', 'database', 'assets', 'cache', 'queue', 'security', 'auth', 'session',
+                'scheduler', 'logging', 'observability', 'templates', 'modules',
+            ],
             \array_keys($config->all()),
         );
     }
@@ -190,11 +208,15 @@ final class BootstrapTest extends TestCase
         self::assertSame([], $connections->opened(), 'configuring is not connecting');
     }
 
-    public function test_module_caching_is_off_by_default(): void
+    /**
+     * There is no setting to switch the module cache on. It used to be one, and
+     * the first request to find the cache missing wrote it -- which is how a
+     * cache gets built on a laptop halfway through adding a module. The file is
+     * the switch now, and only cache:warm writes it.
+     */
+    public function test_there_is_no_module_cache_setting(): void
     {
-        // The discovery cache has no automatic invalidation, so opting in is a
-        // deployment decision rather than something that happens silently.
-        self::assertFalse((new Config(Bootstrap::defaults()))->get('modules.cache'));
+        self::assertFalse((new Config(Bootstrap::defaults()))->has('modules.cache'));
     }
 
     public function test_the_default_module_paths_match_the_real_layout(): void
@@ -207,9 +229,12 @@ final class BootstrapTest extends TestCase
             'gateways' => 'modules/gateways',
         ], $paths);
 
+        // Only shared has to exist. The framework ships no plugin and no
+        // gateway, git keeps no empty directory, and an invariant forbids one
+        // kept for appearance -- so modules/plugins/ appears when the first
+        // plugin does, and discovery reads an absent root as an empty one.
+        // DefaultPagesSliceTest boots exactly that.
         self::assertDirectoryExists($this->basePath('modules/shared'));
-        self::assertDirectoryExists($this->basePath('modules/plugins'));
-        self::assertDirectoryExists($this->basePath('modules/gateways'));
     }
 
     public function test_overrides_merge_recursively_over_the_defaults(): void

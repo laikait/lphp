@@ -158,6 +158,68 @@ abstract class Repository
         $this->models->forget($model::class, $identity);
     }
 
+    // ---- bulk writes ------------------------------------------------------
+
+    /**
+     * Store many rows in as few operations as the source allows.
+     *
+     * Rows, not models: nothing is hydrated and no identities come back, which
+     * is the cost being avoided. An import of ten thousand customers is this; a
+     * customer signing up is persist().
+     *
+     * @param list<array<string, mixed>> $rows
+     *
+     * @return int how many rows were stored
+     */
+    final protected function insertMany(array $rows): int
+    {
+        return $this->bulk()->insertMany($this->collection(), $this->key(), $rows);
+    }
+
+    /**
+     * Change every row the query matches, in one operation.
+     *
+     * The query must carry criteria and nothing else; see BulkWrites. Every
+     * model of this repository's class that was already loaded is forgotten
+     * afterwards, because the database has just changed underneath objects the
+     * identity map would otherwise keep handing out.
+     *
+     * @param array<string, mixed> $changes
+     */
+    final protected function updateWhere(Query $query, array $changes): int
+    {
+        $changed = $this->bulk()->updateWhere($query, $changes);
+        $this->forgetLoaded();
+
+        return $changed;
+    }
+
+    /** Remove every row the query matches, in one operation. See updateWhere(). */
+    final protected function deleteWhere(Query $query): int
+    {
+        $removed = $this->bulk()->deleteWhere($query);
+        $this->forgetLoaded();
+
+        return $removed;
+    }
+
+    private function forgetLoaded(): void
+    {
+        /** @var class-string<Model> $class */
+        $class = $this->model();
+
+        $this->models->flush($class);
+    }
+
+    private function bulk(): BulkWrites
+    {
+        if (!$this->source instanceof BulkWrites) {
+            throw DataException::bulkUnsupported($this->collection(), $this->source::class);
+        }
+
+        return $this->source;
+    }
+
     /**
      * Build a model from a row this repository obtained some other way.
      *

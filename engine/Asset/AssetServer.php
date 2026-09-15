@@ -68,10 +68,12 @@ final class AssetServer
      * reading it then is the developer who made the typo.
      *
      * The response passes through the asset.response filter before it is
-     * returned. That is the extension point for anything cross-cutting:
-     * denying a gateway's assets to anonymous users, adding a CORS header for
-     * fonts, logging. It is the same shape as every other decision in this
-     * framework -- a filter over a value, not a middleware pipeline.
+     * returned -- a filter over a value, not a middleware pipeline. Since
+     * Phase 27 only the engine's own listeners can be on it: an asset request
+     * is answered before any module loads, so a module is refused when it
+     * declares one (see ModuleContext::filter()). That was always the honest
+     * position, because in production the web server usually delivers assets
+     * without PHP. A file that needs a permission check belongs behind a route.
      */
     public function serve(Request $request, ?string $path = null): Response
     {

@@ -12,13 +12,13 @@ use App\Engine\Model\ModelException;
 use App\Engine\Model\RelationManager;
 use App\Engine\Routing\Router;
 use App\Engine\Support\Extensions;
-use App\Modules\Gateways\Example\Hooks\AuditHooks;
-use App\Modules\Plugins\Example\Data\CustomerQuery;
-use App\Modules\Plugins\Example\Data\CustomerRepository;
-use App\Modules\Plugins\Example\Hooks\CustomerHooks;
-use App\Modules\Plugins\Example\Model\Customer;
-use App\Modules\Plugins\Example\Model\CustomerListRecord;
 use App\Modules\Shared\Model\User;
+use App\Tests\Fixtures\Showcase\Gateways\Example\Hooks\AuditHooks;
+use App\Tests\Fixtures\Showcase\Plugins\Example\Data\CustomerQuery;
+use App\Tests\Fixtures\Showcase\Plugins\Example\Data\CustomerRepository;
+use App\Tests\Fixtures\Showcase\Plugins\Example\Hooks\CustomerHooks;
+use App\Tests\Fixtures\Showcase\Plugins\Example\Model\Customer;
+use App\Tests\Fixtures\Showcase\Plugins\Example\Model\CustomerListRecord;
 use App\Tests\Support\TestCase;
 
 /**
@@ -113,8 +113,8 @@ final class VerticalSliceTest extends TestCase
      */
     public function test_the_gateway_and_the_plugin_do_not_reference_each_other(): void
     {
-        $plugin = \file_get_contents($this->basePath('modules/plugins/Example/Api/CustomerApi.php'));
-        $gateway = \file_get_contents($this->basePath('modules/gateways/Example/Hooks/AuditHooks.php'));
+        $plugin = \file_get_contents($this->basePath(self::SHOWCASE . '/Plugins/Example/Api/CustomerApi.php'));
+        $gateway = \file_get_contents($this->basePath(self::SHOWCASE . '/Gateways/Example/Hooks/AuditHooks.php'));
 
         self::assertIsString($plugin);
         self::assertIsString($gateway);
@@ -463,8 +463,9 @@ final class VerticalSliceTest extends TestCase
         $data = $defaults->data();
         self::assertIsArray($data);
         self::assertSame(
-            // 10, not the 25 the module declares: config/plugins/Example.php
-            // overrides its default, and this is where that arrives.
+            // 10, not the 25 the module declares: the application overrides its
+            // default (see TestCase::application()), and this is where that
+            // arrives.
             ['count' => 3, 'total' => 3, 'page' => 1, 'per_page' => 10, 'pages' => 1],
             \array_diff_key($data['meta'], ['links' => null]),
         );
@@ -516,13 +517,33 @@ final class VerticalSliceTest extends TestCase
         $app = $this->application();
 
         self::assertTrue(Extensions::isInitialised());
-        self::assertFalse(has_filter('response.instance'), 'nothing is registered until modules boot');
+
+        // Bootstrap has already attached the security layer to this filter, so
+        // "nothing is registered" is no longer the right claim. What is still
+        // true -- and is what this test is actually about -- is that nothing a
+        // MODULE declared is here until modules boot.
+        self::assertSame(
+            ['engine'],
+            \array_values(\array_unique(\array_map(
+                static fn(array $listener): ?string => $listener['module'],
+                Extensions::filters()->listeners('response.instance'),
+            ))),
+            'only the framework itself has registered by now',
+        );
 
         $app->boot();
 
-        // The shared module declared this filter, and it is reachable through
-        // the global helper because the helper is bridged to the same engine.
+        // The shared module declared this filter too, and it is reachable
+        // through the global helper because the helper is bridged to the same
+        // engine the framework and the module both used.
         self::assertTrue(has_filter('response.instance'));
+        self::assertContains(
+            'shared',
+            \array_map(
+                static fn(array $listener): ?string => $listener['module'],
+                Extensions::filters()->listeners('response.instance'),
+            ),
+        );
     }
 
     public function test_booting_is_idempotent(): void

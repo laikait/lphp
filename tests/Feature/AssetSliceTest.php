@@ -77,7 +77,7 @@ final class AssetSliceTest extends TestCase
         self::assertTrue($registry->has(AssetKind::Core));
 
         $source = $registry->source(AssetKind::Plugin, 'Example');
-        self::assertStringEndsWith('modules/plugins/Example/assets', $source->root);
+        self::assertStringEndsWith(self::SHOWCASE . '/Plugins/Example/assets', $source->root);
     }
 
     public function test_the_shared_module_publishes_nothing(): void
@@ -111,12 +111,13 @@ final class AssetSliceTest extends TestCase
     }
 
     /**
-     * The demo's front page builds its asset URLs with the global helper, from
-     * inside a closure written in module.php -- the case the helper exists for.
+     * The showcase plugin's index builds its asset URLs with the global helper,
+     * from inside a closure written in module.php -- the case the helper exists
+     * for.
      */
-    public function test_the_demo_front_page_advertises_its_assets(): void
+    public function test_the_showcase_index_advertises_its_assets(): void
     {
-        $response = $this->handle($this->kernel(), '/');
+        $response = $this->handle($this->kernel(), '/links.json');
 
         self::assertSame(200, $response->status());
 

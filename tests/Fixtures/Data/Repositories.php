@@ -88,6 +88,26 @@ final class CustomerRepository extends Repository
         $this->remove($customer);
     }
 
+    /**
+     * A bulk import, named for what it is.
+     *
+     * @param list<array<string, mixed>> $rows
+     */
+    public function import(array $rows): int
+    {
+        return $this->insertMany($rows);
+    }
+
+    public function deactivateOwnedBy(int $ownerId): int
+    {
+        return $this->updateWhere($this->query()->whereIs('ownerId', $ownerId), ['active' => false]);
+    }
+
+    public function purgeInactive(): int
+    {
+        return $this->deleteWhere($this->query()->whereIs('active', false));
+    }
+
     /** Exposed so tests can exercise the inherited plumbing directly. */
     public function queryFor(): Query
     {

@@ -383,4 +383,45 @@ final class ConnectionTest extends TestCase
 
         self::assertSame(0, $this->connection->transactionDepth());
     }
+
+    // ---- the observation seam -----------------------------------------------
+
+    /**
+     * The observer is told the statement, how long it took and which
+     * connection -- three things, and never the values bound into it. A
+     * profile or a slow-query line is exactly the output that gets pasted into
+     * a ticket, and the bindings are where a password is.
+     */
+    public function test_an_observer_hears_each_statement_but_never_its_bindings(): void
+    {
+        $heard = [];
+        $this->connection->observe(static function (mixed ...$arguments) use (&$heard): void {
+            $heard[] = $arguments;
+        });
+
+        $this->connection->insert('INSERT INTO people (name, age) VALUES (?, ?)', ['hunter2-secret', 99]);
+
+        self::assertCount(1, $heard);
+        self::assertCount(3, $heard[0], 'the observer was passed more than the statement, the time and the connection');
+        self::assertSame('INSERT INTO people (name, age) VALUES (?, ?)', $heard[0][0]);
+        self::assertIsInt($heard[0][1]);
+        self::assertSame('test', $heard[0][2]);
+        self::assertStringNotContainsString('hunter2', \var_export($heard, true));
+    }
+
+    public function test_a_failing_statement_is_still_observed(): void
+    {
+        $heard = 0;
+        $this->connection->observe(static function () use (&$heard): void {
+            ++$heard;
+        });
+
+        try {
+            $this->connection->select('SELECT * FROM no_such_table');
+            self::fail('the statement did not fail');
+        } catch (DatabaseException) {
+        }
+
+        self::assertSame(1, $heard);
+    }
 }

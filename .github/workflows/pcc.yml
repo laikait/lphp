@@ -9,15 +9,21 @@ permissions:
   contents: read
 
 jobs:
-  PHPCompatibilityCheck:
-    # Linux is deliberate: it is the only place the case-sensitive PSR-4 mapping
-    # of modules/ is actually enforced. Windows will never catch a casing mistake.
+  # The full gate. Linux is deliberate: it is the only place the case-sensitive
+  # PSR-4 mapping of modules/ is actually enforced, and Windows will never catch
+  # a casing mistake.
+  #
+  # 8.2 is the floor here rather than 8.1 because the DEV TOOLCHAIN requires it
+  # -- PHPUnit 11 and php-cs-fixer's Symfony components all declare php >=8.2.
+  # That is a fact about the tools, not about the framework, and the job below
+  # is what keeps the two from being confused.
+  Gate:
     runs-on: ubuntu-latest
 
     strategy:
       fail-fast: false
       matrix:
-        php: ['8.1', '8.2', '8.3', '8.4', '8.5']
+        php: ['8.2', '8.3', '8.4', '8.5']
 
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 #v7.0.1
@@ -25,7 +31,7 @@ jobs:
       - uses: shivammathur/setup-php@f3e473d116dcccaddc5834248c87452386958240 #v2
         with:
           php-version: ${{ matrix.php }}
-          extensions: json, mbstring, pdo, pdo_sqlite
+          extensions: json, mbstring, pdo, pdo_sqlite, fileinfo
           coverage: none
           tools: composer:v2
 
@@ -38,8 +44,82 @@ jobs:
       - name: Coding standard
         run: composer run cs
 
+      # phpstan.neon pins the analysed range to 8.1-8.5, so this step is also
+      # where 8.2-only syntax is caught -- on every version in the matrix, not
+      # just the oldest one.
       - name: Static analysis
         run: composer run stan
 
       - name: Tests
         run: composer run test
+
+      # Informational, on one version, and never a failure. A shared runner's
+      # timings move by a third between runs, so a threshold here would fail
+      # builds at random and teach everybody to ignore it. What must never
+      # regress -- an asset request loading no module, a warmed boot walking no
+      # directory -- is asserted exactly in the test step above. This prints the
+      # numbers into the log so a change that made something ten times slower
+      # is visible to whoever reads it, and --compare on one machine does the rest.
+      - name: Benchmarks
+        if: matrix.php == '8.4'
+        continue-on-error: true
+        run: php -d opcache.enable_cli=1 tests/Benchmark/run.php --rounds=5
+
+  # composer.json says the framework runs on ^8.1. This job is what makes that
+  # a claim about the FRAMEWORK rather than about its test suite.
+  #
+  # --no-dev on purpose: a deployment installs no dev dependencies, so this is
+  # the dependency set a real 8.1 host would have. It cannot run PHPUnit, and it
+  # does not need to -- what is in question here is whether the shipped code
+  # parses and boots on the oldest supported runtime, and every line of it is
+  # either linted or executed below.
+  Runtime:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 #v7.0.1
+
+      - uses: shivammathur/setup-php@f3e473d116dcccaddc5834248c87452386958240 #v2
+        with:
+          php-version: '8.1'
+          extensions: json, mbstring, pdo, pdo_sqlite, fileinfo
+          coverage: none
+          tools: composer:v2
+
+      - name: Install runtime dependencies only
+        run: composer install --no-dev --no-interaction --no-progress
+
+      # Parsing is the failure mode that 8.2-only syntax produces, and a parse
+      # error in a file no request happens to reach is still a broken release.
+      - name: Lint every shipped file
+        run: |
+          find engine modules -name '*.php' -print0 \
+            | xargs -0 -n1 -P4 php -l > /dev/null
+          php -l index.php
+          php -l server
+          php -l bin/console
+
+      # Booting exercises what linting cannot: the container, the module
+      # discovery walk, and every engine subsystem that Bootstrap wires up.
+      - name: Boot the framework
+        run: |
+          php bin/console about
+          php bin/console module:list
+          php bin/console route:list
+          php bin/console schedule:list
+          php bin/console config:list
+
+      # And real requests through the HTTP kernel, because a console run never
+      # touches the router or the dispatcher. Both default pages are Twig, so
+      # this is also the proof that Twig arrives with --no-dev: left in
+      # require-dev, the front page would be a 500 here and nowhere else.
+      - name: Serve the default pages
+        run: |
+          php -S 127.0.0.1:8080 server &
+          for i in $(seq 1 20); do
+            curl -fsS http://127.0.0.1:8080/ > /dev/null && break
+            sleep 0.5
+          done
+          curl -fsS http://127.0.0.1:8080/ | grep -q 'Your application is running'
+          test "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8080/no/such/page)" = 404
+          curl -s http://127.0.0.1:8080/no/such/page | grep -q 'That page is not here'

@@ -39,10 +39,14 @@ use App\Engine\Http\Request;
  *
  * **What this cannot do.** It does not survive XSS: script running on your own
  * page can read the cookie like your own page can. It is not a substitute for
- * SameSite cookies, it is the layer underneath them. And until there is a
- * session to bind a token to, a token is bound to a browser rather than to a
- * login -- Phase 24 is where the binding gets stronger, and nothing in this
- * class's surface has to change for it.
+ * SameSite cookies, it is the layer underneath them.
+ *
+ * **A token is bound to a browser, not to a login.** The session layer closes
+ * half of that gap by rotating the token whenever the session id changes -- see
+ * rotate() -- so a token cannot outlive the identity it was issued under.
+ * Binding a token to a particular session, so that one user's token cannot be
+ * presented by another, needs an identity to bind to and belongs with
+ * authentication rather than with storage.
  */
 final class Csrf
 {
@@ -101,6 +105,24 @@ final class Csrf
             return $existing;
         }
 
+        return $this->signer->sign(Signer::token(), self::CONTEXT);
+    }
+
+    /**
+     * A new token, whatever the browser is currently holding.
+     *
+     * Called when the session id changes. A token issued to the anonymous page
+     * that showed the login form must not stay valid against the session the
+     * login created -- that is the same fixation attack regenerating the
+     * session id defends against, one layer up.
+     *
+     * The cost is the honest one: a form open in another tab, filled in before
+     * the login, will be refused when it is finally submitted. That is the
+     * right way round. The alternative is a token that outlives the identity
+     * it was issued under.
+     */
+    public function rotate(): string
+    {
         return $this->signer->sign(Signer::token(), self::CONTEXT);
     }
 

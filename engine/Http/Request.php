@@ -187,7 +187,7 @@ final class Request
      *   Apache + rewrite   SCRIPT_NAME=/framework/index.php  URI=/framework/customers  -> "/framework"
      *   Apache, no rewrite SCRIPT_NAME=/framework/index.php  URI=/framework/index.php/customers
      *                                                                                 -> "/framework/index.php"
-     *   php -S + server.php SCRIPT_NAME=/customers           URI=/customers            -> ""
+     *   php -S + server    SCRIPT_NAME=/customers           URI=/customers            -> ""
      *
      * Public because the answer is needed before a Request exists: the asset
      * manager builds URLs whether or not this process is serving a request, and

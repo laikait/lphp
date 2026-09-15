@@ -82,8 +82,9 @@ final class ConfigurationSliceTest extends TestCase
     public function test_a_file_overrides_a_default(): void
     {
         // config/plugins/Example.php, read at bootstrap, before any module has
-        // been discovered.
-        $settings = new Config(Bootstrap::settings($this->basePath()));
+        // been discovered. The showcase directory stands in for an application
+        // root, because the framework itself ships no config/.
+        $settings = new Config(Bootstrap::settings($this->basePath(self::SHOWCASE)));
 
         self::assertSame(10, $settings->int('plugins/Example.page_size'));
     }
@@ -91,7 +92,7 @@ final class ConfigurationSliceTest extends TestCase
     public function test_what_the_bootstrap_is_handed_beats_a_file(): void
     {
         $settings = new Config(Bootstrap::settings(
-            $this->basePath(),
+            $this->basePath(self::SHOWCASE),
             ['plugins/Example' => ['page_size' => 3]],
         ));
 
@@ -108,7 +109,9 @@ final class ConfigurationSliceTest extends TestCase
     {
         $settings = $this->application()->boot()->container()->get(Config::class);
 
-        self::assertSame(10, $settings->int('plugins/Example.page_size'), 'the file wins');
+        // 10 is handed to Bootstrap by TestCase::application(), at the layer
+        // config/ files arrive at; the module's own module.php says 25.
+        self::assertSame(10, $settings->int('plugins/Example.page_size'), 'the application wins');
     }
 
     public function test_a_module_default_survives_where_no_file_names_it(): void
@@ -130,7 +133,7 @@ final class ConfigurationSliceTest extends TestCase
 
         self::assertIsArray($body);
         self::assertIsArray($body['meta']);
-        self::assertSame(10, $body['meta']['per_page'], 'config/plugins/Example.php, not the module default of 25');
+        self::assertSame(10, $body['meta']['per_page'], 'the application\'s value, not the module default of 25');
     }
 
     // ---- the environment ---------------------------------------------------
@@ -227,7 +230,14 @@ final class ConfigurationSliceTest extends TestCase
     {
         [, $output] = $this->console('config:list', '--sources', '--prefix=app');
 
-        self::assertStringContainsString(ConfigLoader::DIRECTORY . '/plugins/Example.php', $output);
+        // The framework ships no config/ at all, and an application adds files
+        // to it; either answer is a correct one, and what matters is that the
+        // row says which. Listing the files themselves is ConfigLoader's job,
+        // and ConfigLoaderTest proves it against a fixture directory.
+        self::assertMatchesRegularExpression(
+            '#Files\s+(none \(config/ is empty or absent\)|' . ConfigLoader::DIRECTORY . '/)#',
+            $output,
+        );
         self::assertStringContainsString('not built', $output);
     }
 

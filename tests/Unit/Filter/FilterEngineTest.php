@@ -17,6 +17,40 @@ final class FilterEngineTest extends TestCase
         $this->filters = new FilterEngine();
     }
 
+    // ---- the observation seam -----------------------------------------------
+
+    public function test_an_observer_hears_every_listener_and_the_value_is_unchanged_by_it(): void
+    {
+        $heard = [];
+        $this->filters->observe(static function (string $filter, \App\Engine\Support\Callback $listener) use (&$heard): void {
+            $heard[] = $filter . ' ' . $listener->module;
+        });
+
+        $this->filters->add('invoice.total', static fn(int $t): int => $t * 2, 10, 'plugins/Billing');
+        $this->filters->add('invoice.total', static fn(int $t): int => $t + 1, 20, 'plugins/Tax');
+
+        self::assertSame(21, $this->filters->apply('invoice.total', 10));
+        self::assertSame(['invoice.total plugins/Billing', 'invoice.total plugins/Tax'], $heard);
+    }
+
+    public function test_the_debug_null_guard_still_applies_while_observed(): void
+    {
+        $filters = new FilterEngine(debug: true);
+        $heard = 0;
+        $filters->observe(static function () use (&$heard): void {
+            ++$heard;
+        });
+        $filters->add('x', [ForgetfulFilter::class, 'forgetsToReturn']);
+
+        try {
+            $filters->apply('x', 2);
+            self::fail('the null guard did not fire');
+        } catch (FilterException) {
+        }
+
+        self::assertSame(1, $heard);
+    }
+
     // ---- transformation ---------------------------------------------------
 
     public function test_a_value_passes_through_every_listener_in_order(): void

@@ -5,10 +5,12 @@ declare(strict_types=1);
 namespace App\Engine\Cli\Commands;
 
 use App\Engine\Asset\AssetRegistry;
+use App\Engine\Auth\AuthManager;
 use App\Engine\Cache\Cache;
 use App\Engine\Cli\CommandRegistry;
 use App\Engine\Cli\Output;
 use App\Engine\Config\Config;
+use App\Engine\Config\ConfigCache;
 use App\Engine\Core\Application;
 use App\Engine\Database\ConnectionManager;
 use App\Engine\Filter\FilterEngine;
@@ -19,6 +21,7 @@ use App\Engine\Queue\Queue;
 use App\Engine\Routing\Router;
 use App\Engine\Scheduler\ScheduleLock;
 use App\Engine\Scheduler\ScheduleRegistry;
+use App\Engine\Session\SessionManager;
 
 /**
  * What this application is, in one screen.
@@ -45,6 +48,8 @@ final class AboutCommand
         private readonly Queue $queue,
         private readonly ScheduleRegistry $schedules,
         private readonly ScheduleLock $locks,
+        private readonly SessionManager $sessions,
+        private readonly AuthManager $auth,
         private readonly LogManager $logs,
         private readonly ConnectionManager $connections,
     ) {}
@@ -58,6 +63,7 @@ final class AboutCommand
             'Environment' => (string) $this->config->get('app.env', 'production'),
             'Debug' => $this->config->get('app.debug', false) === true ? 'on' : 'off',
             'Base path' => $this->application->basePath(),
+            'Boot path' => $this->describeBootPath(),
             'Modules' => (string) $this->modules->registry()->count(),
             'Routes' => (string) $this->router->count(),
             'Commands' => (string) $this->commands->count(),
@@ -68,6 +74,10 @@ final class AboutCommand
             'Queue' => $this->describeQueue(),
             'Schedule' => $this->describeSchedule(),
             'Logging' => $this->describeLogging(),
+            'Observability' => $this->describeObservability(),
+            'Sessions' => $this->sessions->describe(),
+            'Users' => $this->auth->provider()->describe(),
+            'Auth' => $this->auth->describe(),
             // Names only. Reading this line must never be a way to learn a
             // password, and a DSN is one typo away from carrying one.
             'Connections' => $this->connections->isConfigured()
@@ -76,6 +86,46 @@ final class AboutCommand
         ]);
 
         return 0;
+    }
+
+    /**
+     * One line, and it has to be able to say "uncached" without sounding broken.
+     *
+     * Uncached is right in development and a missed deployment step in
+     * production, and this is the one screen somebody checks when a production
+     * boot is slower than it should be. cache:warm is what changes the answer.
+     */
+    private function describeBootPath(): string
+    {
+        $config = ConfigCache::read(ConfigCache::file($this->application->basePath())) !== null
+            ? 'config cached'
+            : 'config read from config/';
+
+        $modules = match (true) {
+            $this->modules->discoveredFromCache() => 'modules cached',
+            $this->config->get('app.debug', false) === true => 'modules scanned (debug never reads the cache)',
+            default => 'modules scanned (cache:warm caches both)',
+        };
+
+        return $config . ', ' . $modules;
+    }
+
+    /**
+     * One line: what is being measured, since the answer is usually "nothing"
+     * and the question usually comes up while something is slow.
+     *
+     * Read from configuration rather than from the profiler, because the
+     * profiler is deliberately not something a command depends on.
+     */
+    private function describeObservability(): string
+    {
+        $slow = $this->config->int('observability.slow_query_ms', 0) ?? 0;
+
+        return \sprintf(
+            'request ids on, profiling %s, %s',
+            $this->config->bool('observability.profile', false) ? 'ON' : 'off',
+            $slow > 0 ? \sprintf('queries over %d ms logged', $slow) : 'slow queries not logged',
+        );
     }
 
     /**

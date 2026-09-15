@@ -29,11 +29,15 @@ return static function (ModuleContext $module): void {
 
         // A framework-authored failure: the message is ours, so it is safe
         // to show even in production.
-        $routes->get('/boom', static fn(): never => throw new HttpException(500, 'deliberate failure'));
+        $routes->get('/boom', static function (): never {
+            throw new HttpException(500, 'deliberate failure');
+        });
 
         // An application failure: the message may carry anything at all, so
         // production must replace it wholesale.
-        $routes->get('/kaboom', static fn(): never => throw new \RuntimeException('dsn=secret-hunter2'));
+        $routes->get('/kaboom', static function (): never {
+            throw new \RuntimeException('dsn=secret-hunter2');
+        });
     });
 
     $module->commands(static function (CommandCollector $commands): void {
@@ -57,7 +61,9 @@ return static function (ModuleContext $module): void {
 
         // An application failure whose message may carry anything at all, so
         // production must replace it wholesale -- the console included.
-        $commands->add('item:boom', static fn(): never => throw new \RuntimeException('dsn=secret-hunter2'))
+        $commands->add('item:boom', static function (): never {
+            throw new \RuntimeException('dsn=secret-hunter2');
+        })
             ->describe('Throws.');
 
         // Returning something that is neither an exit code nor text.

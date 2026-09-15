@@ -74,7 +74,11 @@ final class SecurityHeaders
         private readonly bool $hstsSubdomains = false,
     ) {}
 
-    /** What this will add, for `security:check` to print. */
+    /**
+     * What this will add, for `security:check` to print.
+     *
+     * @return array<string, string>
+     */
     public function describe(): array
     {
         $headers = $this->resolved();

@@ -19,23 +19,26 @@ namespace App\Engine\Queue;
  * amount of work, exits cleanly, and whatever supervises it starts another with
  * the current code. --max-jobs and --max-time are how that is said here.
  */
-final readonly class WorkerOptions
+final class WorkerOptions
 {
+    // A readonly class would say this once. The properties carry it
+    // individually instead, because composer.json declares PHP 8.1 and
+    // readonly classes arrived in 8.2; readonly properties did not.
     public function __construct(
         /** Which queue to drain; null means the configured default. */
-        public ?string $queue = null,
+        public readonly ?string $queue = null,
         /** How many attempts a job gets before it is recorded as failed. */
-        public int $tries = 3,
+        public readonly int $tries = 3,
         /** How long a job may hold its reservation, in seconds. */
-        public int $timeout = 60,
+        public readonly int $timeout = 60,
         /** Seconds to wait when the queue is empty, before looking again. */
-        public int $sleep = 1,
+        public readonly int $sleep = 1,
         /** Stop after this many jobs; 0 means no limit. */
-        public int $maxJobs = 0,
+        public readonly int $maxJobs = 0,
         /** Stop after this many seconds; 0 means no limit. */
-        public int $maxSeconds = 0,
+        public readonly int $maxSeconds = 0,
         /** Stop as soon as the queue is empty rather than waiting for more. */
-        public bool $stopWhenEmpty = false,
+        public readonly bool $stopWhenEmpty = false,
     ) {}
 
     /** One job, or none, and then stop. */

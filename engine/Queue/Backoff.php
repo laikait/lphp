@@ -22,17 +22,20 @@ namespace App\Engine\Queue;
  * recovering service simultaneously, and knock it over again -- a stampede a
  * few seconds of spread prevents entirely.
  */
-final readonly class Backoff
+final class Backoff
 {
+    // A readonly class would say this once. The properties carry it
+    // individually instead, because composer.json declares PHP 8.1 and
+    // readonly classes arrived in 8.2; readonly properties did not.
     public function __construct(
         /** Seconds before the second attempt. */
-        public int $base = 5,
+        public readonly int $base = 5,
         /** Multiplier per attempt: 2 gives 5, 10, 20, 40. 1 gives a fixed delay. */
-        public int $multiplier = 2,
+        public readonly int $multiplier = 2,
         /** Never wait longer than this. */
-        public int $cap = 600,
+        public readonly int $cap = 600,
         /** Spread retries by up to this fraction of the delay, 0.0 to 1.0. */
-        public float $jitter = 0.0,
+        public readonly float $jitter = 0.0,
     ) {}
 
     /** A fixed wait, for a queue whose failures are not about load. */

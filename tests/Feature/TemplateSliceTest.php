@@ -11,6 +11,7 @@ use App\Engine\Http\Request;
 use App\Engine\Http\Response;
 use App\Engine\Template\TemplateManager;
 use App\Engine\Template\TemplateRegistry;
+use App\Engine\Template\TemplateSource;
 use App\Tests\Support\TestCase;
 
 /**
@@ -93,7 +94,7 @@ final class TemplateSliceTest extends TestCase
         $path = $views->searchPath('plugin.Example');
 
         self::assertStringEndsWith('templates/default/views/plugin.Example', $path[0]);
-        self::assertStringEndsWith('modules/plugins/Example/Templates', $path[1]);
+        self::assertStringEndsWith(self::SHOWCASE . '/Plugins/Example/Templates', $path[1]);
     }
 
     // ---- resolution -------------------------------------------------------
@@ -107,15 +108,27 @@ final class TemplateSliceTest extends TestCase
     }
 
     /**
-     * The override rule, against the real demo files: the theme ships a
-     * replacement for the plugin's customer profile, and the plugin was never
-     * edited, asked or told.
+     * The override rule, against real files: a theme ships a replacement for
+     * the plugin's customer profile, and the plugin was never edited, asked or
+     * told.
+     *
+     * The shipped default template does not override a plugin it does not ship
+     * with, so the showcase's theme directory is added as a second theme. It
+     * cannot share the active template's precedence -- two directories at one
+     * level are refused -- so it sits one step below it and still well above
+     * every module, which is all the override rule asks of a theme.
      */
     public function test_the_theme_overrides_the_plugins_profile_template(): void
     {
-        $templates = $this->templates();
+        $application = $this->application();
+        $views = $application->container()->get(TemplateRegistry::class);
+        self::assertInstanceOf(TemplateRegistry::class, $views);
+        $views->add(null, $this->basePath(self::SHOWCASE . '/Theme'), TemplateSource::OVERRIDE + 1);
 
-        $customer = new \App\Modules\Plugins\Example\Model\Customer(
+        $templates = $application->boot()->container()->get(TemplateManager::class);
+        self::assertInstanceOf(TemplateManager::class, $templates);
+
+        $customer = new \App\Tests\Fixtures\Showcase\Plugins\Example\Model\Customer(
             id: 1,
             name: 'Ada Lovelace',
             email: 'ada@example.test',
@@ -127,9 +140,9 @@ final class TemplateSliceTest extends TestCase
         self::assertStringNotContainsString('profile--module', $html);
 
         // ...and the module's own copy is still there, as the fallback.
-        self::assertFileExists($this->basePath('modules/plugins/Example/Templates/customer/profile.php'));
+        self::assertFileExists($this->basePath(self::SHOWCASE . '/Plugins/Example/Templates/customer/profile.php'));
         self::assertStringEndsWith(
-            'templates/default/views/plugin.Example/customer/profile.php',
+            self::SHOWCASE . '/Theme/plugin.Example/customer/profile.php',
             $templates->locate('@plugin.Example/customer/profile')->absolutePath,
         );
     }

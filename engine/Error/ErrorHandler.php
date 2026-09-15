@@ -179,7 +179,7 @@ final class ErrorHandler
             return $document->toResponse($headers);
         }
 
-        return (new Response($this->page->render($document), $document->status, $headers))
+        return (new Response($this->page->render($document, $request), $document->status, $headers))
             ->withContentType('text/html');
     }
 

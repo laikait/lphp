@@ -33,6 +33,9 @@ final class Connection
     /** How deep the current transaction is nested; 0 means none is open. */
     private int $depth = 0;
 
+    /** @var (\Closure(string, int, string): void)|null */
+    private ?\Closure $observer = null;
+
     public function __construct(private readonly ConnectionConfig $config) {}
 
     public function name(): string
@@ -210,6 +213,8 @@ final class Connection
      */
     public function run(string $sql, array $bindings = []): \PDOStatement
     {
+        $started = $this->observer === null ? 0 : \hrtime(true);
+
         try {
             $statement = $this->pdo()->prepare($sql);
             $this->bind($statement, $bindings);
@@ -218,7 +223,32 @@ final class Connection
             return $statement;
         } catch (\PDOException $e) {
             throw DatabaseException::statementFailed($sql, $bindings, $e);
+        } finally {
+            if ($this->observer !== null) {
+                ($this->observer)($sql, \hrtime(true) - $started, $this->name());
+            }
         }
+    }
+
+    /**
+     * Be told how long each statement took.
+     *
+     * Called after every statement, including one that failed, with the SQL,
+     * the nanoseconds from prepare to execute, and this connection's name. The
+     * time is the database's answer, not the reading of the rows: a cursor
+     * streaming a table is timed up to its first row, because the rest is spent
+     * in the caller's loop.
+     *
+     * **The bindings are not passed**, deliberately and permanently. The SQL
+     * is safe to write down because every value in it is bound; the bindings
+     * are the values -- a password hash, a card number, a customer's address --
+     * and whatever observes queries writes somewhere somebody will read.
+     *
+     * @param (\Closure(string, int, string): void)|null $observer
+     */
+    public function observe(?\Closure $observer): void
+    {
+        $this->observer = $observer;
     }
 
     /**

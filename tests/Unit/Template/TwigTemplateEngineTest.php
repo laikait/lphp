@@ -16,11 +16,7 @@ use App\Engine\Template\TwigTemplateEngine;
 use App\Tests\Support\TestCase;
 
 /**
- * Twig, when it is installed.
- *
- * It is a dev dependency rather than a real one, which is the whole claim:
- * production is not forced to carry it, and these tests are what make "optional"
- * a fact rather than a sentence in a README.
+ * Twig, the default engine, and how it shares the manager with PHP templates.
  */
 final class TwigTemplateEngineTest extends TestCase
 {
@@ -30,10 +26,6 @@ final class TwigTemplateEngineTest extends TestCase
 
     protected function setUp(): void
     {
-        if (!TwigTemplateEngine::isAvailable()) {
-            self::markTestSkipped('twig/twig is not installed');
-        }
-
         $this->root = \sys_get_temp_dir() . '/framework-twig-' . \bin2hex(\random_bytes(6));
 
         \mkdir($this->root . '/theme', 0o777, true);
@@ -78,10 +70,43 @@ final class TwigTemplateEngineTest extends TestCase
             AssetVersioning::None,
         ));
 
-        $templates->addEngine(new PhpTemplateEngine());
+        // The order Bootstrap uses, because the order is the precedence.
         $templates->addEngine(new TwigTemplateEngine($this->views));
+        $templates->addEngine(new PhpTemplateEngine());
 
         return $templates;
+    }
+
+    /** Twig is the default: in one directory, page.twig beats page.php. */
+    public function test_twig_wins_over_php_in_the_same_directory(): void
+    {
+        $this->write('theme/page.php', 'php');
+        $this->write('theme/page.twig', 'twig');
+
+        $templates = $this->manager();
+
+        self::assertSame('twig', $templates->render('page'));
+        self::assertSame(['html.twig', 'twig', 'php', 'phtml'], $templates->extensions());
+    }
+
+    /** PHP is the fallback: a name with only a .php file still renders. */
+    public function test_a_php_template_renders_where_there_is_no_twig_one(): void
+    {
+        $this->write('theme/legacy.php', '<?= $e($name) ?>');
+
+        self::assertSame('Ada', $this->manager()->render('legacy', ['name' => 'Ada']));
+    }
+
+    /** A PHP page can hand its markup to a Twig layout, which is how the two mix. */
+    public function test_a_php_page_can_use_a_twig_layout(): void
+    {
+        $this->write('theme/shell.twig', '<main>{% block content %}{{ content|default("")|raw }}{% endblock %}</main>');
+        $this->write('theme/inner.php', '<?= $view->render(\'shell\', [\'content\' => \'<p>\' . $e($text) . \'</p>\']) ?>');
+
+        self::assertSame(
+            '<main><p>&lt;b&gt;</p></main>',
+            $this->manager()->render('inner', ['text' => '<b>']),
+        );
     }
 
     public function test_a_twig_template_renders(): void
@@ -162,8 +187,8 @@ final class TwigTemplateEngineTest extends TestCase
     }
 
     /**
-     * The claim that makes Twig optional: with only the PHP engine registered,
-     * everything still works and a .twig file is simply not a template.
+     * The manager knows engines, not Twig: a manager built with only the PHP
+     * engine works, and a .twig file is simply not a template to it.
      */
     public function test_without_the_twig_engine_a_twig_file_is_not_a_template(): void
     {
@@ -178,8 +203,8 @@ final class TwigTemplateEngineTest extends TestCase
         $templates->addEngine(new PhpTemplateEngine());
 
         self::assertFalse($templates->exists('only'));
-        // Longest first, which is the order the manager tries them in.
-        self::assertSame(['phtml', 'php'], $templates->extensions());
+        // In the order the engine lists them, which is the order they are tried.
+        self::assertSame(['php', 'phtml'], $templates->extensions());
     }
 
     public function test_the_environment_is_built_lazily(): void

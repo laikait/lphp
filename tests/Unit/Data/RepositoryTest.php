@@ -61,7 +61,7 @@ final class RepositoryTest extends TestCase
     {
         $reflection = new \ReflectionClass(Repository::class);
 
-        foreach (['query', 'persist', 'remove', 'hydrate'] as $method) {
+        foreach (['query', 'persist', 'remove', 'hydrate', 'insertMany', 'updateWhere', 'deleteWhere'] as $method) {
             self::assertTrue(
                 $reflection->getMethod($method)->isFinal(),
                 \sprintf('Repository::%s() should be final; it is the contract, not a hook.', $method),
@@ -275,6 +275,83 @@ final class RepositoryTest extends TestCase
 
         $countries->drop($country);
         self::assertSame([], $this->source->all('countries'));
+    }
+
+    // ---- bulk writes ------------------------------------------------------
+
+    public function test_a_bulk_import_stores_rows_without_building_models(): void
+    {
+        $stored = $this->customers->import([
+            ['name' => 'Mary', 'email' => 'mary@example.test', 'ownerId' => null, 'active' => true, 'balance' => 0.0],
+            ['name' => 'Hedy', 'email' => 'hedy@example.test', 'ownerId' => null, 'active' => true, 'balance' => 0.0],
+        ]);
+
+        self::assertSame(2, $stored);
+        self::assertSame(0, $this->models->mappedCount(), 'nothing was hydrated to store them');
+        self::assertSame('Hedy', $this->customers->findByEmail('hedy@example.test')?->name());
+    }
+
+    /**
+     * The database changed underneath models already in memory. Handing out the
+     * mapped object afterwards would say Ada is still active when she is not.
+     */
+    public function test_a_set_based_update_forgets_the_models_it_may_have_changed(): void
+    {
+        $ada = $this->customers->find(1);
+        self::assertTrue($ada?->isActive());
+
+        self::assertSame(1, $this->customers->deactivateOwnedBy(10));
+
+        $reloaded = $this->customers->find(1);
+        self::assertNotSame($ada, $reloaded, 'the identity map handed back the stale object');
+        self::assertFalse($reloaded?->isActive());
+    }
+
+    public function test_a_set_based_delete_forgets_the_models_it_removed(): void
+    {
+        $grace = $this->customers->find(2);
+        self::assertNotNull($grace);
+
+        self::assertSame(1, $this->customers->purgeInactive());
+
+        self::assertNull($this->customers->find(2));
+        self::assertFalse($this->models->isMapped(Customer::class, 2));
+    }
+
+    /** A source without set-based writes says so by name, rather than looping quietly. */
+    public function test_a_bulk_write_on_a_source_that_cannot_do_one_is_refused(): void
+    {
+        $source = new class implements DataSource {
+            public function fetch(Query $query): iterable
+            {
+                return [];
+            }
+
+            public function count(Query $query): int
+            {
+                return 0;
+            }
+
+            public function insert(string $collection, string $key, array $row): int|string|null
+            {
+                return null;
+            }
+
+            public function update(string $collection, string $key, int|string $identity, array $changes): int
+            {
+                return 0;
+            }
+
+            public function delete(string $collection, string $key, int|string $identity): int
+            {
+                return 0;
+            }
+        };
+
+        $this->expectException(DataException::class);
+        $this->expectExceptionMessageMatches('/does not implement BulkWrites/');
+
+        (new CustomerRepository($source, $this->models))->purgeInactive();
     }
 
     // ---- hydration --------------------------------------------------------

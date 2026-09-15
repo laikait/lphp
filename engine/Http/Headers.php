@@ -75,6 +75,63 @@ final class Headers
             }
         }
 
+        return self::withAuthorization($headers, $server);
+    }
+
+    /**
+     * Put Authorization back, because the server may have taken it away.
+     *
+     * This is the one header a web server routinely receives and does not pass
+     * on. Apache strips it from the CGI environment unless `CGIPassAuth On` is
+     * set or a rewrite copies it, on the reasoning that it is the server's own
+     * business -- so `$_SERVER['HTTP_AUTHORIZATION']` is simply absent, and a
+     * bearer token that the client definitely sent is invisible to the
+     * application.
+     *
+     * **The failure it causes is the worst kind: silent and environment-
+     * specific.** Token authentication passes every test, works under `php -S`,
+     * and answers 401 to every request on the server it is deployed to -- and
+     * the request looks correct in the access log, because it was.
+     *
+     * Two fallbacks, in the order they are worth trusting. REDIRECT_ prefixed
+     * copies survive an internal rewrite, which is how the .htaccess rule
+     * passes it through. getallheaders() asks Apache what it actually received;
+     * it exists only under some SAPIs, which is why it is a fallback and not
+     * the primary source.
+     *
+     * @param array<string, string> $headers
+     * @param array<string, mixed>  $server
+     *
+     * @return array<string, string>
+     */
+    private static function withAuthorization(array $headers, array $server): array
+    {
+        if (isset($headers[self::normalize('Authorization')])) {
+            return $headers;
+        }
+
+        foreach (['REDIRECT_HTTP_AUTHORIZATION', 'PHP_AUTH_DIGEST'] as $key) {
+            $value = $server[$key] ?? null;
+
+            if (\is_string($value) && $value !== '') {
+                $headers[self::normalize('Authorization')] = $value;
+
+                return $headers;
+            }
+        }
+
+        if (!\function_exists('getallheaders')) {
+            return $headers;
+        }
+
+        foreach (getallheaders() as $name => $value) {
+            if (\strcasecmp($name, 'Authorization') === 0 && $value !== '') {
+                $headers[self::normalize('Authorization')] = self::sanitizeValue($value);
+
+                break;
+            }
+        }
+
         return $headers;
     }
 }

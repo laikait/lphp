@@ -51,6 +51,9 @@ final class LogManager
 
     private int $dropped = 0;
 
+    /** @var (\Closure(): array<string, mixed>)|null */
+    private ?\Closure $enricher = null;
+
     public function __construct(
         private readonly Level $minimum = Level::Debug,
         private readonly Context $context = new Context(),
@@ -135,10 +138,48 @@ final class LogManager
         $this->writing = true;
 
         try {
-            $this->deliver($record->with($this->context->normalise($record->context)));
+            $context = $record->context;
+
+            if ($this->enricher !== null) {
+                // Underneath, not on top: a caller that says which request a
+                // record belongs to -- a worker logging about a job it is not
+                // running -- is not overruled by whatever happens to be current.
+                $context = [...($this->enricher)(), ...$context];
+            }
+
+            // A new record rather than with(), which merges over the old context
+            // and would put the ids after the caller's fields. First is where
+            // somebody scanning a log line looks for them.
+            $this->deliver(new LogRecord(
+                $record->level,
+                $record->message,
+                $this->context->normalise($context),
+                $record->channel,
+                $record->time,
+            ));
+        } catch (\Throwable $e) {
+            // An enricher that throws is a failure of logging, and logging does
+            // not fail the request. Recorded, like a writer that stopped.
+            $this->failures[] = 'the log enricher failed: ' . $e->getMessage();
+            $this->enricher = null;
+            ++$this->dropped;
         } finally {
             $this->writing = false;
         }
+    }
+
+    /**
+     * Add fields to every record: which request, which job, which correlation.
+     *
+     * Called only for records that pass the level check, so a debug line in
+     * production costs nothing extra. An enricher that throws is detached and
+     * the failure kept, the same bargain a writer gets.
+     *
+     * @param \Closure(): array<string, mixed> $enricher
+     */
+    public function enrich(\Closure $enricher): void
+    {
+        $this->enricher = $enricher;
     }
 
     private function deliver(LogRecord $record): void

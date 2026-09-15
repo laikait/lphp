@@ -25,21 +25,77 @@ abstract class TestCase extends PHPUnitTestCase
         return $relative === '' ? $base : $base . \DIRECTORY_SEPARATOR . $relative;
     }
 
+    /** Where the showcase modules live: a plugin and a gateway, both called Example. */
+    protected const SHOWCASE = 'tests/Fixtures/Showcase';
+
     /**
-     * Build a real application over the real Bootstrap.
+     * Build a real application over the real Bootstrap, with the showcase.
      *
      * Nothing is mocked: the container, the module manager, the router and both
-     * engines are the production ones. Only two things are forced -- the module
-     * roots, so a test can point at fixtures, and error handling, which stays
-     * off so the handler does not take set_error_handler() away from PHPUnit.
+     * engines are the production ones. The modules are the shipped shared
+     * module plus the showcase -- plugins/Example and gateways/Example, which
+     * used to ship in modules/ and now live under tests/Fixtures/Showcase.
+     * They are the only thing that exercises every subsystem through one
+     * request, and an application does not need them to be installed.
+     *
+     * config/plugins/Example.php went with them, so the value it set is handed
+     * to Bootstrap here instead. It arrives at the same layer -- above a
+     * module's own defaults -- which is the thing the tests that read it prove.
+     *
+     * Error handling stays off so the handler does not take set_error_handler()
+     * away from PHPUnit.
      *
      * @param array<string, mixed> $config
      */
     protected function application(array $config = []): Application
     {
+        $config['modules']['paths'] ??= [
+            'shared' => 'modules/shared',
+            'plugins' => self::SHOWCASE . '/Plugins',
+            'gateways' => self::SHOWCASE . '/Gateways',
+        ];
+
+        $config['plugins/Example']['page_size'] ??= 10;
+
+        return $this->build($config);
+    }
+
+    /**
+     * Exactly what ships: modules/ as it is on disk, nothing added.
+     *
+     * @param array<string, mixed> $config
+     */
+    protected function shippedApplication(array $config = []): Application
+    {
+        return $this->build($config);
+    }
+
+    /** @param array<string, mixed> $config */
+    private function build(array $config): Application
+    {
         Extensions::reset();
 
         $config['app']['handle_errors'] = false;
+
+        // Rate-limit counts go to memory unless a test says otherwise.
+        //
+        // Two reasons, and the second is the one that bites. The file store
+        // writes into the project's own system/Security, which a test run has
+        // no business touching -- and those counts SURVIVE the run. A suite
+        // that exercises a rate-limited route a few dozen times per run would
+        // quietly accumulate hits until a later run started getting 429s from
+        // counters left behind by an earlier one, which is a failure that looks
+        // like flakiness and is not.
+        //
+        // ??= rather than =: a test that is specifically about the file store
+        // still gets it by asking.
+        $config['security']['counters'] ??= 'memory';
+
+        // Sessions too, and for a sharper reason than the counters: a session
+        // file is a live credential. A test run has no business leaving one on
+        // the machine it ran on, in a directory somebody might later copy into
+        // a backup or a support ticket.
+        $config['session']['store'] ??= 'memory';
 
         return Bootstrap::create(
             $this->basePath(),
@@ -61,7 +117,7 @@ abstract class TestCase extends PHPUnitTestCase
             'gateways' => 'tests/Fixtures/Modules/Gateways',
         ];
 
-        return $this->application($config);
+        return $this->build($config);
     }
 
     protected function tearDown(): void

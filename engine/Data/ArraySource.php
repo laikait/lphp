@@ -23,7 +23,7 @@ namespace App\Engine\Data;
  * What it is not is a database. There are no transactions, no concurrency and
  * no durability, and sorting a hundred thousand rows in PHP is not a plan.
  */
-final class ArraySource implements DataSource
+final class ArraySource implements DataSource, BulkWrites
 {
     /** @var array<string, list<array<string, mixed>>> */
     private array $collections = [];
@@ -190,6 +190,74 @@ final class ArraySource implements DataSource
         $this->collections[$collection] = $remaining;
 
         return \count($rows) - \count($remaining);
+    }
+
+    // ---- bulk writes ------------------------------------------------------
+
+    /**
+     * Row by row underneath, which is fine in memory and is the point: the
+     * refusals, the counts and the identities a later read sees are the same as
+     * a database's, so a test of a bulk write here is a test of it there.
+     */
+    public function insertMany(string $collection, string $key, array $rows): int
+    {
+        Bulk::columns($collection, $rows);
+
+        foreach ($rows as $row) {
+            $this->insert($collection, $key, $row);
+        }
+
+        return \count($rows);
+    }
+
+    public function updateWhere(Query $query, array $changes): int
+    {
+        $criteria = Bulk::criteria($query, 'update');
+
+        if ($changes === []) {
+            return 0;
+        }
+
+        $changed = 0;
+
+        foreach ($this->collections[$query->collection()] ?? [] as $index => $row) {
+            if (self::matchesAll($row, $criteria)) {
+                $this->collections[$query->collection()][$index] = [...$row, ...$changes];
+                ++$changed;
+            }
+        }
+
+        return $changed;
+    }
+
+    public function deleteWhere(Query $query): int
+    {
+        $criteria = Bulk::criteria($query, 'delete');
+        $rows = $this->collections[$query->collection()] ?? [];
+
+        $remaining = \array_values(\array_filter(
+            $rows,
+            static fn(array $row): bool => !self::matchesAll($row, $criteria),
+        ));
+
+        $this->collections[$query->collection()] = $remaining;
+
+        return \count($rows) - \count($remaining);
+    }
+
+    /**
+     * @param array<string, mixed> $row
+     * @param list<Criterion>      $criteria
+     */
+    private static function matchesAll(array $row, array $criteria): bool
+    {
+        foreach ($criteria as $criterion) {
+            if (!$criterion->matches($row[$criterion->field] ?? null)) {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     private function nextIdentity(string $collection, string $key): int

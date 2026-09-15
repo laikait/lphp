@@ -9,11 +9,17 @@ use App\Engine\Error\ErrorContext;
 use App\Engine\Error\ErrorDocument;
 use App\Engine\Error\ErrorPage;
 use App\Engine\Logging\Level;
+use App\Engine\Module\ModuleManager;
+use App\Engine\Session\SessionManager;
+use App\Engine\Session\Stores\ArrayStore as SessionArrayStore;
 use App\Engine\Support\Extensions;
 use App\Tests\Support\TestCase;
 use App\Tests\Unit\Cache\StoreConformanceTest;
+use App\Tests\Unit\Data\BulkWritesConformanceTest;
 use App\Tests\Unit\Queue\StoreConformanceTest as QueueStoreConformanceTest;
 use App\Tests\Unit\Scheduler\LockConformanceTest;
+use App\Tests\Unit\Security\CounterConformanceTest;
+use App\Tests\Unit\Session\StoreConformanceTest as SessionStoreConformanceTest;
 use App\Tests\Unit\Support\HelpersTest;
 
 /**
@@ -32,6 +38,26 @@ final class ArchitectureTest extends TestCase
 
         $iterator = new \RecursiveIteratorIterator(
             new \RecursiveDirectoryIterator($this->basePath('engine'), \FilesystemIterator::SKIP_DOTS),
+        );
+
+        foreach ($iterator as $file) {
+            if ($file instanceof \SplFileInfo && $file->getExtension() === 'php') {
+                $files[] = $file->getPathname();
+            }
+        }
+
+        \sort($files);
+
+        return $files;
+    }
+
+    /** @return list<string> absolute paths of every PHP file under modules/ */
+    private function moduleFiles(): array
+    {
+        $files = [];
+
+        $iterator = new \RecursiveIteratorIterator(
+            new \RecursiveDirectoryIterator($this->basePath('modules'), \FilesystemIterator::SKIP_DOTS),
         );
 
         foreach ($iterator as $file) {
@@ -109,6 +135,28 @@ final class ArchitectureTest extends TestCase
         }
 
         return $calls;
+    }
+
+    /**
+     * Does this file call this function, qualified or not?
+     *
+     * globalFunctionCalls() deliberately reports only UNQUALIFIED calls, which
+     * is what the facade rules need -- a global helper is written add_hook(),
+     * never \add_hook(). Everything else in this codebase is written \substr()
+     * because the coding standard says so, so a rule about native functions
+     * needs the other question answered.
+     *
+     * The boundaries matter: without the lookbehind, "rand(" would match inside
+     * "str_shuffle(" -- no -- inside nothing, but "shuffle(" would match inside
+     * "str_shuffle(", and a rule that fires on the wrong function is a rule
+     * somebody deletes.
+     */
+    private function callsFunction(string $path, string $name): bool
+    {
+        return \preg_match(
+            '/(?<![A-Za-z0-9_$>])\\\\?' . \preg_quote($name, '/') . '\s*\(/',
+            $this->codeWithoutComments($path),
+        ) === 1;
     }
 
     /**
@@ -582,6 +630,8 @@ final class ArchitectureTest extends TestCase
     {
         $infrastructure = [
             'ArraySource.php',
+            'Bulk.php',
+            'BulkWrites.php',
             'Criterion.php',
             'DataException.php',
             'DataSource.php',
@@ -1007,19 +1057,88 @@ final class ArchitectureTest extends TestCase
     }
 
     /**
-     * Twig is a development dependency, so an application that never renders a
-     * Twig template never ships it. The engine asks before touching it.
+     * Twig is the default engine and the default template ships .twig files,
+     * so it is a runtime requirement. Left in require-dev, `composer install
+     * --no-dev` -- which is how production installs -- would produce an
+     * application whose front page and 404 page cannot be rendered.
      */
-    public function test_twig_is_not_a_runtime_requirement(): void
+    public function test_twig_is_a_runtime_requirement_because_the_default_template_needs_it(): void
     {
         $composer = \file_get_contents($this->basePath('composer.json'));
         self::assertIsString($composer);
 
-        /** @var array{require: array<string, string>, require-dev: array<string, string>} $manifest */
+        /** @var array{require: array<string, string>, require-dev?: array<string, string>} $manifest */
         $manifest = \json_decode($composer, true, 16, \JSON_THROW_ON_ERROR);
 
-        self::assertArrayNotHasKey('twig/twig', $manifest['require']);
-        self::assertArrayHasKey('twig/twig', $manifest['require-dev']);
+        self::assertArrayHasKey('twig/twig', $manifest['require']);
+        self::assertArrayNotHasKey('twig/twig', $manifest['require-dev'] ?? []);
+        self::assertNotEmpty(\glob($this->basePath('templates/default/views/*.twig')) ?: []);
+    }
+
+    /**
+     * Twig first, PHP second: the order Bootstrap adds engines is the order
+     * they win in, so it is pinned here rather than left to whoever next
+     * reorders two lines.
+     */
+    public function test_twig_is_registered_ahead_of_php(): void
+    {
+        $source = \file_get_contents($this->basePath('engine/Bootstrap/Bootstrap.php'));
+        self::assertIsString($source);
+
+        $twig = \strpos($source, '->addEngine(new TwigTemplateEngine(');
+        $php = \strpos($source, '->addEngine(new PhpTemplateEngine(');
+
+        self::assertIsInt($twig, 'Bootstrap no longer registers the Twig engine');
+        self::assertIsInt($php, 'Bootstrap no longer registers the PHP engine');
+        self::assertLessThan($php, $twig, 'the PHP engine is registered first, so it would win over Twig');
+    }
+
+    /**
+     * The minimum PHP version is declared twice, and the two must agree.
+     *
+     * composer.json states it; phpstan.neon is what ENFORCES it. Analysing at
+     * the declared minimum is the only thing that reports readonly classes or
+     * never-returning arrow functions before they reach a host that cannot
+     * parse them -- a parse error, note, not a runtime error, so the file does
+     * not have to be reached for the deployment to be broken.
+     *
+     * The dangerous drift is one-directional and quiet: lower the composer
+     * requirement to widen support, forget phpstan, and the analyser goes on
+     * cheerfully permitting syntax the newly supported version cannot read.
+     * Nothing fails until somebody installs it.
+     */
+    public function test_the_minimum_php_version_is_the_one_that_is_analysed(): void
+    {
+        $composer = \file_get_contents($this->basePath('composer.json'));
+        self::assertIsString($composer);
+
+        /** @var array{require: array<string, string>} $manifest */
+        $manifest = \json_decode($composer, true, 16, \JSON_THROW_ON_ERROR);
+
+        $declared = $manifest['require']['php'];
+
+        self::assertMatchesRegularExpression(
+            '/^\^\d+\.\d+$/',
+            $declared,
+            'require.php is expected to be a caret constraint such as ^8.1.',
+        );
+
+        $parts = \explode('.', \substr($declared, 1));
+        $expected = \sprintf('%d%02d00', (int) ($parts[0] ?? 0), (int) ($parts[1] ?? 0));
+
+        $config = \file_get_contents($this->basePath('phpstan.neon'));
+        self::assertIsString($config);
+
+        self::assertStringContainsString(
+            'min: ' . $expected,
+            $config,
+            \sprintf(
+                'composer.json requires PHP %s, so phpstan.neon is expected to analyse from %s. '
+                . 'Static analysis is what keeps the requirement honest, so the two move together.',
+                $declared,
+                $expected,
+            ),
+        );
     }
 
     /**
@@ -1232,7 +1351,7 @@ final class ArchitectureTest extends TestCase
     public function test_the_development_server_denies_what_the_web_server_denies(): void
     {
         $htaccess = \file_get_contents($this->basePath('.htaccess'));
-        $router = \file_get_contents($this->basePath('server.php'));
+        $router = \file_get_contents($this->basePath('server'));
 
         self::assertIsString($htaccess);
         self::assertIsString($router);
@@ -1242,7 +1361,7 @@ final class ArchitectureTest extends TestCase
         }
 
         if (\preg_match('/foreach \(\[([^\]]+)\] as \$private\)/', $router, $builtIn) !== 1) {
-            self::fail('server.php no longer denies a list of directories in the shape this rule can read.');
+            self::fail('the dev router no longer denies a list of directories in the shape this rule can read.');
         }
 
         $denied = \explode('|', $apache[1]);
@@ -1258,7 +1377,7 @@ final class ArchitectureTest extends TestCase
 
         // And the metadata, which the built-in server would otherwise serve as
         // plain text rather than execute.
-        self::assertStringContainsString('.env', $router, 'server.php no longer refuses a .env file.');
+        self::assertStringContainsString('.env', $router, 'the dev router no longer refuses a .env file.');
     }
 
     // ---- the console ------------------------------------------------------
@@ -1287,7 +1406,10 @@ final class ArchitectureTest extends TestCase
             'engine/Cli/Output.php',
             'engine/Cli/Commands/AboutCommand.php',
             'engine/Cli/Commands/AssetListCommand.php',
+            'engine/Cli/Commands/AuthAccessCommand.php',
+            'engine/Cli/Commands/AuthHashCommand.php',
             'engine/Cli/Commands/CacheClearCommand.php',
+            'engine/Cli/Commands/CacheWarmCommand.php',
             'engine/Cli/Commands/ConfigCacheCommand.php',
             'engine/Cli/Commands/ConfigListCommand.php',
             'engine/Cli/Commands/HelpCommand.php',
@@ -1300,6 +1422,10 @@ final class ArchitectureTest extends TestCase
             'engine/Cli/Commands/ScheduleListCommand.php',
             'engine/Cli/Commands/ScheduleRunCommand.php',
             'engine/Cli/Commands/ScheduleUnlockCommand.php',
+            'engine/Cli/Commands/SecurityCheckCommand.php',
+            'engine/Cli/Commands/SecurityKeyCommand.php',
+            'engine/Cli/Commands/SessionGcCommand.php',
+            'engine/Cli/Commands/SessionTableCommand.php',
             'engine/Cli/Commands/TemplateListCommand.php',
         ];
 
@@ -1355,9 +1481,17 @@ final class ArchitectureTest extends TestCase
                 ),
             );
 
-            self::assertStringNotContainsString(
-                'protected ',
-                $code,
+            // Tokens, not text. A substring scan fires on the variable name
+            // $unprotected and on the word "protected" inside a message, and a
+            // rule that cries wolf gets worked around rather than obeyed --
+            // usually by renaming the innocent thing, which leaves the rule
+            // looking correct and the next author puzzled.
+            self::assertNotContains(
+                \T_PROTECTED,
+                \array_map(
+                    static fn(array|string $token): int|string => \is_array($token) ? $token[0] : $token,
+                    \token_get_all((string) \file_get_contents($path)),
+                ),
                 \sprintf('%s has a protected member, which only a subclass could want.', $relative),
             );
         }
@@ -1415,10 +1549,17 @@ final class ArchitectureTest extends TestCase
             'schedule:list',
             'schedule:run',
             'schedule:unlock',
+            'security:check',
+            'security:key',
+            'auth:access',
+            'auth:hash',
+            'session:gc',
+            'session:table',
             'asset:list',
             'template:list',
             'log:status',
             'cache:clear',
+            'cache:warm',
             'config:cache',
             'config:list',
         ];
@@ -1727,7 +1868,7 @@ final class ArchitectureTest extends TestCase
             'the default file writer targets this directory, so it has to be the one that is denied',
         );
 
-        foreach (['.htaccess', 'server.php'] as $file) {
+        foreach (['.htaccess', 'server'] as $file) {
             $contents = \file_get_contents($this->basePath($file));
             self::assertIsString($contents);
 
@@ -2111,7 +2252,7 @@ final class ArchitectureTest extends TestCase
      */
     public function test_the_queue_directory_is_denied_by_the_web_server(): void
     {
-        foreach (['.htaccess', 'server.php'] as $file) {
+        foreach (['.htaccess', 'server'] as $file) {
             $contents = \file_get_contents($this->basePath($file));
             self::assertIsString($contents);
 
@@ -2119,6 +2260,299 @@ final class ArchitectureTest extends TestCase
                 'system',
                 $contents,
                 \sprintf('%s no longer refuses system/, so queued payloads may be readable.', $file),
+            );
+        }
+    }
+
+    // ---- security -----------------------------------------------------------------
+
+    /**
+     * The security layer holds infrastructure only.
+     */
+    public function test_the_security_layer_holds_infrastructure_only(): void
+    {
+        $infrastructure = [
+            'engine/Security/Counter.php',
+            'engine/Security/CounterStore.php',
+            'engine/Security/Counters/FileStore.php',
+            'engine/Security/Counters/MemoryStore.php',
+            'engine/Security/Csrf.php',
+            'engine/Security/Guard.php',
+            'engine/Security/RateLimit.php',
+            'engine/Security/RateLimiter.php',
+            'engine/Security/RequestLimits.php',
+            'engine/Security/Secret.php',
+            'engine/Security/SecurityException.php',
+            'engine/Security/SecurityHeaders.php',
+            'engine/Security/Signer.php',
+            'engine/Security/UploadPolicy.php',
+        ];
+
+        $found = [];
+
+        foreach ($this->engineFiles() as $path) {
+            $relative = $this->relative($path);
+
+            if (\str_contains($relative, 'engine/Security/')) {
+                $found[] = $relative;
+            }
+        }
+
+        \sort($found);
+        \sort($infrastructure);
+
+        self::assertSame($infrastructure, $found);
+    }
+
+    /**
+     * The two classes that compare secrets still reach for hash_equals.
+     *
+     * == and === are the obvious thing to write here and are wrong in a way
+     * nothing demonstrates in development: they return as soon as two bytes
+     * differ, so the time they take measures how many leading bytes matched,
+     * and over enough requests that is a way to learn a token one byte at a
+     * time.
+     *
+     * **What this test actually catches is removal, not misuse.** A file-level
+     * scan cannot tell which comparison in a class is the one that matters, and
+     * a rule that tried -- banning === outright -- would fire on `$at === false`
+     * two lines away and be deleted by the first person it inconvenienced. So
+     * this is a tripwire for hash_equals disappearing, and the real protection
+     * is the rule below: nothing outside Signer computes an HMAC, so there is
+     * exactly one comparison in the codebase that has to be right.
+     */
+    public function test_secrets_are_compared_in_constant_time(): void
+    {
+        foreach ([
+            \App\Engine\Security\Signer::class,
+            \App\Engine\Security\Secret::class,
+        ] as $class) {
+            $path = (new \ReflectionClass($class))->getFileName();
+            self::assertIsString($path);
+
+            self::assertTrue(
+                $this->callsFunction($path, 'hash_equals'),
+                \sprintf(
+                    '%s no longer compares in constant time. A === here is a way to forge a '
+                    . 'signature one byte at a time.',
+                    $this->relative($path),
+                ),
+            );
+        }
+    }
+
+    /**
+     * Nothing in the engine compares a signature by hand.
+     *
+     * The companion to the rule above. hash_hmac is the primitive and Signer is
+     * the only place it belongs: a second implementation is a second chance to
+     * compare the result wrongly, and the one that gets it wrong will be the
+     * one written in a hurry to solve an adjacent problem.
+     */
+    public function test_only_the_signer_computes_a_signature(): void
+    {
+        foreach ($this->engineFiles() as $path) {
+            $relative = $this->relative($path);
+
+            if (\str_ends_with($relative, 'engine/Security/Signer.php')) {
+                continue;
+            }
+
+            self::assertFalse(
+                $this->callsFunction($path, 'hash_hmac'),
+                \sprintf(
+                    '%s computes its own HMAC. Signing goes through Security\\Signer, which is also '
+                    . 'the only place the comparison is known to be constant time.',
+                    $relative,
+                ),
+            );
+        }
+    }
+
+    /**
+     * Randomness used for security comes from the CSPRNG.
+     *
+     * rand() and mt_rand() are seeded pseudo-randomness: fast, fine for
+     * choosing a sample row, and predictable enough that a token built from one
+     * can be guessed by anyone who has seen a few. The distinction is invisible
+     * at the call site, which is exactly why it needs a test rather than a
+     * convention.
+     */
+    public function test_security_randomness_is_not_guessable(): void
+    {
+        foreach ($this->engineFiles() as $path) {
+            $relative = $this->relative($path);
+
+            if (!\str_contains($relative, 'engine/Security/')) {
+                continue;
+            }
+
+            foreach (['rand', 'mt_rand', 'srand', 'mt_srand', 'uniqid', 'shuffle', 'str_shuffle'] as $weak) {
+                self::assertFalse(
+                    $this->callsFunction($path, $weak),
+                    \sprintf(
+                        '%s calls %s(). Anything a token is built from comes from random_bytes().',
+                        $relative,
+                        $weak,
+                    ),
+                );
+            }
+        }
+    }
+
+    /**
+     * A secret never becomes a string by accident.
+     *
+     * Secret exists so that a key cannot be echoed into a message, dumped into
+     * a ticket or serialised into a queue file, and the guarantee is only worth
+     * anything while reveal() is the single way out. A second accessor -- a
+     * value(), a get(), a toString that returned the real thing -- would make
+     * `grep -rn 'reveal()'` stop being a complete list of where secrets are
+     * used, which is the property the class is actually for.
+     */
+    public function test_a_secret_has_exactly_one_way_out(): void
+    {
+        $reflection = new \ReflectionClass(\App\Engine\Security\Secret::class);
+        $revealing = [];
+
+        foreach ($reflection->getMethods(\ReflectionMethod::IS_PUBLIC) as $method) {
+            if ($method->getReturnType() instanceof \ReflectionNamedType
+                && $method->getReturnType()->getName() === 'string'
+                && $method->getNumberOfParameters() === 0) {
+                $revealing[] = $method->getName();
+            }
+        }
+
+        \sort($revealing);
+
+        self::assertSame(
+            ['__toString', 'jsonSerialize', 'reveal'],
+            $revealing,
+            'Secret gained another way to produce a string. Only reveal() may return the real value.',
+        );
+    }
+
+    /**
+     * The security layer decides; it does not report.
+     *
+     * A guard that logged its own refusals would put a remotely-triggerable
+     * write into the path an attacker controls -- a thousand bad tokens a
+     * second is a thousand log lines a second, which is a way to fill a disk
+     * and to bury the entry that mattered. Refusals are HttpExceptions, and the
+     * error layer already announces those on error.reported for a logger to
+     * hear.
+     */
+    public function test_the_security_layer_does_not_write_its_own_log(): void
+    {
+        foreach ($this->engineFiles() as $path) {
+            $relative = $this->relative($path);
+
+            if (!\str_contains($relative, 'engine/Security/')) {
+                continue;
+            }
+
+            foreach (['Logging', 'Logger', 'LogManager', 'error_log'] as $forbidden) {
+                self::assertStringNotContainsString(
+                    $forbidden,
+                    $this->codeWithoutComments($path),
+                    \sprintf(
+                        '%s refers to %s. A refusal is an HttpException; the error layer announces it '
+                        . 'and a logger listens, which is also what keeps a flood of refusals from '
+                        . 'becoming a flood of writes.',
+                        $relative,
+                        $forbidden,
+                    ),
+                );
+            }
+        }
+    }
+
+    /**
+     * Every counter store is held to the same contract.
+     *
+     * The cache, queue and schedule-lock suites again. The failure this one
+     * guards against is the quietest of the four: a counter store that is not
+     * atomic does not throw, does not log and does not look wrong -- it simply
+     * lets through rather more requests than the limit says, under exactly the
+     * load that made somebody want a limit.
+     */
+    public function test_every_counter_store_runs_the_conformance_suite(): void
+    {
+        $stores = [];
+
+        foreach ($this->engineFiles() as $path) {
+            $relative = $this->relative($path);
+
+            if (\str_contains($relative, 'engine/Security/Counters/')) {
+                $stores[] = \basename($relative, '.php');
+            }
+        }
+
+        $exercised = [];
+
+        foreach (CounterConformanceTest::stores() as $make) {
+            $exercised[] = (new \ReflectionClass($make[0]()))->getShortName();
+        }
+
+        \sort($stores);
+        \sort($exercised);
+
+        self::assertSame(
+            $stores,
+            $exercised,
+            'a counter store exists that the conformance test never runs against',
+        );
+    }
+
+    /**
+     * CSRF is opt-out, not opt-in, and the default is in one place.
+     *
+     * The direction is the whole decision. Opt-in means the route somebody adds
+     * in a hurry is unprotected, and that is reliably the one that matters.
+     * This pins the default so that flipping it has to be deliberate rather
+     * than a plausible-looking change to a condition.
+     */
+    public function test_csrf_protects_every_unsafe_method_by_default(): void
+    {
+        $csrf = new \App\Engine\Security\Csrf(new \App\Engine\Security\Signer());
+
+        foreach (['POST', 'PUT', 'PATCH', 'DELETE'] as $method) {
+            self::assertTrue($csrf->protects($method), $method . ' is no longer checked by default.');
+        }
+
+        foreach (\App\Engine\Security\Csrf::SAFE_METHODS as $method) {
+            self::assertFalse($csrf->protects($method), $method . ' changes nothing and needs no proof.');
+        }
+    }
+
+    /**
+     * The development router is not readable over HTTP.
+     *
+     * It sits in the same directory the web server serves, and it is a PHP file
+     * whose name does not end in .php -- so Apache will not execute it and will
+     * hand over the source instead. Both deny lists have to name it, and this
+     * checks both, because the one that gets forgotten is the one that is not
+     * being tested.
+     */
+    public function test_the_development_router_is_denied_by_the_web_server(): void
+    {
+        self::assertFileExists(
+            $this->basePath('server'),
+            'the development router has moved; both deny lists name it by filename',
+        );
+
+        foreach (['.htaccess', 'server'] as $file) {
+            $contents = \file_get_contents($this->basePath($file));
+            self::assertIsString($contents);
+
+            self::assertStringContainsString(
+                '|server)',
+                $contents,
+                \sprintf(
+                    '%s no longer refuses the development router, whose source would then be served '
+                    . 'as plain text.',
+                    $file,
+                ),
             );
         }
     }
@@ -2369,7 +2803,7 @@ final class ArchitectureTest extends TestCase
      */
     public function test_the_schedule_directory_is_denied_by_the_web_server(): void
     {
-        foreach (['.htaccess', 'server.php'] as $file) {
+        foreach (['.htaccess', 'server'] as $file) {
             $contents = \file_get_contents($this->basePath($file));
             self::assertIsString($contents);
 
@@ -2572,7 +3006,7 @@ final class ArchitectureTest extends TestCase
             'the cache has moved out of system/, which is the directory the deny rules name',
         );
 
-        foreach (['.htaccess', 'server.php'] as $file) {
+        foreach (['.htaccess', 'server'] as $file) {
             $contents = \file_get_contents($this->basePath($file));
             self::assertIsString($contents);
 
@@ -2582,5 +3016,828 @@ final class ArchitectureTest extends TestCase
                 \sprintf('%s no longer refuses system/, so the compiled configuration may be readable.', $file),
             );
         }
+    }
+    // ---- sessions ---------------------------------------------------------
+
+    /**
+     * PHP's own session handling is not used anywhere, by anyone.
+     *
+     * The specification asks for this directly, and the reasons are worth
+     * keeping written down. session_start() puts the data in a superglobal, the
+     * id in engine state and the policy in ini settings -- so a session cannot
+     * be constructed in a test, cannot be swapped for a fake, and behaves
+     * differently depending on what the SAPI did before the script ran. It also
+     * holds a lock on the session for the whole request, which is why one slow
+     * endpoint blocks every other request from the same browser.
+     *
+     * The rule covers the whole project rather than engine/: a module that
+     * called session_start() would get a second, invisible session sitting
+     * beside this one, and the two would disagree.
+     */
+    public function test_nothing_uses_php_s_own_session_machinery(): void
+    {
+        $banned = [
+            'session_start',
+            'session_id',
+            'session_regenerate_id',
+            'session_destroy',
+            'session_set_save_handler',
+            'session_write_close',
+        ];
+
+        foreach ([...$this->engineFiles(), ...$this->moduleFiles()] as $path) {
+            $source = $this->codeWithoutComments($path);
+
+            self::assertStringNotContainsString(
+                '$_SESSION',
+                $source,
+                \sprintf('%s uses $_SESSION. The session is an object you ask for.', $this->relative($path)),
+            );
+
+            foreach ($banned as $function) {
+                self::assertFalse(
+                    $this->callsFunction($path, $function),
+                    \sprintf('%s calls %s(). See engine/Session/Session.php.', $this->relative($path), $function),
+                );
+            }
+        }
+    }
+
+    /**
+     * Every session store is held to the same contract.
+     *
+     * The fifth suite, and the one whose store is most likely to be swapped
+     * late: one machine becomes three, the file store becomes the database
+     * store, and it happens on the day the traffic arrived. Whatever
+     * differences exist between two implementations are discovered then.
+     */
+    public function test_every_session_store_runs_the_conformance_suite(): void
+    {
+        $stores = [];
+
+        foreach ($this->engineFiles() as $path) {
+            $relative = $this->relative($path);
+
+            if (\str_contains($relative, 'engine/Session/Stores/')) {
+                $stores[] = \basename($relative, '.php');
+            }
+        }
+
+        $exercised = [];
+
+        foreach (SessionStoreConformanceTest::stores() as $make) {
+            $exercised[] = (new \ReflectionClass($make[0]()))->getShortName();
+        }
+
+        \sort($stores);
+        \sort($exercised);
+
+        self::assertSame(
+            $stores,
+            $exercised,
+            'a session store exists that the conformance test never runs against',
+        );
+    }
+
+    /**
+     * The session cookie is HttpOnly, and that is not configurable.
+     *
+     * This cookie IS the credential: script that can read it can be the user
+     * from anywhere. Every other attribute here is a judgement call somebody
+     * may need to make differently -- the name, the domain, SameSite, how long
+     * it lives -- and this one is not, so it is not offered. A setting that
+     * exists is a setting somebody switches off at four in the afternoon to
+     * make a widget work.
+     */
+    public function test_the_session_cookie_cannot_be_made_readable_by_script(): void
+    {
+        $parameters = [];
+
+        foreach ((new \ReflectionClass(SessionManager::class))->getConstructor()?->getParameters() ?? [] as $parameter) {
+            $parameters[] = \strtolower($parameter->getName());
+        }
+
+        self::assertNotContains('httponly', $parameters, 'HttpOnly has become configurable');
+
+        $manager = new SessionManager(new SessionArrayStore());
+
+        self::assertTrue($manager->cookie(\str_repeat('a', 64))->httpOnly);
+        self::assertTrue($manager->forgetCookie()->httpOnly);
+    }
+
+    /**
+     * The security layer does not know that sessions exist.
+     *
+     * Guard rotates the CSRF token when the session id changes, and it does it
+     * because something told it that happened -- not because it holds a
+     * SessionManager. The direction matters: security is wired into bootstrap
+     * before sessions are, and a dependency the other way would make the two
+     * phases impossible to reason about separately.
+     */
+    public function test_the_security_layer_does_not_depend_on_the_session_layer(): void
+    {
+        foreach ($this->engineFiles() as $path) {
+            $relative = $this->relative($path);
+
+            if (!\str_contains($relative, 'engine/Security/')) {
+                continue;
+            }
+
+            $source = $this->codeWithoutComments($path);
+
+            self::assertStringNotContainsString(
+                'App\\Engine\\Session',
+                $source,
+                \sprintf('%s references the session layer. Use the session.regenerated hook.', $relative),
+            );
+        }
+    }
+
+    /**
+     * A session id is generated in exactly one place.
+     *
+     * The id is a bearer credential, so its generator is the single line of
+     * this framework where using the wrong function -- uniqid(), mt_rand(), a
+     * hash of the time -- turns every account into one that can be guessed at.
+     * One place means one line to review and one line that can be wrong.
+     */
+    public function test_only_one_class_generates_a_session_id(): void
+    {
+        foreach ($this->engineFiles() as $path) {
+            $relative = $this->relative($path);
+
+            if (!\str_contains($relative, 'engine/Session/') || \str_ends_with($relative, 'SessionId.php')) {
+                continue;
+            }
+
+            self::assertFalse(
+                $this->callsFunction($path, 'random_bytes'),
+                \sprintf('%s makes its own random id. SessionId::generate() is the one place.', $relative),
+            );
+        }
+    }
+
+    /**
+     * A session's data is written down as JSON, never serialize()d.
+     *
+     * PHP's sessions serialize, so an object put in one comes back as an
+     * object: usually a stale copy of a row that changed an hour ago, and
+     * occasionally a class that no longer exists, which is a fatal error on a
+     * page nobody touched. unserialize() on stored data is also the object
+     * injection class of bug, and the store's contents are exactly the thing an
+     * attacker who has reached the filesystem would edit.
+     */
+    public function test_no_session_is_written_with_serialize(): void
+    {
+        foreach ($this->engineFiles() as $path) {
+            $relative = $this->relative($path);
+
+            if (!\str_contains($relative, 'engine/Session/')) {
+                continue;
+            }
+
+            foreach (['serialize', 'unserialize'] as $function) {
+                self::assertFalse(
+                    $this->callsFunction($path, $function),
+                    \sprintf('%s calls %s(). A session payload is JSON.', $relative, $function),
+                );
+            }
+        }
+    }
+    // ---- authentication and authorization ---------------------------------
+
+    /**
+     * There is no Gate and there is no Policy.
+     *
+     * Named in the specification's list of things not to clone, and the reason
+     * is worth restating: a Gate is a registry of closures keyed by ability
+     * strings, so the closure IS the decision and it can say yes to anything.
+     * A Policy is the same thing discovered by class-name convention. Both make
+     * "who may do this" a question you can only answer by running the code.
+     *
+     * Here a grant is data -- a role holds capabilities -- and the only thing a
+     * closure may do is take permission away. See Authorizer.
+     */
+    public function test_there_is_no_gate_and_no_policy(): void
+    {
+        foreach ($this->engineFiles() as $path) {
+            $name = \basename($this->relative($path), '.php');
+
+            self::assertNotContains(
+                $name,
+                ['Gate', 'Gates', 'Policy', 'Policies', 'PolicyRegistry'],
+                \sprintf('%s is a Gate or a Policy by name.', $this->relative($path)),
+            );
+        }
+
+        // The substantive half. A Gate's defining feature is not its name: it
+        // is that you can hand it a decision. UploadPolicy is called a policy
+        // and is a value object describing allowed uploads, which is why the
+        // name check above is narrow and this one is the real rule.
+        $methods = \array_map(
+            static fn(\ReflectionMethod $method): string => $method->getName(),
+            (new \ReflectionClass(\App\Engine\Auth\Authorizer::class))->getMethods(\ReflectionMethod::IS_PUBLIC),
+        );
+
+        \sort($methods);
+
+        self::assertSame(
+            ['__construct', 'allows', 'authorize', 'capabilitiesFor', 'denies', 'grantsFor'],
+            $methods,
+            'Authorizer gained a method. If it takes a callback, it has become a Gate: a decision '
+            . 'registered in code rather than declared as data, which is the thing the specification '
+            . 'names. Narrowing a decision is what the authorization.decision filter is for.',
+        );
+    }
+
+    /**
+     * The framework does not know what a user is.
+     *
+     * The specification asks for authentication to be modular rather than
+     * embedded in the kernel, and this is the form that takes: engine/Auth
+     * names no table, no column and no model. UserProvider is two methods, and
+     * everything that knows what is behind them lives in a module.
+     *
+     * The frozen method list is the load-bearing part. A third method is how an
+     * interface starts describing a users table -- byEmail(), then
+     * withRoles(), then countActive() -- and by the fourth the framework has an
+     * opinion about a schema it does not own.
+     */
+    public function test_the_framework_does_not_know_what_a_user_is(): void
+    {
+        $methods = \array_map(
+            static fn(\ReflectionMethod $method): string => $method->getName(),
+            (new \ReflectionClass(\App\Engine\Auth\UserProvider::class))->getMethods(),
+        );
+
+        \sort($methods);
+
+        self::assertSame(
+            ['byId', 'byLogin', 'describe'],
+            $methods,
+            'UserProvider gained a method. Everything the framework needs to know about a user is here.',
+        );
+
+        foreach ($this->engineFiles() as $path) {
+            $relative = $this->relative($path);
+
+            if (!\str_contains($relative, 'engine/Auth/')) {
+                continue;
+            }
+
+            $source = $this->codeWithoutComments($path);
+
+            foreach (['SELECT ', 'INSERT ', 'UPDATE ', 'users'] as $forbidden) {
+                self::assertStringNotContainsString(
+                    $forbidden,
+                    $source,
+                    \sprintf('%s mentions "%s". The auth layer has no storage of its own.', $relative, $forbidden),
+                );
+            }
+        }
+    }
+
+    /**
+     * One class hashes passwords.
+     *
+     * The same argument as Signer being the only HMAC: a second call site is a
+     * second chance to compare with ===, to forget the salt, or to pick an
+     * algorithm because it was faster. One place means one place to review.
+     */
+    public function test_only_one_class_hashes_a_password(): void
+    {
+        foreach ([...$this->engineFiles(), ...$this->moduleFiles()] as $path) {
+            $relative = $this->relative($path);
+
+            if (\str_ends_with($relative, 'engine/Auth/Password.php')) {
+                continue;
+            }
+
+            foreach (['password_hash', 'password_verify', 'password_needs_rehash'] as $function) {
+                self::assertFalse(
+                    $this->callsFunction($path, $function),
+                    \sprintf('%s calls %s(). Auth\\Password is the one place.', $relative, $function),
+                );
+            }
+        }
+    }
+
+    /**
+     * An Identity carries no credential.
+     *
+     * It is handed to handlers, put in log context and returned in JSON by any
+     * application that wants a /me endpoint. A password hash reaching it would
+     * be published by the first such endpoint somebody wrote, and nothing about
+     * that code would look wrong.
+     */
+    public function test_an_identity_carries_nothing_secret(): void
+    {
+        $reflection = new \ReflectionClass(\App\Engine\Auth\Identity::class);
+
+        foreach ($reflection->getProperties() as $property) {
+            foreach (['password', 'hash', 'secret', 'token', 'credential'] as $forbidden) {
+                self::assertStringNotContainsString(
+                    $forbidden,
+                    \strtolower($property->getName()),
+                    \sprintf('Identity::$%s looks like a credential.', $property->getName()),
+                );
+            }
+        }
+
+        // Account is where the hash lives, and it is what the provider returns
+        // rather than what a handler is given.
+        self::assertTrue(
+            (new \ReflectionClass(\App\Engine\Auth\Account::class))->hasProperty('passwordHash'),
+            'the hash has moved somewhere other than Account',
+        );
+    }
+
+    /**
+     * The key naming the logged-in account cannot be written from application
+     * code.
+     *
+     * Otherwise any path that puts a user-supplied key into the session -- a
+     * fill() over request input is the obvious one -- would be a way to log in
+     * as anybody.
+     */
+    public function test_the_session_key_that_holds_the_login_is_reserved(): void
+    {
+        $key = \App\Engine\Auth\Authenticators\SessionAuthenticator::KEY;
+
+        self::assertStringStartsWith(
+            \App\Engine\Session\Session::RESERVED_PREFIX,
+            $key,
+            'the authentication key is no longer inside the framework namespace',
+        );
+
+        $session = new \App\Engine\Session\Session(\App\Engine\Session\SessionId::generate());
+
+        $this->expectException(\App\Engine\Session\SessionException::class);
+
+        $session->set($key, 'anybody');
+    }
+
+    /**
+     * The security layer and the session layer do not know about the auth
+     * layer.
+     *
+     * Bootstrap wires them in order -- security, then session, then auth -- and
+     * each one only ever hears about the ones before it through named hooks. A
+     * reference pointing backwards would make the three impossible to reason
+     * about, or to boot, separately.
+     */
+    public function test_nothing_underneath_authentication_depends_on_it(): void
+    {
+        foreach ($this->engineFiles() as $path) {
+            $relative = $this->relative($path);
+
+            if (!\str_contains($relative, 'engine/Security/') && !\str_contains($relative, 'engine/Session/')) {
+                continue;
+            }
+
+            self::assertStringNotContainsString(
+                'App\\Engine\\Auth',
+                $this->codeWithoutComments($path),
+                \sprintf('%s references the auth layer. Use a hook; see Guard::onSessionRegenerated().', $relative),
+            );
+        }
+    }
+    // ---- module dependencies ----------------------------------------------
+
+    /**
+     * A module that uses another module's classes says so.
+     *
+     * The dependency system can only check what is declared. A module that
+     * reaches into another's namespace without declaring it still works -- until
+     * the other module is disabled, removed or upgraded, at which point it fails
+     * with a class-not-found error on whatever request first touched the
+     * import, instead of refusing to boot with both modules named.
+     *
+     * So the declarations are checked against the code: every reference to
+     * another module's namespace, anywhere under a module's directory, has to
+     * be matched by requires() or optionally() in its module.php. Shared is
+     * included -- it always registers first, but its API still has a version.
+     */
+    public function test_a_module_declares_every_module_whose_classes_it_uses(): void
+    {
+        $registry = $this->application()->boot()->container()->get(ModuleManager::class)->registry();
+
+        foreach ($registry->contexts() as $context) {
+            $declared = \array_map(
+                static fn(\App\Engine\Module\Dependency $dependency): string => $dependency->id,
+                $context->declaredDependencies(),
+            );
+
+            foreach ($this->filesUnder($context->path()) as $path) {
+                foreach ($this->modulesReferencedBy($path) as $referenced) {
+                    if ($referenced === $context->id()) {
+                        continue;
+                    }
+
+                    self::assertContains(
+                        $referenced,
+                        $declared,
+                        \sprintf(
+                            '%s uses %s but %s/module.php does not declare it. Add $module->requires(\'%s\', ...).',
+                            $this->relative($path),
+                            $referenced,
+                            $context->id(),
+                            $referenced,
+                        ),
+                    );
+                }
+            }
+        }
+    }
+
+    /**
+     * Shared first, gateways last, in the application as it actually boots.
+     *
+     * The resolver enforces this by refusing a dependency against kind; this
+     * checks the outcome, so a change to the resolver that reordered across
+     * kinds is caught even if every unit test of it still passed.
+     */
+    public function test_the_real_application_registers_in_kind_order(): void
+    {
+        $registry = $this->application()->boot()->container()->get(ModuleManager::class)->registry();
+
+        $ranks = \array_map(
+            static fn(\App\Engine\Module\ModuleDefinition $definition): int => $definition->kind->rank(),
+            $registry->definitions(),
+        );
+
+        $sorted = $ranks;
+        \sort($sorted);
+
+        self::assertSame($sorted, $ranks, 'modules registered out of kind order');
+        self::assertSame('shared', $registry->ids()[0] ?? null);
+    }
+
+    /**
+     * The discovery cache holds what discovery found, and nothing resolved.
+     *
+     * A cached dependency graph would be stale the first time somebody edited a
+     * module.php, and this cache deliberately has no automatic invalidation. So
+     * the cached shape is pinned: adding a field here is adding something that
+     * will one day be silently wrong.
+     *
+     * Phase 27 added two, deliberately, and both are answers the same directory
+     * walk gives -- whether assets/ and Templates/ exist. They go stale exactly
+     * when the path would (somebody changed the module's directory), not when
+     * somebody edits a declaration, which is the line this test holds.
+     */
+    public function test_the_discovery_cache_carries_no_dependency_data(): void
+    {
+        $definition = \App\Engine\Module\ModuleDefinition::create(
+            \App\Engine\Module\ModuleKind::Plugin,
+            '/modules/plugins/Example',
+            'Example',
+        );
+
+        self::assertSame(
+            ['id', 'kind', 'path', 'entryFile', 'directory', 'assets', 'templates'],
+            \array_keys($definition->toArray()),
+            'The discovery cache gained a field. If it is resolved data, it will go stale.',
+        );
+    }
+
+    /**
+     * One authority decides the registration order.
+     *
+     * If anything other than the manager could set it, "why did this module
+     * register before that one" would stop having one place to look.
+     */
+    public function test_only_the_module_manager_sets_the_registration_order(): void
+    {
+        foreach ($this->engineFiles() as $path) {
+            $relative = $this->relative($path);
+
+            if (\str_ends_with($relative, 'engine/Module/ModuleManager.php')
+                || \str_ends_with($relative, 'engine/Module/ModuleRegistry.php')) {
+                continue;
+            }
+
+            self::assertStringNotContainsString(
+                '->setOrder(',
+                $this->codeWithoutComments($path),
+                \sprintf('%s sets the module order. Only ModuleManager::resolve() does.', $relative),
+            );
+        }
+    }
+
+    // ---- performance (Phase 27) ----------------------------------------------
+
+    /**
+     * Only discovery asks the filesystem about module directories.
+     *
+     * A boot from the discovery cache touches no module directory, and that is
+     * true only while nothing after discovery goes back to ask. The questions
+     * were each asked once, by the walk, and written into the definition --
+     * registration reads $definition->hasAssets rather than calling is_dir(),
+     * and the day somebody "simplifies" that back is the day every cached
+     * request pays for two stats per module again, invisibly, because nothing
+     * breaks.
+     *
+     * ModuleRegistry is exempt for the one file it owns, the cache itself.
+     */
+    public function test_only_discovery_probes_module_directories(): void
+    {
+        $probes = ['is_dir', 'is_file', 'file_exists', 'scandir', 'glob', 'opendir', 'readdir', 'realpath', 'filemtime', 'stat'];
+
+        foreach ($this->engineFiles() as $path) {
+            $relative = $this->relative($path);
+
+            if (!\str_contains($relative, 'engine/Module/')
+                || \str_ends_with($relative, 'engine/Module/ModuleDiscovery.php')
+                || \str_ends_with($relative, 'engine/Module/ModuleRegistry.php')) {
+                continue;
+            }
+
+            foreach ($probes as $probe) {
+                self::assertFalse(
+                    $this->callsFunction($path, $probe),
+                    \sprintf(
+                        '%s calls %s(). Only ModuleDiscovery asks the filesystem about modules; a cached boot must '
+                        . 'not ask again. Record the answer on ModuleDefinition instead.',
+                        $relative,
+                        $probe,
+                    ),
+                );
+            }
+        }
+    }
+
+    /**
+     * The discovery cache is written by cache:warm and by nothing else.
+     *
+     * It used to be written by whichever request first found it missing, which
+     * is how a cache comes to be built on a developer's laptop halfway through
+     * adding a module and then deployed. A deployment step writes it now, at a
+     * moment when nothing is about to change.
+     */
+    public function test_only_cache_warm_writes_the_discovery_cache(): void
+    {
+        foreach ($this->engineFiles() as $path) {
+            $relative = $this->relative($path);
+
+            if (\str_ends_with($relative, 'engine/Module/ModuleRegistry.php')
+                || \str_ends_with($relative, 'engine/Cli/Commands/CacheWarmCommand.php')) {
+                continue;
+            }
+
+            self::assertStringNotContainsString(
+                '->writeCache(',
+                $this->codeWithoutComments($path),
+                \sprintf('%s writes the module discovery cache. Only cache:warm does.', $relative),
+            );
+        }
+    }
+
+    /**
+     * Every subject the specification lists for benchmarking is benchmarked,
+     * and nothing is filed under a subject it does not list.
+     *
+     * The list is the specification's section 50, copied verbatim into the
+     * suite. A subject quietly dropped because its benchmark was awkward to
+     * write is the failure this catches; the second half stops the list being
+     * satisfied by renaming.
+     */
+    public function test_every_specified_subject_has_a_benchmark(): void
+    {
+        $measured = [];
+
+        foreach (\App\Tests\Benchmark\Suite::all($this->basePath()) as $benchmark) {
+            self::assertContains(
+                $benchmark->subject,
+                \App\Tests\Benchmark\Suite::SUBJECTS,
+                \sprintf('"%s" is filed under a subject the specification does not list.', $benchmark->key()),
+            );
+
+            $measured[$benchmark->subject] = true;
+        }
+
+        foreach (\App\Tests\Benchmark\Suite::SUBJECTS as $subject) {
+            self::assertArrayHasKey($subject, $measured, \sprintf('Nothing benchmarks "%s".', $subject));
+        }
+
+        self::assertSame([
+            'Application boot', 'Module discovery', 'Route resolution', 'Dependency resolution',
+            'Database queries', 'Model hydration', 'Read-model queries', 'Asset resolution',
+            'Template rendering', 'Hook execution', 'Filter execution',
+        ], \App\Tests\Benchmark\Suite::SUBJECTS, 'the subject list is the specification\'s, not a place to trim');
+    }
+
+    /**
+     * Every source that offers bulk writes runs the bulk conformance suite.
+     *
+     * The same shape as the five store rules: a set-based write is exactly
+     * where a second implementation drifts, and it drifts on the day an
+     * application swaps its source.
+     */
+    public function test_every_bulk_source_runs_the_conformance_suite(): void
+    {
+        $implementations = [];
+
+        foreach ($this->engineFiles() as $path) {
+            $code = $this->codeWithoutComments($path);
+
+            if (\preg_match('/\bclass\s+(\w+)[^{]*\bimplements\b[^{]*\bBulkWrites\b/', $code, $match) === 1) {
+                $implementations[] = $match[1];
+            }
+        }
+
+        $exercised = [];
+
+        foreach (BulkWritesConformanceTest::sources() as $make) {
+            $exercised[] = (new \ReflectionClass($make[0]()))->getShortName();
+        }
+
+        \sort($implementations);
+        \sort($exercised);
+
+        self::assertNotSame([], $implementations);
+        self::assertSame($implementations, $exercised, 'a BulkWrites source exists that the conformance suite never runs');
+    }
+
+    // ---- observability (Phase 28) --------------------------------------------
+
+    /**
+     * Instrumentation is attached from outside; nothing measured knows it is.
+     *
+     * The hook and filter engines, the module manager and the connections each
+     * expose an observe() seam and know nothing else. The day HookEngine checks
+     * "is the profiler on" is the day every subsystem grows that check, "off"
+     * becomes a flag somebody forgot rather than an absence of wiring, and a
+     * subsystem cannot be used without the profiler it now imports.
+     *
+     * The tracer is different on purpose, and not covered: it is always on,
+     * it is identity rather than measurement, and the queue and the application
+     * legitimately need to ask it which unit of work is running.
+     */
+    public function test_no_subsystem_references_the_profiler(): void
+    {
+        foreach ($this->engineFiles() as $path) {
+            $relative = $this->relative($path);
+
+            if (\str_contains($relative, 'engine/Observability/') || \str_contains($relative, 'engine/Bootstrap/')) {
+                continue;
+            }
+
+            $code = $this->codeWithoutComments($path);
+
+            foreach (['Observability\\Profiler', 'Observability\\Report'] as $forbidden) {
+                self::assertStringNotContainsString(
+                    $forbidden,
+                    $code,
+                    \sprintf('%s references %s. Expose an observe() seam and let the bootstrap attach it.', $relative, $forbidden),
+                );
+            }
+        }
+    }
+
+    /**
+     * "Do not build a giant debug dashboard initially." Held to, structurally.
+     *
+     * What is observed leaves through the log and through response headers --
+     * channels every deployment already has and already reads. The day a file
+     * under engine/Observability opens a file of its own, prints, or sets a
+     * header directly, it has started to become the dashboard: a store nobody
+     * rotates, a page nobody secured, an endpoint nobody audited.
+     */
+    public function test_observability_keeps_nothing_of_its_own(): void
+    {
+        $forbidden = [
+            'fopen', 'file_put_contents', 'fwrite', 'mkdir', 'touch', 'tempnam', 'error_log',
+            'header', 'setcookie', 'printf', 'print_r', 'var_dump', 'session_start', 'curl_init',
+            'fsockopen', 'stream_socket_client', 'syslog',
+        ];
+
+        $files = \array_filter(
+            $this->engineFiles(),
+            fn(string $path): bool => \str_contains($this->relative($path), 'engine/Observability/'),
+        );
+
+        self::assertNotSame([], $files);
+
+        foreach ($files as $path) {
+            foreach ($forbidden as $function) {
+                self::assertFalse(
+                    $this->callsFunction($path, $function),
+                    \sprintf('%s calls %s(). Observability reports through the log and response headers only.', $this->relative($path), $function),
+                );
+            }
+
+            foreach (\token_get_all((string) \file_get_contents($path)) as $token) {
+                self::assertFalse(
+                    \is_array($token) && \in_array($token[0], [\T_ECHO, \T_PRINT, \T_INLINE_HTML], true),
+                    \sprintf('%s writes output directly.', $this->relative($path)),
+                );
+            }
+        }
+    }
+
+    /**
+     * Every observe() seam in the engine is connected to something.
+     *
+     * A seam nothing attaches to is a subsystem the profiler silently does not
+     * see -- the category simply never appears in a summary, and nobody notices
+     * an absence. So each class that offers one must be named, as a parameter
+     * type, in the code that does the attaching.
+     */
+    public function test_every_observation_seam_is_connected(): void
+    {
+        $wiring = '';
+
+        foreach ($this->engineFiles() as $path) {
+            if (\str_contains($this->relative($path), 'engine/Observability/')) {
+                $wiring .= $this->codeWithoutComments($path);
+            }
+        }
+
+        $seams = [];
+
+        foreach ($this->engineFiles() as $path) {
+            $relative = $this->relative($path);
+
+            if (\str_contains($relative, 'engine/Observability/')) {
+                continue;
+            }
+
+            if (\preg_match('/public function observe\(/', $this->codeWithoutComments($path)) === 1) {
+                $seams[] = \basename($relative, '.php');
+            }
+        }
+
+        \sort($seams);
+
+        self::assertSame(
+            ['Connection', 'ConnectionManager', 'FilterEngine', 'HookEngine', 'ModuleManager'],
+            $seams,
+            'the set of observation seams changed; connect the new one and add it here',
+        );
+
+        // Connection is reached through its manager, which is what hands the
+        // observer to every connection it opens.
+        foreach (\array_diff($seams, ['Connection']) as $seam) {
+            self::assertMatchesRegularExpression(
+                '/\b' . $seam . '\s+\$\w+/',
+                $wiring,
+                \sprintf('%s offers observe() but nothing in engine/Observability attaches to it.', $seam),
+            );
+        }
+    }
+
+    /** @return list<string> absolute paths of every PHP file under a directory */
+    private function filesUnder(string $directory): array
+    {
+        if (!\is_dir($directory)) {
+            return [];
+        }
+
+        $files = [];
+
+        foreach (new \RecursiveIteratorIterator(
+            new \RecursiveDirectoryIterator($directory, \FilesystemIterator::SKIP_DOTS),
+        ) as $file) {
+            if ($file instanceof \SplFileInfo && $file->getExtension() === 'php') {
+                $files[] = $file->getPathname();
+            }
+        }
+
+        \sort($files);
+
+        return $files;
+    }
+
+    /**
+     * Module ids whose namespaces a file mentions in code.
+     *
+     * Two namespace roots are module roots: App\Modules\, where installed
+     * modules live, and App\Tests\Fixtures\Showcase\, where the showcase plugin
+     * and gateway live now that they no longer ship. Leaving the second out
+     * would let the showcase -- the only application with a plugin and a
+     * gateway in it -- reference its way past this rule unseen.
+     *
+     * @return list<string>
+     */
+    private function modulesReferencedBy(string $path): array
+    {
+        $separator = \preg_quote(\chr(92), '/');
+        $pattern = '/App' . $separator . '(?:Modules|Tests' . $separator . 'Fixtures' . $separator . 'Showcase)' . $separator
+            . '(Shared|Plugins' . $separator . '([A-Za-z_][A-Za-z0-9_]*)|Gateways' . $separator . '([A-Za-z_][A-Za-z0-9_]*))/';
+
+        \preg_match_all($pattern, $this->codeWithoutComments($path), $matches, \PREG_SET_ORDER);
+
+        $ids = [];
+
+        foreach ($matches as $match) {
+            $ids[] = match (true) {
+                $match[1] === 'Shared' => 'shared',
+                ($match[2] ?? '') !== '' => 'plugins/' . $match[2],
+                default => 'gateways/' . ($match[3] ?? ''),
+            };
+        }
+
+        return \array_values(\array_unique($ids));
     }
 }

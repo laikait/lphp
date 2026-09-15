@@ -13,11 +13,12 @@ use App\Engine\Routing\Route;
  * Where the security layer meets a request, and the answer to "but there is no
  * middleware".
  *
- * Three listeners on hooks the kernel already fires:
+ * Four listeners on hooks the kernel already fires:
  *
  *   request.received    the size limit, before anything reads a body
  *   dispatch.before     CSRF and the rate limit, with the route in hand
  *   response.instance   the CSRF cookie, on the way out
+ *   session.regenerated rotate the token when the identity changed
  *
  * This is what the specification's ban on middleware asks for and it is not a
  * workaround. A middleware stack is a pipeline every request walks whether or
@@ -49,6 +50,13 @@ final class Guard
 
     public const RATE_LIMIT_META = 'rate_limit';
 
+    /**
+     * Set when the session id changed this request, cleared at the start of
+     * the next one. Guard outlives a request in a worker, so anything
+     * per-request has to be reset rather than assumed fresh.
+     */
+    private bool $rotateCsrf = false;
+
     public function __construct(
         private readonly Csrf $csrf,
         private readonly RateLimiter $limiter,
@@ -59,7 +67,22 @@ final class Guard
     /** request.received: how much a request is allowed to be. */
     public function onRequest(Request $request): void
     {
+        $this->rotateCsrf = false;
+
         ($this->limits)($request);
+    }
+
+    /**
+     * session.regenerated: issue a new CSRF token to go with the new id.
+     *
+     * A hook rather than a dependency, so that this class still knows nothing
+     * about sessions -- it is told that something happened, and what it does
+     * about it is its own business. The parameters are the hook's, and unused
+     * here: what matters is that it happened, not which id replaced which.
+     */
+    public function onSessionRegenerated(): void
+    {
+        $this->rotateCsrf = true;
     }
 
     /**
@@ -90,9 +113,9 @@ final class Guard
             return $response;
         }
 
-        $token = $this->csrf->token($request);
+        $token = $this->rotateCsrf ? $this->csrf->rotate() : $this->csrf->token($request);
 
-        if ($request->cookie(Csrf::COOKIE) === $token) {
+        if (!$this->rotateCsrf && $request->cookie(Csrf::COOKIE) === $token) {
             return $response;
         }
 

@@ -7,11 +7,14 @@ namespace App\Engine\Template;
 /**
  * Templates written in PHP.
  *
+ * The second engine. Twig is registered first and wins where a directory holds
+ * both page.twig and page.php; this one renders everything else ending in .php.
+ *
  * There is no syntax to learn, no compiler, no cache directory and no build
  * step, because PHP is already a template language and opcache already compiles
- * it. That is the whole argument for this engine, and it is why it is the one
- * that always works: an application can render a page with nothing installed
- * beyond the framework.
+ * it. That is the argument for keeping it: a module that ships PHP views keeps
+ * working, and nothing has to be compiled or cached before it runs. The price is that escaping is the author's job -- `$e` -- where in Twig
+ * it is the default.
  *
  *     <h1><?= $e($title) ?></h1>
  *     <ul>

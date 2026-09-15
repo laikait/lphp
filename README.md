@@ -6,19 +6,31 @@ systems.
 
 It is deliberately **not** an MVC framework, and deliberately not a Laravel,
 Symfony or CodeIgniter clone. Modules are the primary application boundary,
-hooks and filters are the primary extension mechanism, and database access will
-be explicit rather than ORM-driven.
+hooks and filters are the primary extension mechanism, and database access is
+explicit rather than ORM-driven.
 
-> **Status: phases 0–22 of 30.** The architecture below is implemented and
-> tested end to end, including against a real database.
-> See [Implementation status](#implementation-status).
+> **Status: 0.1.0, unreleased.** Every phase of the specification is built except
+> the demo application (Phase 29), which is deferred. Nothing is marked Stable
+> yet — see [API stability](#api-stability), [What is not built](#what-is-not-built)
+> and [Implementation status](#implementation-status).
 
 ## Requirements
 
-- PHP 8.2 or newer, with `ext-json`, `ext-mbstring` and `ext-pdo`
+- PHP 8.1 or newer, with `ext-json`, `ext-mbstring` and `ext-pdo`
 - Composer 2
 - A PDO driver for whichever database you use. `pdo_sqlite` is enough to run
   the test suite, which includes real database integration tests.
+- `ext-fileinfo` if you accept uploads — `UploadPolicy` uses it to check a
+  file's contents against its name, and says so rather than passing silently.
+
+**Running it needs 8.1; developing it needs 8.2.** PHPUnit 11 and
+php-cs-fixer's Symfony components all require 8.2, so `composer install`
+with dev dependencies does too. That is a fact about the tools, not about the
+framework, and nothing keeps it honest by itself — so `phpstan.neon` analyses
+across 8.1–8.5, which reports 8.2-only syntax on every run whatever PHP you
+have, and an architecture test fails if that range and `composer.json` ever
+stop agreeing. CI runs the full gate on 8.2–8.5 and, separately, installs
+`--no-dev` on 8.1 to lint, boot and serve a request.
 
 ## Quick start
 
@@ -33,29 +45,28 @@ Under XAMPP the application answers at `http://localhost/framework/` with no
 configuration: the base path is derived from `SCRIPT_NAME`, so the same code
 runs unchanged in a subdirectory, at a domain root, and under `php -S`.
 
-Try it:
+A fresh installation ships one module, `modules/shared`, and a default template.
+It answers two pages, both rendered by Twig through the default layout:
 
 ```bash
-curl -i http://127.0.0.1:8080/customers        # a rendered HTML page
+curl -i http://127.0.0.1:8080/               # the default home page
+curl -i http://127.0.0.1:8080/no/such/page   # the default 404 page
 curl -i -H 'Accept: application/json' \
-        http://127.0.0.1:8080/customers        # the same route, as JSON
-curl -i http://127.0.0.1:8080/customers.json  # and the explicit path
-curl -i http://127.0.0.1:8080/api/v1/customers/2
-curl -i -X POST -H "Content-Type: application/json" \
-     -d '{"name":"Ada Lovelace"}' http://127.0.0.1:8080/api/v1/customers
-
-# The front page lists its own asset URLs; this one lives inside modules/,
-# which the web server refuses to serve.
-curl -i http://127.0.0.1:8080/assets/plugin/Example/js/example.js
+        http://127.0.0.1:8080/no/such/page   # the same 404, as an error document
 ```
 
-The same modules answer on the command line:
+Replace the home page by declaring a `/` route in a module of your own (see
+[The default pages](#the-default-pages)), and look at what is wired:
 
 ```bash
 php bin/console module:list
-php bin/console customer:sync 2026-01-01 --dry-run --limit=2
-php bin/console help customer:sync
+php bin/console route:list
 ```
+
+There is no demo application in `modules/`. The plugin and gateway the examples
+in this document call `Example` exist as a test fixture, under
+`tests/Fixtures/Showcase/`, where the feature tests boot them through every
+subsystem; they are a reference to read, not something an installation carries.
 
 ## Architecture
 
@@ -119,8 +130,9 @@ directories.
 
 | Stage | What happens | What is illegal |
 |---|---|---|
-| **Discover** | The configured roots are scanned for `module.php`. No module code runs. | — |
+| **Discover** | The configured roots are scanned for `module.php` — or the discovery cache is read. No module code runs. **A request for `/assets/...` stops here.** | — |
 | **Load** | Each closure runs and records its declarations. | Resolving services, firing hooks, I/O |
+| **Resolve** | Dependencies are checked across every module at once and the registration order is fixed. Disabled modules were already skipped at Load. | — (no module code runs) |
 | **Register** | Declarations are replayed across all modules **by category**: config → services → routes → hooks → filters. | Reading from the container (impossible) |
 | **Boot** | `onBoot` callbacks run in module order with dependencies injected. | Declaring anything new |
 | **Ready** | `app.booted`, then `app.ready`. | — |
@@ -131,8 +143,134 @@ bound before any route is registered. That removes the ordering bugs service
 providers are known for.
 
 Module order is `shared` → `plugins/*` → `gateways/*`, and within a kind by
-directory name. Never filesystem order. `shared` always registers first, which
-is what makes it genuinely shared.
+directory name — adjusted only where a dependency forces it (see below). Never
+filesystem order. `shared` always registers first, which is what makes it
+genuinely shared.
+
+#### Dependencies between modules
+
+```php
+return static function (ModuleContext $module): void {
+    $module->name('Payment')->version('1.3.0');
+
+    $module->requires('plugins/Billing', '^1.2')
+           ->optionally('plugins/Crm', '^2.0');
+};
+```
+
+Declared in the module's own file, for the reason everything else is: installing
+a module brings its requirements with it, and a reviewer sees them beside the
+routes that rely on them. Modules are named **by id**, never by bare name — a
+plugin and a gateway may share a directory name.
+
+**Four refusals, all at boot**, each naming both modules:
+
+| | |
+|---|---|
+| **missing** | required and not installed — with a "did you mean" when it is plausibly a typo |
+| **disabled** | installed, but listed in `modules.disabled` — a different fix from "missing", so a different message |
+| **version conflict** | installed, and its `version()` does not fit the constraint |
+| **circular** | no order exists; the circle is printed: `plugins/A -> plugins/B -> plugins/A` |
+
+A web client sees a generic 500; an operator at the console sees the whole
+message, because the framework wrote every word of it. A dependency problem found
+at runtime is found by whichever request first touches the missing piece; found
+at boot, it is found by whoever deployed.
+
+**The order changes only where a dependency forces it.** Resolution is a stable
+topological sort: at each step it takes, of the modules whose dependencies are
+all placed, the one that came first in kind-then-name order. An application that
+declares nothing registers exactly as before, and one declaration moves exactly
+one module — the one that has to wait. Within each registration category a
+module is registered after everything it requires, which is visible from inside
+a module: two listeners at the same priority run in that order.
+
+**Kind order is never broken**, and that is a fifth refusal rather than a hope. A
+plugin depending on a gateway, or `shared` depending on anything, would either
+reorder across kinds — breaking "every module may rely on `shared` without
+saying so" for modules that never mentioned it — or be unsatisfiable. Refusing it
+means the sort only ever moves modules *within* their own kind, so `shared`
+registers first by construction.
+
+**Optional means "works without it", not "any version will do".** An optional
+dependency that is present and enabled is held to its constraint and orders
+registration exactly like a required one; only its absence is forgiven. The
+showcase gateway uses one honestly: it listens to `customer.created`, which only
+`plugins/Example` fires. Without that plugin the listener is never called — but a
+`plugins/Example` 1.0 that changed the event's payload should stop the
+application rather than surprise the listener.
+
+To act on whether an optional partner is there, listen for its hooks: they
+simply never fire without it, and need no check. When that is not enough, inject
+`ModuleRegistry` in an `onBoot` callback and ask `isEnabled()`.
+
+#### Versions and constraints
+
+`version()` is **exactly `MAJOR.MINOR.PATCH`**, checked where it is written. It
+was decorative until modules could depend on each other, and a version that
+cannot be compared is a check that cannot be made. No `v` prefix and no
+pre-release suffix — their ordering rules are the part of semver everybody gets
+subtly wrong, and a module under development is `0.x`, which the caret already
+treats as unstable.
+
+Constraints are **a subset of Composer's syntax that means exactly what Composer
+means**, and the rest is refused:
+
+| | |
+|---|---|
+| `*` | any version |
+| `1.2.3` | exactly that |
+| `^1.2` / `^0.3` | `>=1.2.0 <2.0.0` / `>=0.3.0 <0.4.0` |
+| `~1.2` / `~1.2.3` | `>=1.2.0 <2.0.0` / `>=1.2.3 <1.3.0` |
+| `>=1.2 <2.0` | both (space or comma) |
+| `^1.0 \|\| ^2.0` | either |
+
+**A bare partial version like `1.2` is refused**, with both spellings offered.
+Composer reads it as exactly `1.2.0`; the person who typed it almost always meant
+"1.2-ish"; and the disagreement stays invisible until `1.2.1` is installed and
+the application will not boot.
+
+Why modules need this when Composer exists: modules under `modules/` are not
+Composer packages. They are directories in one repository, and nothing else is
+going to check that `plugins/Payment` still fits the `plugins/Billing` beside it.
+
+#### Disabling a module
+
+```php
+// config/modules.php
+return ['disabled' => ['gateways/Stripe']];
+```
+
+A disabled module is **installed but never runs** — not its `module.php`, not
+its boot callbacks, not its listeners, and its assets are not published. It stays
+known to the registry so "disabled" and "missing" can be told apart, and
+`module:list` shows it beneath the table. Anything that *requires* it refuses to
+boot; anything that uses it *optionally* carries on without it.
+
+```
+  ID                KIND      NAME             VERSION  ...  REQUIRES
+  shared            shared    Shared           0.1.0    ...  -
+  gateways/Example  gateways  Example Gateway  0.1.0    ...  plugins/Example? ^0.1 (absent)
+
+Disabled (installed, switched off in modules.disabled): plugins/Example
+```
+
+Two refusals of its own: an id that is not installed, because a typo would leave
+the module running while the configuration says it is off; and `shared`, because
+every other module may rely on it without declaring so.
+
+**Nothing about resolution is cached.** The discovery cache still holds only what
+discovery found — ids and paths, disabled modules included — and an architecture
+test pins its shape. Disabling is configuration applied after the cache is read,
+so switching a module off never needs the cache cleared, and a cached dependency
+graph would be stale the first time somebody edited a `module.php`. Resolving a
+few dozen modules in memory costs microseconds.
+
+**A module that uses another module's classes must declare it**, and an
+architecture test reads the code to check. Without the declaration it still
+works — until the other module is disabled or upgraded, when it fails with a
+class-not-found on whichever request first touches the import, instead of
+refusing to boot with both modules named.
 
 #### Why this is not a service provider
 
@@ -225,7 +363,7 @@ the next number. Three rules keep that honest, all enforced by tests in
 
 The helpers exist for `module.php` files, templates and one-off extension code
 — places with no constructor to inject into. Module *classes* should prefer
-injection, as the ones in `modules/` do.
+injection, as the ones in `modules/shared/` and the showcase do.
 
 ### Routing
 
@@ -242,14 +380,17 @@ A literal segment always beats a parameter at the same depth, so static routes
 win deterministically with no ordering rules to remember.
 
 **There is no middleware**, anywhere. Cross-cutting behaviour is a lifecycle
-hook reading route metadata:
+hook reading route metadata — which is exactly how the framework's own `auth`,
+`can`, `csrf` and `rate_limit` keys work (see [Security](#security) and
+[Authentication and authorization](#authentication-and-authorization)). An
+application adds its own the same way:
 
 ```php
-$routes->post('/customers', $handler)->meta(['auth' => true]);
+$routes->post('/invoices/run', $handler)->meta(['maintenance' => 'blocked']);
 
-$hooks->add('dispatch.before', static function (Route $route): void {
-    if ($route->metaValue('auth') === true && !authenticated()) {
-        throw new HttpException(401);
+$hooks->add('dispatch.before', static function (Route $route) use ($settings): void {
+    if ($route->metaValue('maintenance') === 'blocked' && $settings->bool('billing.frozen')) {
+        throw new HttpException(503);
     }
 });
 ```
@@ -287,6 +428,7 @@ final class Customer extends Model
         private string $name,
         private string $email,
         private ?int $ownerId = null,
+        private bool $active = true,
     ) {}
 
     public function identity(): ?int { return $this->id; }
@@ -455,8 +597,9 @@ insert(collection, key, row)   update(...)   delete(...)
 `ArraySource` implements it in memory, and it is not a toy: a repository tested
 against it runs the real repository, the real query and the real hydration at
 full speed, with no database to install and nothing to clean up between tests.
-The database phase adds a PDO-backed implementation, and nothing above this
-interface changes.
+`SqlSource` is the PDO-backed implementation (see
+[Running the data layer on it](#running-the-data-layer-on-it)), and nothing above
+this interface changes between the two.
 
 **A repository is written, never generated.** The base class publishes *nothing*
 but its constructor — an architecture test enforces it — so every public method
@@ -530,8 +673,64 @@ Two things a query deliberately does not have:
   cannot degrade into N+1 the way a lazy association can.
 
 Transactions, connections and nested-transaction strategy belong to the database
-phase. A `transaction()` on `DataSource` would make every source pretend to have
-one, including the array in a test.
+layer — `Connection::transaction()`, below. A `transaction()` on `DataSource`
+would make every source pretend to have one, including the array in a test.
+
+#### Bulk writes
+
+A billing run that marks four thousand invoices overdue should be one statement,
+not four thousand loads, change sets and single-row updates. Row-at-a-time is the
+right default for domain work, because rules run per object; it is the wrong
+tool for a set. So a repository has three more pieces of `final protected`
+plumbing, and — like the rest — names its own public methods around them:
+
+```php
+public function import(array $rows): int
+{
+    return $this->insertMany($rows);                  // as few INSERTs as the driver allows
+}
+
+public function deactivateOwnedBy(int $ownerId): int
+{
+    return $this->updateWhere($this->query()->whereIs('ownerId', $ownerId), ['active' => false]);
+}
+
+public function purgeInactive(): int
+{
+    return $this->deleteWhere($this->query()->whereIs('active', false));
+}
+```
+
+They live on a second interface, `BulkWrites`, rather than as three more methods
+on `DataSource`. `DataSource` is five methods on purpose — it is the seam a
+non-relational store can implement — and a source that cannot write a set is
+still a perfectly good source. Ask one for a bulk write and the repository says
+so by name instead of looping quietly. Both shipped sources implement it, and a
+conformance suite runs every behaviour below against both.
+
+What is refused, and why:
+
+| | |
+|---|---|
+| a query with an order, a limit, an offset or a column list | a bulk write touches every row the criteria match and nothing else about the query applies. `UPDATE ... LIMIT` means different things on different databases |
+| a query with **no criteria** | "change every row" should be written on purpose — `whereNotNull('id')` — not arrived at by a filter somebody forgot |
+| rows naming different columns | a multi-row `INSERT` has one column list, and filling the gap with `NULL` would override the column's default |
+
+Three consequences worth knowing:
+
+- **No identities come back** from `insertMany()`. Returning them portably means
+  one statement per row again, which is the cost being avoided.
+- **Loaded models are forgotten** after `updateWhere()` and `deleteWhere()`. The
+  database changed underneath objects the identity map would otherwise keep
+  handing out.
+- **No transaction is opened.** A large insert is split to stay under the driver's
+  placeholder limit (999 on SQLite, 2000 on SQL Server, 65535 on MySQL and
+  PostgreSQL), and whether a failure in the third statement should undo the first
+  two is the caller's decision — which is where the specification puts it:
+
+```php
+$connection->transaction(fn () => $customers->import($rows));
+```
 
 ### The database
 
@@ -656,10 +855,16 @@ inside it, and the set of namespaces is finite, enumerable and decided at boot �
 which together are what "assets must never expose physical application
 directories" means in practice.
 
+The unnamed template namespace is the **active** template's `assets/`, not a
+shared `templates/assets/` as the specification's mapping table draws it: the
+stylesheet a page asks for with `asset()->template('css/theme.css')` has to
+change when `APP_TEMPLATE` does, or switching templates would keep the old
+look.
+
 | URL prefix | Directory |
 |---|---|
 | `/assets/core/` | `assets/` |
-| `/assets/template/` | `templates/assets/` |
+| `/assets/template/` | `templates/<active>/assets/` |
 | `/assets/template/admin/` | `templates/admin/assets/` |
 | `/assets/plugin/Example/` | `modules/plugins/Example/assets/` |
 | `/assets/gateway/Stripe/` | `modules/gateways/Stripe/assets/` |
@@ -679,8 +884,9 @@ the application's own, under `assets/`.
 Because `.htaccess` denies `modules/` outright — it has to, since `module.php`
 and every repository lives there. A plugin's `assets/` directory is therefore
 unreachable by the web server *by design*, and the asset server is what makes
-those files reachable without unlocking the directory holding the source. You
-can prove both halves at once:
+those files reachable without unlocking the directory holding the source. With a
+plugin called `Example` installed that ships `assets/js/example.js`, you can
+prove both halves at once:
 
 ```bash
 curl -i http://localhost/framework/modules/plugins/Example/assets/js/example.js  # 403
@@ -766,15 +972,38 @@ there is no request anywhere, while delivery is one HTTP handler that a web
 server or CDN should eventually take over. Pointing `assets.url` at a CDN origin
 is a one-line config change that no application code notices.
 
-`asset.response` is the extension point on delivery — the authorisation story
-for assets, and another place the framework gets away without middleware:
+#### An asset request loads no module
 
-```php
-$module->filter('asset.response', static fn (Response $r, string $path): Response
-    => str_starts_with($path, '/assets/gateway/') && !current_user_is_staff()
-        ? new Response('', 403)
-        : $r);
+The specification is blunt about it: *"`/assets/...` should not initialize
+billing."* It is not. A request under `/assets/` is answered after **discovery
+alone** — no `module.php` runs, no service is bound, no `onBoot` fires, no route
+is registered. That is possible because publishing was never a declaration:
+having an `assets/` directory is the whole of it, and discovery already knows
+which modules have one.
+
+You can watch it on a real server. Install a plugin with a route and an asset —
+the `Example` one from `tests/Fixtures/Showcase/` will do — make its
+`module.php` throw, and its pages fail while its assets do not:
+
+```bash
+curl -s -o /dev/null -w "%{http_code}\n" http://localhost/framework/customers.json                     # 500
+curl -s -o /dev/null -w "%{http_code}\n" http://localhost/framework/assets/plugin/Example/js/example.js  # 200
 ```
+
+The decision is made on the raw path, before any filter runs, because the filters
+that could change it belong to modules that have not loaded. The engine's own
+listeners — the request size limit, the security headers — are attached by the
+bootstrap, so they still apply; `app.booted` and every module listener do not.
+
+**The consequence: module code cannot take part in delivering an asset.** Until
+Phase 27 `asset.response` was documented as the way to put access control on
+assets, with a module filter. That is now refused when the module declares it,
+naming the module — because in production the recommended setup has the web
+server or a CDN deliver assets without PHP at all, so such a filter was only ever
+guaranteed to run in a test. A file that needs a permission check is not a
+public asset; serve it from a route, where `meta(['can' => ...])` already
+applies. `asset.response` remains for engine-level listeners attached at
+bootstrap.
 
 ### Templates
 
@@ -888,42 +1117,93 @@ A partial gets exactly the data it is given and never sees its parent's
 variables, because a partial that could is a partial whose contract is
 "whatever happened to be in scope".
 
-#### Layouts are not a feature
+#### Twig by default, PHP second
 
-There is no `@extends`, no `@section` and no `@yield`, because there does not
-need to be. A page renders to a string and the layout is handed it:
+`twig/twig` is a runtime dependency and the default engine. Bootstrap registers
+the Twig engine first and the PHP engine second, and **the order is the
+precedence**: where one directory holds both `home.twig` and `home.php`, the
+Twig file renders. Directory precedence still comes first — a theme's `.php`
+beats a module's `.twig` — so the engine order only decides ties inside one
+directory. An architecture test pins both the dependency and the order.
 
-```php
-$content = $this->templates->render('customers', ['customers' => $rows]);
-$html    = $this->templates->render('layout', ['title' => 'Customers', 'content' => $content]);
-```
+Twig is the default because it escapes everything it prints unless told not
+to, which turns a forgotten escape from a hole into a visible `&lt;`. PHP
+templates stay because a module that already ships `.php` views should keep
+working, and because they need nothing compiled or cached before they run.
 
-That is a function call rather than a second control flow to learn, and it is
-the line between a template engine and a reimplementation of Blade.
+Nothing outside `TwigTemplateEngine.php` mentions Twig, and an architecture test
+says so: the manager talks to engines through `TemplateEngine`, so replacing
+Twig later is one class and one line in Bootstrap.
 
-#### Twig, optionally
-
-`twig/twig` is a **dev** dependency: nothing outside `TwigTemplateEngine.php`
-mentions Twig, an architecture test says so, and an application that never
-registers the engine never loads a line of it. Install it and `.twig` files
-start resolving; leave it out and they are simply not templates.
-
-What it buys is automatic escaping and a syntax a designer can be handed. Its
-loader mirrors the registry — the same directories, the same order, module
-namespaces as Twig namespaces — so `{% extends "layout.twig" %}` and
+Twig's loader mirrors the registry — the same directories, the same order,
+module namespaces as Twig namespaces — so `{% extends "layout.twig" %}` and
 `{% include "@plugin.Example/row.twig" %}` resolve exactly where the manager
 would have resolved them, override rule included. If the two disagreed, a
 template found by one would be missing to the other.
 
+#### Layouts
+
+A Twig page uses Twig's own inheritance; the default template's pages do:
+
+```twig
+{% extends "layout.twig" %}
+{% block title %}Welcome{% endblock %}
+{% block content %}<h1>Your application is running</h1>{% endblock %}
+```
+
+The PHP engine has no `@extends`, `@section` or `@yield`, and will not grow them —
+that is the line between a template engine and a reimplementation of Blade. A
+PHP page renders to a string and hands it to the layout, and because the default
+`layout.twig` prints a `content` value when no block replaces it, that layout
+works for PHP pages too:
+
+```php
+$content = $this->templates->render('@plugin.Example/customers', ['customers' => $rows]);
+$html    = $this->templates->render('layout', ['title' => 'Customers', 'content' => $content]);
+```
+
+`content` is printed unescaped, because it is markup another template already
+escaped. Every other value in the layout is escaped by Twig.
+
+#### The default pages
+
+```
+templates/default/views/layout.twig        shared by every page below
+templates/default/views/home.twig          GET /, declared by modules/shared
+templates/default/views/errors/404.twig    any path nothing answers
+templates/default/views/errors/error.twig  every other error status
+```
+
+The front page is an ordinary route in the shared module — there is no global
+routes file for it to live in — rendering `home` with the request's `home` URL.
+It says nothing about the machine or the version, because a default page is
+public by definition.
+
+It is meant to be replaced, and replacing it needs no edit to the framework:
+
+- **Declare `/` in your own module.** Every other module registers after
+  shared, and the router keeps the last route declared for a method and path,
+  so yours answers. Give it a name other than `home`; route names are unique
+  and that one is taken.
+- **Or edit `home.twig`**, or switch `APP_TEMPLATE` to a template of your own
+  that ships one.
+
+The 404 page is what any unmatched path gets from a browser; a client that
+asks for JSON gets the error document instead, and debug mode shows the
+built-in diagnostic page so a trace is never hidden behind a pretty one.
+
 #### Templates are not web-readable
 
 `templates/` is denied by `.htaccess` alongside `engine/` and `modules/`, for
-exactly the same reason: a view is a `.php` file, and a `.php` file the web
-server can reach is a `.php` file it will execute. The active template's assets
-stay reachable as `/assets/template/…` through the asset manager, which is the
-only way in.
+exactly the same reason: a PHP view the web server can reach is a PHP file it
+will execute, and a Twig view it can reach is source it will hand out. The
+active template's assets stay reachable as `/assets/template/…` through the asset
+manager, which is the only way in.
 
 ### REST
+
+The examples in this section are the showcase plugin's customer endpoints
+(`tests/Fixtures/Showcase/`); a fresh installation has none of these routes.
 
 REST is not a subsystem here. There is no `engine/Rest/`, no API kernel, no
 `ApiController`, no Resource class and no Transformer — an architecture test
@@ -1043,7 +1323,7 @@ and needs a content type tools handle worse.
 | `ApiResponse::noContent()` | 204, no body and no content type |
 | `ApiResponse::accepted()` | 202, for work taken but not done |
 
-Six static factories over `JsonResponse`, and nothing imposes them — the
+Five static factories, and nothing imposes them — the
 dispatcher still accepts a plain array, so an application that wants a different
 envelope writes one. What they remove is the fifteenth hand-written
 `['data' => …]`, not the choice.
@@ -1220,22 +1500,29 @@ Results go to standard output and complaints go to standard error, so
 #### The framework's own commands are not special
 
 ```
-about          Summarise this application: version, modules, routes, connections.
-help           List the available commands, or explain one of them.
-asset:list     Every published asset directory and the URL prefix it answers on.
-cache:clear    Delete the configuration, module, template and application caches.
-queue:work     Run queued jobs until told to stop.
-queue:status   What is waiting on each queue, and what has failed.
-queue:failed   The jobs that gave up; retry or discard them.
-schedule:list  Every scheduled task, when it next runs, and what is running now.
-schedule:run   Run whatever is due this minute. This is what cron calls.
+about            Summarise this application: version, modules, routes, connections.
+help             List the available commands, or explain one of them.
+asset:list       Every published asset directory and the URL prefix it answers on.
+auth:access      Every capability, every role, and which routes check them.
+auth:hash        Hash a password, for seeding the first account.
+cache:clear      Delete the configuration, module, template and application caches.
+cache:warm       Build the production boot path: the configuration and discovery caches.
+config:cache     Compile config/ and the defaults into one cached file.
+config:list      The configuration this process actually resolved to.
+log:status       Where records go, and whether they are getting there.
+module:list      Discovered modules, in the order they load.
+queue:failed     The jobs that gave up; retry or discard them.
+queue:status     What is waiting on each queue, and what has failed.
+queue:work       Run queued jobs until told to stop.
+route:list       Every registered route and its owning module.
+schedule:list    Every scheduled task, when it next runs, and what is running now.
+schedule:run     Run whatever is due this minute. This is what cron calls.
 schedule:unlock  Held schedule locks; release them after a machine died mid-run.
-config:cache   Compile config/ and the defaults into one cached file.
-config:list    The configuration this process actually resolved to.
-log:status     Where records go, and whether they are getting there.
-module:list    Discovered modules, in the order they load.
-route:list     Every registered route and its owning module.
-template:list  The template search path, highest precedence first.
+security:check   Audit what this deployment actually has switched on.
+security:key     Print a new APP_KEY.
+session:gc       Delete sessions past their lifetime.
+session:table    Print the CREATE TABLE the database session store needs.
+template:list    The template search path, highest precedence first.
 ```
 
 They are registered through the same `CommandCollector` a module uses, under
@@ -1341,14 +1628,17 @@ that guess is wrong eventually.
 #### The application's own error page
 
 ```
-templates/default/views/errors/404.php     a lost visitor
-templates/default/views/errors/error.php   everything else
+templates/default/views/errors/404.twig     a lost visitor
+templates/default/views/errors/error.twig   everything else
 ```
 
 A template named for the status wins; `errors/error` catches the rest; with
 neither, the framework's built-in page renders. A branded 404 costs one file
-rather than a subsystem, and it goes through the ordinary layout because it is
-an ordinary template.
+rather than a subsystem, and it extends the ordinary layout because it is an
+ordinary template. Both are handed `error` (the `ErrorDocument`) and `home` —
+the front page as the failing request addresses it, so "Back to the home page"
+still leads home under Apache in a subdirectory. Neither repeats the requested
+path back, so the address cannot put markup on the page.
 
 Two rules keep it from making things worse. **A template that throws falls back
 to the built-in page** instead of propagating — a typo in `errors/500` is
@@ -1373,8 +1663,9 @@ $module->hook('error.reported', [Telemetry::class, 'record']);
 Every handled error fires `error.reported` with the throwable itself — not a
 formatted string, so a listener that wants the previous exception or the trace
 does not have to parse them back out of a sentence — plus the `ErrorContext`
-and the request. That is the seam the logging phase attaches to, and it is why
-there is no logger interface here to implement.
+and the request. That is the seam `Logging\ErrorLog` attaches to (see
+[Logging](#logging)), and it is why there is no logger interface here to
+implement.
 
 An architecture test asserts that nothing under `engine/Error/` calls
 `error_log()`, `syslog()` or `fopen()`. The moment a file handle appears there,
@@ -1426,7 +1717,7 @@ final class ChargeCard
 
     public function __invoke(Order $order): void
     {
-        $this->log->info('Customer registered', ['id' => $id, 'email' => $email]);
+        $this->log->info('Card charged', ['order' => $order->id, 'amount' => $order->total]);
     }
 }
 ```
@@ -1733,8 +2024,9 @@ a boot that stops.
 
 ```bash
 php bin/console config:cache          # compile config/ and the defaults into one file
-php bin/console config:cache --clear  # or cache:clear, which clears all three caches
+php bin/console config:cache --clear  # or cache:clear, which clears every cache
 php bin/console config:list --sources # what resolved, and where it came from
+php bin/console cache:warm            # this cache and the module discovery cache, in one step
 ```
 
 The cache is one `var_export`ed array in `system/Cache/config.php`, which
@@ -1887,7 +2179,8 @@ for one.
   caching one would turn "add the file" into "add the file and clear the cache".
 
 Two caches deliberately do **not** go through this layer. The module discovery
-list and the compiled configuration keep their own `var_export` files, because
+list and the compiled configuration keep their own `var_export` files, built by
+`cache:warm` (see [The production boot path](#the-production-boot-path)), because
 they hold plain data that changes only at deploy time — which is what opcache is
 better at than anything here could be — and because configuration is read
 before a `Cache` can exist at all. A cache subsystem configured by the
@@ -1912,6 +2205,7 @@ own — and it is declared in `onBoot`, where the dependency can be injected.
 ```bash
 php bin/console cache:clear             # config, modules, templates and the application cache
 php bin/console cache:clear --expired   # only entries whose TTL has passed; the rest stay warm
+php bin/console cache:warm              # then rebuild the production boot path
 ```
 
 `cache:clear` asks the store rather than deleting files, which is the version of
@@ -2243,6 +2537,904 @@ an id — all of them stop the application from starting. It is the single most
 valuable property a scheduler can have: the code runs when nobody is looking, so
 the checking has to happen when somebody is.
 
+### Security
+
+Security is attached by the framework at bootstrap, not by a module that could
+forget. Three listeners on hooks the kernel already fires:
+
+| | |
+|---|---|
+| `request.received` | the body size limit, before anything reads a body |
+| `dispatch.before` | CSRF and the rate limit, with the route in hand |
+| `response.instance` | the CSRF cookie and the security headers |
+
+**This is what the ban on middleware looks like in practice**, and it is not a
+workaround. A middleware stack is a pipeline every request walks whether or not
+each layer has anything to say, ordered by a list somebody maintains, and the
+usual failure is a layer that silently stopped running because it was registered
+in the wrong place. Here the seams are named events, ordering is a priority
+number, and **a listener refuses by throwing an `HttpException`** — which the
+kernel already turns into a response, because that is how 404 and 405 work.
+
+The cost, stated plainly: a listener cannot wrap the handler, so there is no
+"do this after the response, in the same closure". The response filter covers
+the other half, and nothing here has needed more.
+
+```bash
+php bin/console security:check      # audit this deployment; exits 1 on a problem
+php bin/console security:key        # print a new APP_KEY
+```
+
+`security:check` is the command this section is really about. A security setting
+is invisible when it is working and invisible when it is not, so "is HSTS on",
+"is there a key", "is anything web-readable that should not be" get checked once
+during setup and never again. It reports what the running process **actually
+resolved to** rather than what a config file says, and exits non-zero, so it can
+be a deployment step rather than something somebody remembers.
+
+#### CSRF is opt-out
+
+```php
+$routes->group('/api/v1', ..., meta: ['csrf' => false, 'rate_limit' => '60/1m']);
+```
+
+Every `POST`, `PUT`, `PATCH` and `DELETE` is checked unless its route opts out.
+**The direction is the whole decision.** Opt-in means the route somebody adds in
+a hurry is unprotected, and that is reliably the one that matters.
+
+Opting out is for an API authenticated by a bearer token, which has no ambient
+credential to abuse — the token has to be put on the request by whoever makes
+it, and another site cannot do that. Note what does *not* imply it: an API
+authenticated by a **session cookie** needs CSRF exactly as much as a form does,
+which is why `'api' => true` grants nothing and the exemption is written out by
+hand, one group at a time. `security:check` lists every route that took it.
+
+Two independent checks, either of which fails the request. A **token** in a
+cookie that must be echoed back in `_token` or `X-CSRF-TOKEN` — same-origin
+policy stops another site reading the cookie, so it cannot echo it — and the
+**`Origin` header**, which browsers send on unsafe cross-origin requests and
+script cannot forge. Origin is checked only when present; absent means "cannot
+tell", because proxies and privacy tools strip it and treating that as an attack
+produces false rejections. `Referer` is not checked at all, for the same reason
+more so.
+
+`check()` returns **a reason, not a bool**. "CSRF token mismatch" is one of the
+least useful errors a framework produces: the form is missing a field, cookies
+are being dropped, the page is older than the cookie, or the request really is
+cross-site — four completely different fixes behind one message.
+
+An existing valid token is reused rather than rotated, because two tabs open on
+the same site is ordinary browsing and rotating would show the second one a
+security error for it.
+
+**What this does not do.** It does not survive XSS: script on your own page can
+read the cookie like your own page can. It is the layer underneath SameSite
+cookies, not a replacement for them. And a token is bound to a browser rather
+than to a login. Sessions close half of that: regenerating the session id
+**rotates the token**, so a token cannot outlive the identity it was issued
+under, and logging in regenerates it. Binding a token to one particular session,
+so that one user's token cannot be presented by another, is **not built** — see
+[What is not built](#what-is-not-built).
+
+#### APP_KEY, and what an application without one still gets
+
+```bash
+APP_KEY=$(php bin/console security:key --bare)
+```
+
+With a key, CSRF tokens are signed, so a sibling subdomain — or anyone able to
+set a cookie over plain HTTP — cannot plant a matching cookie and field. Without
+one, plain double-submit still works and still refuses cross-site requests; what
+is lost is that one guarantee. **The framework says which mode it is in** rather
+than implying the stronger one, and an application boots either way.
+
+`security:key` **prints and does not write**. Every other framework's equivalent
+edits `.env`, and that convenience is exactly wrong here: silently replacing a
+live key invalidates every token and session the application has issued. A
+command that cannot do that by accident is worth one copy and paste.
+
+`Signer` is the only place an HMAC is computed, and an architecture test keeps it
+that way — a second implementation is a second chance to compare the result with
+`===`, which returns as soon as two bytes differ and so leaks how many leading
+bytes were right. Signatures are bound to a **purpose**, so a CSRF token does not
+verify as a signed URL.
+
+#### Secrets do not leak when somebody is debugging
+
+```php
+$key = new Secret($raw);
+
+echo $key;                      // [redacted]
+var_dump($key);                 // [redacted]
+json_encode(['key' => $key]);   // {"key":"[redacted]"}
+serialize($key);                // throws
+$key->reveal();                 // the actual bytes
+```
+
+The problem is not storage; it is the moment after. A key in a plain string is
+one `var_dump($config)` from a screenshot in a ticket, one `"bad key: $key"` from
+a log aggregator, one `json_encode($settings)` from a debug endpoint. None of
+those is a decision anybody made.
+
+**`reveal()` is the only way out, and that is the design** — every place that
+needs the value says so in one conspicuous word, so `grep -rn 'reveal()'` is a
+complete list of where secrets are used. An architecture test refuses a second
+accessor.
+
+Serialising throws, because a secret inside a queued job or a cached value is a
+secret written somewhere it was never meant to be, usually because a closure
+captured it.
+
+#### Rate limiting
+
+```php
+meta(['rate_limit' => '60/1m'])   // also 5/15m, 1000/1h, 10/1d
+```
+
+**The key is the application's decision.** Per IP protects against one machine;
+per username protects one account from every machine; per token protects a
+quota. Those are different threats, and a framework that picked one would be
+wrong for the other two. What the framework supplies is the place to put the
+answer and a sensible default scoping — route plus client, so a limit on the
+login form does not also stop the same office reading the catalogue.
+
+Counts live in `CounterStore`, **not in the cache**, and the distinction is not
+pedantry. A cache is allowed to forget — that is its contract — and a store that
+may drop an entry is a limiter that may forget how many login attempts have been
+made. More decisively, a counter must be incremented **atomically**, and
+`get`/`set` cannot do that: two requests arriving together both read 5, both
+write 6, and the limit is off by exactly as much as the traffic it exists to
+stop. The file store holds a `flock()` across the read and the write, which is
+the one place in this framework that needed a lock rather than a single atomic
+syscall.
+
+**Memory counters are no limit at all** — a web request is a process that ends —
+and `security:check` calls that configuration a failure rather than a warning.
+
+The window is **fixed, not sliding**, and the README says so because the
+consequence is real: a client can spend its whole allowance at the end of one
+window and the whole of the next at the start. A sliding log stores every
+timestamp and a sliding counter needs two windows read atomically; for "five
+login attempts" the boundary burst is not what matters, and claiming a precision
+this does not have would be worse.
+
+A refused attempt is **still counted**, or a client that keeps hammering would
+start fresh the instant the window ends — rewarding the behaviour the limit
+exists to discourage. `RateLimit::headers()` returns `RateLimit-*` and, only on a
+refusal, `Retry-After`: sending it on an allowed request has been known to make
+well-behaved clients wait.
+
+#### Request size, and the failure that looks like a bug
+
+Bodies over `security.max_request_bytes` are refused with 413 before anything
+reads them — unbounded bodies are how one client exhausts a server's memory.
+
+The second check is the one worth having. **When an upload exceeds
+`post_max_size`, PHP does not fail**: it hands the script an empty `$_POST` and
+an empty `$_FILES` with `Content-Length` still describing what was sent. The
+handler reports "name is required", the user swears the field was filled in, and
+the cause is an ini setting nobody has looked at. The symptom is
+indistinguishable from an application bug, so the framework detects the shape —
+a form body, a length over the ini limit, and no fields at all — and says what
+really happened.
+
+#### Uploads
+
+```php
+$problems = UploadPolicy::images()->check($request->file('avatar'));
+
+if ($problems === []) {
+    $path = UploadPolicy::images()->store($request->file('avatar'), $directory);
+}
+```
+
+**Nothing is automatic.** A framework cannot know that this endpoint takes
+avatars and that one takes CSVs, so a global policy is either wrong for one of
+them or not a policy. `check()` returns **every** problem rather than the first,
+because a user who fixes the size and is then told about the type has uploaded
+twice for one answer the server already had.
+
+An **allowlist, never a blocklist** — a blocklist has to enumerate `.php`,
+`.phtml`, `.phar`, `.htaccess` and whatever the next server module adds.
+**Exactly one extension**, because `avatar.php.jpg` is a `.jpg` to an extension
+check and a script to an Apache with an old `AddHandler` line. **Contents
+checked against the name** with `finfo`, since the client's `Content-Type` is
+whatever the client said. The **stored name is generated**, never the client's:
+every rule for making an attacker-controlled name safe is a rule that can be got
+subtly wrong.
+
+Path stripping happens one layer down, in `UploadedFile::clientName()`, and
+`UploadPolicy` deliberately does not repeat it — a check that can never fire is
+worse than none, because it reads as though this class were what stands between
+`../../etc/passwd` and the filesystem.
+
+#### Headers, and the two that are off on purpose
+
+`X-Content-Type-Options: nosniff`, `X-Frame-Options: SAMEORIGIN`,
+`Referrer-Policy: strict-origin-when-cross-origin` and
+`Cross-Origin-Opener-Policy: same-origin` go on every response, error pages
+included — the ones most likely to be reached by somebody probing, and the ones a
+per-route mechanism would miss. **An existing header is never overwritten**: a
+handler that set its own policy has thought about it harder than a default can,
+and the asset server's deliberately strict CSP would otherwise be loosened.
+
+**Content-Security-Policy is off by default**, and that is a refusal rather than
+an oversight. A useful policy names this application's own script and style
+sources; a generic one is either so loose it permits what it exists to stop or so
+strict it breaks the first page with an inline handler — and the one that gets
+switched off in a hurry is worse than the one never claimed. `security:check`
+says out loud that there is not one.
+
+**HSTS is off by default and only ever sent over HTTPS.** It is the one header
+here that cannot be taken back: a browser that has seen it refuses plain HTTP for
+the whole `max-age`, so sending it from a development machine breaks every other
+project on that hostname.
+
+#### What was already true
+
+Four of the specification's twelve concerns were structural before this phase and
+are now enforced rather than merely intended:
+
+| | |
+|---|---|
+| SQL injection | the grammar is the only thing that builds a statement |
+| Path traversal | `AssetResolver` is the only thing that turns a path into a file |
+| XSS | `Escaper` escapes by context; Twig autoescapes |
+| Directory access | `.htaccess` and the dev router deny the same list, compared by a test |
+
+That last one gained a member this phase: the development router itself. It is a
+PHP file whose name does not end in `.php`, so a real web server will not execute
+it and hands over the source instead — which is a map of the deny list to anyone
+who asks for it. Both lists now name it.
+
+### Sessions
+
+```php
+$routes->get('/visits', static function (Session $session): array {
+    $visits = (int) $session->get('visits', 0) + 1;
+    $session->set('visits', $visits);
+
+    return ['visits' => $visits];
+});
+```
+
+Type-hint `Session` and you get this request's. **There is no `$_SESSION`, no
+`session_start()` and no global to reach for**, and an architecture test refuses
+all of them anywhere in the project — the specification asks for this directly,
+and the reasons are worth writing down. PHP's session machinery keeps the data
+in a superglobal, the id in engine state and the policy in ini settings, so a
+session cannot be constructed in a test, cannot be swapped for a fake, and
+behaves differently depending on what the SAPI did before the script ran. It
+also **holds a lock on the session for the whole request**, which is why one
+slow endpoint blocks every other request from the same browser.
+
+```bash
+php bin/console session:gc       # delete what is past its lifetime
+php bin/console session:table    # print the CREATE TABLE for the database store
+```
+
+#### Nothing is read until something asks
+
+A request that never mentions the session does no storage read, no storage write
+and sets no cookie. That is not an optimisation. It is what keeps a JSON API
+from handing session cookies to clients that will never send them back — and it
+fixes a bug people usually live with, because **flash data ages only on requests
+that touch the session**. A background poll no longer eats the message meant for
+the next page the user opens.
+
+#### The request writes what it changed, not what it read
+
+A browser makes several requests at once — a page and three fetches — and all of
+them carry the same session. PHP's answer is to lock it for the whole request.
+The usual alternative is to read at the start, write the whole array at the end,
+and quietly lose whichever request finished first.
+
+Here `Session` records a **change log**, and `SessionStore::commit()` takes a
+closure that the store applies to whatever is stored *now*, under its own lock:
+
+```php
+public function commit(string $id, \Closure $apply): ?SessionRecord;
+```
+
+Two concurrent requests, one setting `cart` and one setting `locale`, both
+survive. Two requests writing the *same* key still resolve to the last writer,
+which is inherent — there is no answer to "both of us set it" that a session
+layer can pick for you. The lock covers a read-modify-write of one record, so it
+is measured in microseconds rather than in the length of a request.
+
+`clear()` is the one operation that is not per-key: it discards whatever is
+stored rather than unsetting the keys this request happened to read. Since
+`invalidate()` is built on it, the alternative would be a logout that leaves
+data behind.
+
+#### Regeneration, and the grace window
+
+```php
+$session->regenerate();   // same data, new id -- call this on login
+$session->invalidate();   // no data, new id -- call this on logout
+```
+
+Changing the id is the defence against **session fixation**: an attacker who
+planted an id in the victim's browser holds one that stopped meaning anything
+the moment the user's privileges changed.
+
+The naive version — write the new id, delete the old — breaks a page that logs
+in with three fetches already in flight. Each arrives holding an id that no
+longer exists, gets a brand new empty session, and **the user is logged out by
+the act of logging in**. So `regenerate()` leaves the old record as a *pointer*
+with no payload in it, which a request inside `session.grace` seconds follows
+exactly once. Once, not until it stops pointing: a chain would let one stale id
+walk through every regeneration a session ever had. `invalidate()` leaves no
+pointer at all, because a logout should not be followable.
+
+Regenerating also **rotates the CSRF token**, through the `session.regenerated`
+hook rather than a dependency — the security layer still does not know that
+sessions exist, and an architecture test keeps it that way. A token issued to
+the anonymous page that showed the login form must not stay valid against the
+session the login created.
+
+#### Two clocks
+
+| | |
+|---|---|
+| `session.idle` | 2 hours. The one users feel: "it logged me out while I was at lunch" |
+| `session.absolute` | off by default. A ceiling regardless of activity |
+
+Without the second, a session that a background request keeps warm never expires
+at all. It is off by default because it is the setting most often switched on
+after an incident rather than before one, and a framework that forced a value
+would have to pick one that is wrong for both a kiosk and an internal tool.
+`security:check` says out loud that there is not one. Regenerating does **not**
+reset the absolute clock.
+
+#### Flash data is ordinary data
+
+```php
+$session->flash('status', 'Saved.');   // this request and the next
+$session->now('status', 'Saved.');     // this request only, stored nowhere
+$session->reflash();                   // keep it all for one more
+$session->keep('status');              // keep some of it
+```
+
+Flashed values are ordinary keys, plus a list of names to delete one request
+later, so reading one is just `get('status')`. A separate flash bag with its own
+accessors would mean every template showing a message has to know which kind of
+value it is holding.
+
+#### Storage
+
+| | |
+|---|---|
+| `file` | the default. JSON per session, merged under `flock()`. One machine |
+| `database` | a shared table. What "distributed sessions" actually means |
+| `memory` | tests and the console only |
+
+**A session payload must be JSON-serialisable**, and the memory store encodes
+exactly like the others so that "it worked in tests" means something. PHP's
+sessions `serialize()`, so an object dropped into one comes back as an object —
+usually a stale copy of a row that changed an hour ago, occasionally a class
+that no longer exists, which is a fatal error on a page nobody touched. Keep an
+id in the session and load the object from it.
+
+**File names are SHA-256 hashes, not ids.** A session id is a live credential:
+whoever holds one is the user. A directory listing, a backup manifest or an `ls`
+in a support ticket should not hand over an account, so the id appears only
+inside the file, which needs read permission to reach.
+
+The database store takes a **row lock** — `SELECT ... FOR UPDATE` where the
+driver has it — and **does not create its own table**. A store that issues DDL on
+its first request needs permissions in production that nothing should have, and
+it uses them at the worst available moment. `session:table` prints the statement
+for the configured driver; where it goes is the application's business.
+
+#### Sweeping
+
+Expiry is decided **on read**, by the timestamps, so a sweep that has not run for
+a week costs disk space and not correctness. `session:gc` reclaims it:
+
+```php
+$schedules->command('session:gc')->hourly();
+```
+
+A command rather than PHP's lottery, in which roughly one request in a hundred
+pays for scanning the whole directory — the cost lands on a random user, at a
+random moment, and most often on the busiest sites. (Worse, Debian-derived
+systems switch the lottery off and replace it with a cron job, so the behaviour
+of a default installation depends on the distribution.)
+
+#### The cookie
+
+`HttpOnly`, `SameSite=Lax`, `Secure` following the request scheme unless forced,
+and it expires when the browser does. **HttpOnly is not configurable**, and an
+architecture test refuses to let it become so: this cookie *is* the credential,
+and a setting that exists is a setting somebody switches off at four in the
+afternoon to make a widget work. Everything else here is a judgement call
+somebody may reasonably need to make differently.
+
+`Lax` rather than `Strict` because Strict makes arriving from an email link or a
+search result look logged out, and the usual fix for that is to turn the whole
+thing off.
+
+**One thing to watch when injecting `Session`:** ask for it where the request is
+— a closure route, a handler bound with `bind()`, a method parameter. A
+*singleton* service taking `Session` in its constructor would hold the first
+request's session for the life of a worker, and the symptom is users seeing each
+other's data.
+
+### Authentication and authorization
+
+```php
+$routes->post('/invoices/{id}/void', [Invoices::class, 'void'])
+       ->meta(['auth' => true, 'can' => 'invoice.void']);
+```
+
+```bash
+php bin/console auth:access           # every capability, role and guarded route
+php bin/console auth:hash 'hunter2'   # a hash, for seeding the first account
+```
+
+**The framework does not know what a user is.** There is no `User` model in
+`engine/`, no users table it expects and no column it names — there is a
+`UserProvider` interface with two lookups, `byId()` and `byLogin()`, plus
+`describe()` for the console. An architecture test freezes that list, because a
+third lookup is how an interface starts describing a schema it does not own. Everything that knows what a user actually is lives in a module; in
+this repository that is `modules/shared/Auth/AccountProvider.php`. Point it at
+LDAP and nothing in `engine/` changes.
+
+```php
+$services->singleton(UserProvider::class, AccountProvider::class);
+```
+
+Until a module binds one, every request is a guest and every protected route
+answers 401. That is the correct behaviour for an application with no user
+store, and `security:check` says so rather than leaving it to be discovered.
+
+#### Authorization is set membership, and then it can only get smaller
+
+This is the part the specification asked to be designed rather than copied.
+
+| | |
+|---|---|
+| **Capability** | a name: `invoice.void`. A noun, not a question |
+| **Permission** | a capability some module declared, with a sentence saying what it means |
+| **Role** | a named set of capabilities, optionally inheriting other roles |
+| **Subject** | whatever a decision is about — passed through, never interpreted |
+
+```php
+$module->access(static function (AccessCollector $access): void {
+    $access->capability('invoice.void', 'Cancel an invoice that has been issued.');
+    $access->role('accountant', ['invoice.*'], ['clerk']);
+});
+```
+
+A check asks whether the identity's flattened grants cover the capability. **No
+closure runs.** `invoice.*` covers `invoice.void` and deliberately does not
+cover `invoices.void` — prefix matching without the separator is how a new
+capability quietly falls inside somebody's old role.
+
+**Why this is not a Gate.** Laravel's Gate is a registry of closures keyed by
+ability strings: the closure *is* the decision, it can say yes to anything, and
+finding out what the application can express means reading every one of them.
+Policies are the same thing discovered by class-name convention. Both make "who
+may do what" a question you can only answer by running the code. Here grants are
+data, `auth:access` prints all of it, and an architecture test fails if
+`Authorizer` ever gains a method that takes a callback.
+
+#### The one thing a set cannot answer
+
+"May this user edit *this* invoice" is a fact about data, not about the user. So
+a module may narrow a decision:
+
+```php
+$module->filter('authorization.decision', static function (
+    bool $allowed, Capability $capability, Identity $identity, mixed $subject,
+): bool {
+    return $subject instanceof Invoice && $subject->ownerId !== $identity->id ? false : $allowed;
+});
+```
+
+**A filter may refuse and may not grant.** That asymmetry is the whole design.
+Granting stays declarative and greppable; refusing stays contextual, and lives
+in the module that owns the data. A filter that could also grant would be a Gate
+with extra steps — the same "some closure somewhere says yes" that makes an
+access model unauditable. The chain is not even run for a decision it could not
+change, and anything other than an explicit `true` is a refusal, so a listener
+that returns nothing fails closed.
+
+#### A route asking for a capability nobody declared will not boot
+
+```
+Nothing declares the capability "invoice.viod", required by route POST /invoices/{id}/void.
+```
+
+Without this, that route refuses **everybody** — including the administrator
+holding every role — and looks like a routing fault or a broken login, because
+the one thing it never says is that the capability does not exist. The check
+runs after every module has registered, since the module that enforces a
+capability may well register after the one that routes to it.
+
+#### Requiring a login is opt-in, and CSRF is not
+
+The two defaults point in opposite directions and the reasoning is not
+inconsistent. CSRF protects a route's side effects and costs a correct client
+nothing, so defaulting it on is free. A login defaults every page to private,
+including the home page — so it gets switched off wholesale on the first day,
+and a default everybody disables protects nothing while looking like it does.
+
+What replaces it is visibility rather than hope:
+
+```
+METHOD  PATH       NAME         MODULE  ACCESS     HANDLER
+GET     /users     users.index  shared  user.list  Closure
+POST    /login     auth.login   shared  public     ...
+```
+
+`route:list` has an ACCESS column, `auth:access` lists which routes check what,
+and **`security:check` warns about routes that change something and require
+nobody**. Some of those are meant to be open — a login form has to be — and the
+point is that you can see them.
+
+`can` implies `auth`: a capability check on a guest is a login prompt, and
+writing both would be a chance to write only one.
+
+#### 401 and 403 are different answers
+
+**401 means "say who you are"; 403 means "I know who you are and the answer is
+still no."** Retrying a 401 with credentials may work; retrying a 403 with the
+same ones never will, and a client that cannot tell them apart retries for ever.
+Every 401 carries `WWW-Authenticate: Bearer`, which RFC 9110 requires. Basic is
+deliberately not offered — it makes browsers show a dialog the application
+cannot style, cancel or explain.
+
+#### Logging in
+
+```php
+$identity = $auth->attempt($username, new Secret($password));
+```
+
+**Every failure is the same failure.** No such account, wrong password,
+suspended — one answer, and the caller must not explain which. "No account with
+that email" is a way to find out which addresses are registered, and the usual
+next step is to try that address on other sites. A missing account still costs a
+password hash, because a wrong username answering in microseconds and a wrong
+password answering in fifty milliseconds is the same disclosure by another
+route.
+
+**`attempt()` regenerates the session id**, which is the reason
+`Session::regenerate()` exists. An attacker who planted a session id in the
+victim's browser before the login holds one that stopped meaning anything the
+moment it succeeded. The CSRF token rotates with it.
+
+`logout()` invalidates the session rather than forgetting a key: the id changes
+and the data goes with it, so a basket, a half-finished form or the previous
+user's filters do not survive for whoever sits down at that machine next.
+
+**The session holds an id, never an Identity.** Roles are re-read on every
+request, so revoking one takes effect on the next click rather than the next
+login, and suspending an account ends its session immediately. The cost is one
+provider lookup per authenticated request, which is why `byId()` is the method
+worth making fast.
+
+The key holding that id is **reserved**: keys beginning with `_` cannot be
+written through `Session::set()`. Otherwise any path that puts a user-supplied
+key into the session — a `fill()` over request input is the obvious one — would
+be a way to log in as anybody.
+
+#### Bearer tokens, and the header Apache eats
+
+```
+Authorization: Bearer <token>
+```
+
+Registered only when the provider implements `TokenProvider`, so an application
+without tokens does not carry a listener that can never succeed. A token beats a
+session when both are present: a token was put on the request deliberately, a
+cookie was attached by the browser on its own.
+
+**This is why an API may opt out of CSRF.** A bearer token is not an ambient
+credential, so another site cannot make a request that carries it. An API
+authenticated by a *session cookie* needs CSRF exactly as much as a form does.
+
+Tokens are looked up by **fingerprint, not by value** — `TokenAuthenticator::
+fingerprint()` is SHA-256, because a table of usable tokens is a password table
+that skipped the last thirty years. A fast hash is right here and a slow one
+would be wrong: 32 random bytes are not guessable offline, and bcrypt on every
+API request would make a read endpoint slower than the query behind it.
+
+**Apache receives `Authorization` and does not pass it on.** It is absent from
+`$_SERVER` entirely unless `CGIPassAuth` is set or a rewrite copies it, so a
+bearer token the client definitely sent is invisible to PHP. The failure is
+silent and environment-specific: token auth passes every test, works under
+`php -S`, and answers 401 to everything once deployed. The framework recovers it
+from `getallheaders()` and from `REDIRECT_HTTP_AUTHORIZATION`, and `.htaccess`
+sets the latter — both, because `getallheaders()` is absent under FastCGI and
+the rewrite is absent from an nginx install.
+
+#### Passwords
+
+`PASSWORD_DEFAULT`, never a named algorithm: naming bcrypt pins the application
+to whatever was current when somebody typed it. A hash records which algorithm
+made it, so old and new coexist without a migration, and `needsRehash()` fires
+the `auth.rehash` hook at the one moment an application holds the plaintext —
+somebody logging in. Writing the new hash is the application's job, because only
+the provider knows where hashes live.
+
+The plaintext arrives as a `Secret`. Not so it cannot be read, but so that
+reading it says `reveal()` at the call site — and an architecture test keeps
+`Auth\Password` the only place in the project that calls `password_hash()`.
+
+### Performance
+
+The specification's instruction is that performance "must not be based only on
+theoretical architecture", so this phase started by measuring the framework as it
+stood, and changed only what the measurements pointed at. Most of what a heavy
+backend needs was already there — lazy connections, a lazily compiled route trie,
+memoised reflection, read models — and the phase is mostly about the gaps
+measuring found and the numbers that justify leaving the rest alone.
+
+#### What measuring found
+
+| Found | Done about it |
+|---|---|
+| An asset request booted every module — loaded every `module.php`, registered every route, ran every `onBoot` | It now stops after discovery. [An asset request loads no module](#an-asset-request-loads-no-module) |
+| The listener that tells authentication about each request **built** the auth manager to do it — and with it the user provider, the shared repository and its models, on every request including a stylesheet | It records the request and hands it over when a manager exists or is built. A public page constructs nothing |
+| Reading configuration and scanning module directories were the largest remaining costs of a boot | `cache:warm` replaces both with one opcache-held file each. [The production boot path](#the-production-boot-path) |
+| Registration asked the filesystem, per module, per request, whether `assets/` and `Templates/` exist | Discovery asks once and records the answer; the cache carries it; an architecture test stops anything after discovery from asking again |
+
+#### The numbers
+
+From `composer bench` with opcache on. This machine is Windows with a
+thread-safe PHP, where a filesystem stat costs tens of microseconds — so treat
+the scan figures as pessimistic, and the relationships as the point:
+
+| | |
+|---|---|
+| bootstrap + boot every module | 1.7 ms |
+| bootstrap + serve an asset | **1.65 ms**, against 2.13 ms booting every module first |
+| read configuration from `config/` → from the cache | 249 µs → **13 µs** |
+| scan module directories → read the discovery cache | 487 µs → **4.4 µs** |
+| compile a 500-route table | 0.87 ms, once per process, lazily |
+| match a route among 500 | 0.8 µs static, 2.8 µs with a constrained parameter |
+| resolve 50 modules' dependencies | 141 µs |
+| insert 100 rows one at a time → `insertMany()` (SQLite) | 1.00 ms → **0.35 ms** |
+| hydrate 50 rows into domain models → into read models (SQLite) | 411 µs → **168 µs** |
+| fire a hook with 10 listeners / apply a filter with 10 | 2.0 µs / 2.6 µs |
+
+Without opcache — XAMPP's default — a request costs 45–60 ms, nearly all of it
+PHP compiling around 170 files, and none of the above is visible behind that. The
+first production setting is `opcache.enable=1`; everything in this section comes
+after it.
+
+#### What is deliberately not cached
+
+The specification lists routes and dependency resolution among the things to
+cache. Measuring says not yet, and the reasons are in the numbers:
+
+- **Routes.** A route is declared inside `module.php`, next to the hooks and
+  services that must be registered on every boot regardless, so the declaration
+  runs anyway. What a cache could skip is compiling the table — 0.87 ms for 500
+  routes, once per process, never for a request that does not route — at the
+  price of an invalidation story and of refusing closure handlers, which no cache
+  file can hold.
+- **Dependency resolution.** 141 µs for fifty modules, and it depends on what every
+  `module.php` declares: a cached graph is wrong the first time somebody edits
+  one.
+
+Both are benchmarked, so the day either stops being true is a number rather
+than a feeling, and `cache:warm` says out loud that it does not cache them.
+
+#### Benchmarks, and what "track regressions" can honestly mean
+
+```bash
+composer bench                                      # every subject in the specification, section 50
+composer bench -- --filter="Route resolution"
+composer bench -- --save=system/Runtime/bench/before.json
+composer bench -- --compare=system/Runtime/bench/before.json --threshold=20 --fail
+```
+
+A timing is a fact about the machine that produced it. Comparing a laptop with a
+CI runner is noise, so is comparing opcache on with opcache off, and a comparison
+across either is **refused** rather than reported. The useful comparison is one
+machine before and after a change, which is what `--save` and `--compare` are.
+
+What must not regress on *any* machine is asserted exactly, in the test suite,
+where it fails the build: an asset request running no module code, a public page
+constructing no authentication layer, a warmed boot reading its caches, nothing
+after discovery probing a module directory, and every one of the specification's
+eleven subjects having a benchmark. CI also runs the benchmarks on one PHP version
+and prints them — informationally, because a shared runner's timings move by a
+third between runs, and a threshold there would fail builds at random.
+
+Benchmarks live in `tests/Benchmark/`, which ships with nothing: the web server
+denies `tests/`, and a production install has no dev dependencies.
+
+#### The model layer under load
+
+§40 asks for mechanisms rather than promises. Each one is a method, and none of
+them is new in this phase except the last:
+
+| The specification asks for | Where it is |
+|---|---|
+| Column selection | `select()`, and `into()` / `pageInto()`, which read only the columns a read model declares |
+| Pagination | `page()` / `pageInto()` — a count ignoring limit and offset, then the slice |
+| Chunking | `chunk($size, $callback)` |
+| Streaming | `stream()`; over SQL, `fetch()` is a cursor, so one row is held at a time |
+| Read models | `ReadModel`, built by `into()` without hydration or identity mapping |
+| Explicit relations | `RelationManager` — declared, never lazy; loaded in a second query and linked |
+| Batch queries | `whereIn()`, which is what relation linking runs on — N+1 cannot happen by accident |
+| Bulk operations | `insertMany()`, `updateWhere()`, `deleteWhere()` — [Bulk writes](#bulk-writes) |
+
+And the things it says to avoid are avoided by shape rather than by discipline:
+there is no lazy association to fire a query from a template, no automatic
+relationship loading, and the cheap reads are listed first.
+
+**Transactions (§41)** were already what the specification describes:
+`Connection::transaction()` with the application choosing the boundary, nested
+calls becoming savepoints, and no repository method opening one of its own. An
+invoice, its lines, its accounting entries and its payment are one transaction
+because the calling code says so.
+
+#### Development and production
+
+| | Development (`APP_DEBUG=true`) | Production (`APP_DEBUG=false` + `cache:warm`) |
+|---|---|---|
+| Errors | detailed | safe |
+| Module discovery | scanned, always — a debug process never reads the cache | one cached file |
+| Configuration | read from `config/` unless a cache exists | one cached file, fingerprinted against the environment |
+| Asset version tokens | recomputed | cached (with `CACHE_STORE=file` across requests) |
+| Asset delivery | PHP | the web server for `assets/`, PHP for module assets, or a CDN via `assets.url` |
+| Routes, dependencies | compiled / resolved per process | the same — see above |
+
+### Observability
+
+The specification's §52 lists what a heavy backend eventually needs to be
+diagnosed — request id, correlation id, execution, query, module, hook and filter
+timing, memory, error context — and then gives the instruction that shaped all
+of this: *"Do not build a giant debug dashboard initially. First build reliable
+instrumentation APIs."* So there is no dashboard, no page and no store. What is
+observed leaves through two channels every deployment already has: **the log**,
+and **response headers**. An architecture test holds `engine/Observability/` to
+that — nothing in it opens a file, prints or sets a header on its own.
+
+It comes in two halves, deliberately different.
+
+#### Always on: which unit of work is this?
+
+Every request, console command and job runs inside a **trace**. A trace has an
+id of its own and a **correlation id** naming the thing that started the chain:
+
+```
+POST /invoices/run          request   id 6aa97a..e1   correlation 6aa97a..e1
+  └ queues InvoiceRun
+      job (a worker, later)  job       id 6aa97b..07   correlation 6aa97a..e1
+        └ queues SendInvoice
+            job              job       id 6aa97b..3c   correlation 6aa97a..e1
+```
+
+The correlation travels inside the queued job's envelope, so *"what did that
+click cause"* is one search of the log, across the queue boundary where a request
+id alone stops. Nobody passes an id along by hand.
+
+What that buys, with nothing configured:
+
+- **Every response carries `X-Request-Id`** — assets, 404s and error pages
+  included. It is what a user quotes to support.
+- **Every log record carries `trace`, `request_id` and `correlation_id`.** The log
+  manager adds them underneath the record's own context, so a worker logging
+  about some other job can still say which one it means.
+- **Error records say what the request was** — method and path — beside the id
+  the client was given. Not the query string and not the body: that is where a
+  token is, and an error log is read by more people than the request was.
+
+Ids are 24 hex characters, sortable by time. **An id from outside is ignored**
+unless `observability.trust_incoming_ids` is on — which is right behind a gateway
+that stamps `X-Request-Id` and `X-Correlation-Id`, so its log and this one agree,
+and wrong otherwise, because a client should not choose the id its own requests
+are logged under. A trusted id is still checked against a pattern before it is
+used, because a newline in it would let a client write a log line of its own.
+
+```php
+public function __construct(private readonly Tracer $tracer) {}
+
+$this->tracer->current()->id;                 // this request, command or job
+$this->tracer->current()->correlationId;      // the chain it belongs to
+$this->tracer->current()->elapsedMilliseconds();
+$this->tracer->current()->memoryGrowth();     // bytes, since the unit of work began
+```
+
+#### Off unless asked for: where did the time go?
+
+```bash
+APP_PROFILE=true
+```
+
+The **profiler** times every hook listener, every filter listener, every module
+stage — discover, resolve and register as totals; load and boot per module,
+because those run a module's own code — and every database statement. At the end
+of each request, command and job it writes one record to the `profile` log
+channel:
+
+```
+INFO [profile] GET /customers.json 200 in 17.53 ms {"request_id":"6aa979e8...",
+  "elapsed_ms":17.547,"memory_growth_kb":1284.6,"memory_peak_mb":6,
+  "categories":{"module":{"count":9,"ms":10.523},"filter":{"count":5,"ms":0.277},...},
+  "slowest":{"module":[{"name":"register","detail":null,"ms":4.397},
+                       {"name":"boot","detail":"plugins/Example","ms":1.72},...],
+             "hook":[{"name":"request.received","detail":"engine App\\Engine\\Security\\Guard::onRequest",...}]}}
+```
+
+With `APP_DEBUG` on as well, the same numbers go out as a `Server-Timing`
+header, which a browser's developer tools already draw as a waterfall:
+
+```
+Server-Timing: app;dur=19.03, module;dur=10.52;desc="9", filter;dur=0.28;desc="5", hook;dur=0.03;desc="5"
+```
+
+Only in debug, because it is an exact description of where a request spends its
+time — not something to hand every client of a production system. The log gets it
+either way.
+
+Things worth knowing about the numbers:
+
+- **They are aggregated, not a list of events.** A page fires thousands of filter
+  listeners; each measurement is folded into a count, a total and a maximum under
+  its name, and the number of names kept per category is capped. A worker running
+  for hours holds the same amount. The count is also the answer to N+1: *the same
+  statement fifty times* is one line with `"count":50`.
+- **They are inclusive.** A hook listener that applies a filter counts the filter's
+  time as its own, and the filter counts it too. Categories answer "how long was
+  spent inside hooks" and "inside queries" separately; they do not add up to the
+  request.
+- **Queries are named by their SQL, never their values.** The connection's
+  observation seam does not pass the bindings at all — a test checks the observer
+  receives exactly three arguments — because a bound value is where a password or
+  a card number is, and a profile is exactly the output that gets pasted into a
+  ticket.
+- **Listeners are named for what they are**: `Guard::onRequest` for a method,
+  `closure at Bootstrap.php:577` for a closure.
+
+Application code can time its own work under its own names:
+
+```php
+$profiler->measure('billing', 'invoice run', fn () => $run->execute());
+```
+
+With profiling off that is a function call and nothing else.
+
+#### How "off" costs nothing
+
+The subsystems being measured do not know the profiler exists. `HookEngine`,
+`FilterEngine`, `ModuleManager` and `Connection` each expose one `observe()` seam
+— a closure told what ran and for how long — and the profiler is the only thing
+that attaches to them, from the bootstrap. With profiling off nothing is attached,
+so a hook firing pays for a null check rather than a clock. The benchmark suite
+shows it: a hook with ten listeners costs 2.0 µs unobserved, as it did before the
+seam existed, and 15.6 µs profiled. That difference is why it is off by default.
+
+Two architecture tests keep this true: **no subsystem references the profiler**
+(add a check for "is profiling on" inside `HookEngine` and the build fails), and
+**every `observe()` seam is connected**, so a subsystem cannot quietly drop out of
+every profile.
+
+#### Slow queries, profiling or not
+
+```bash
+SLOW_QUERY_MS=250
+```
+
+Any statement slower than this is a warning on the `database` channel, with its
+SQL and its duration and never its values. It is the one timing worth paying for
+on every statement in production: a query that took four seconds is a fact nobody
+should have to reproduce to learn about.
+
+| Key | Default | |
+|---|---|---|
+| `observability.profile` | `false` (`APP_PROFILE`) | Attach the profiler. Leave it off; switch it on to find out where a slow page goes. |
+| `observability.slow_query_ms` | `0` (`SLOW_QUERY_MS`) | Warn about statements slower than this. `0` is off. |
+| `observability.trust_incoming_ids` | `false` | Use `X-Request-Id` / `X-Correlation-Id` from the request. Only behind something that sets them. |
+
+`php bin/console about` says which of these is on.
+
 ### Lifecycle extension points
 
 Hooks are named `<subject>.<what-happened>`; filters are named after the value
@@ -2258,7 +3450,7 @@ they carry.
 | `request.failed` | `dispatch.result` |
 | `response.sent` | `response.instance` |
 | `app.terminating` | `error.response` |
-| `command.matched` | `asset.response` |
+| `command.matched` | `asset.response` (engine listeners only — see [Assets](#an-asset-request-loads-no-module)) |
 | `command.finished` | `dispatch.response` |
 | `command.failed` |  |
 | `error.reported` |  |
@@ -2266,46 +3458,51 @@ they carry.
 | `job.finished`, `job.failed` |  |
 | `schedule.started` |  |
 | `schedule.finished`, `schedule.failed` |  |
+| `session.started` |  |
+| `session.regenerated` |  |
+| `auth.identified`, `auth.login` |  |
+| `auth.logout`, `auth.failed` |  |
+| `auth.rehash` | `authorization.decision` |
 
 ## Project layout
 
 ```
 index.php              front controller, three statements
-server.php             dev router for php -S
+server                 dev router for php -S (denied by the web server)
 bin/console            CLI entry point
 .env.example           every environment variable, with its assumed value
-config/                this installation's decisions; nothing here is required
-  plugins/Example.php  configures the module whose id is plugins/Example
+config/                this installation's decisions; absent until there is one
+                       (config/plugins/Billing.php configures plugins/Billing)
 engine/                the framework
   bootstrap.php        builds the application for either context
   Bootstrap/ Core/ Container/ Http/ Routing/ Dispatch/
   Module/ Hook/ Filter/ Model/ Schema/ Data/ Database/
   Asset/ Template/ Support/ Config/ Error/ Logging/ Cli/
-  Cache/ Queue/ Scheduler/
+  Cache/ Queue/ Scheduler/ Security/ Observability/
 assets/                the application's own css, js and images
 templates/default/     the active template: views/ and assets/
-  views/errors/        the application's own 404 and error pages
+  views/layout.twig    the layout every default page extends
+  views/home.twig      the front page until a module claims /
+  views/errors/        the 404 and generic error pages
 modules/
-  shared/              cross-module capability, registers first
+  shared/              cross-module capability, registers first; owns /
     Model/User.php     a shared domain model
+    Auth/              what a user IS here: the provider and the login routes
     Schema/            the pagination contract every list endpoint shares
     Data/              a shared repository
-  plugins/Example/     a plugin module
-    Model/             its own domain model and a read model
-    Schema/            its input and resource contracts
-    Data/              its repository and its read-optimised query
-    Commands/          reachable as php bin/console customer:sync
-    Jobs/              work a worker picks up; nothing registers them
-    assets/            published as /assets/plugin/Example/
-    Templates/         reachable as @plugin.Example/...
-  gateways/Example/    a gateway module
-    assets/            published as /assets/gateway/Example/
-system/                cache, logs, queued work (not web-readable)
+  plugins/<Name>/      a plugin module; the directory appears with the first one
+  gateways/<Name>/     a gateway module; likewise
+system/                cache, logs, sessions, queued work (not web-readable)
   Cache/               compiled configuration, the module list, cached data
   Queue/               jobs waiting for a worker, and the ones that failed
   Schedule/            one file per schedule lock, while it is held
+  Security/            rate-limit counters, one file per key
+  Sessions/            one file per session, named by hash rather than by id
   Logs/                where the file writer puts records
 tests/
+  Benchmark/           composer bench; denied to the web server with the rest of tests/
+  Fixtures/Showcase/   plugins/Example and gateways/Example: every subsystem in
+                       one application, booted by the feature tests
 ```
 
 Directories are created when they are used, never in advance.
@@ -2343,21 +3540,25 @@ Verify after any deployment; each of these must return **403**, not 200:
 
 ```bash
 curl -i http://localhost/framework/engine/Core/Application.php
-curl -i http://localhost/framework/modules/plugins/Example/module.php
-curl -i http://localhost/framework/templates/default/views/layout.php
+curl -i http://localhost/framework/modules/shared/module.php
+curl -i http://localhost/framework/templates/default/views/home.twig
 curl -i http://localhost/framework/composer.json
 curl -i http://localhost/framework/vendor/autoload.php
 ```
 
 And these, which check that the asset layer did not become a second way in.
-The first three must be **404** and the last **200**:
+The first two must be refused — **403** or **404**, depending on whether Apache or
+the asset server says no first — and the last must be **200**:
 
 ```bash
-curl -i http://localhost/framework/assets/plugin/Example/module.php
-curl -i http://localhost/framework/assets/plugin/Example/../module.php
 curl -i http://localhost/framework/assets/core/../composer.json
-curl -i http://localhost/framework/assets/plugin/Example/js/example.js
+curl -i http://localhost/framework/assets/core/../index.php
+curl -i http://localhost/framework/assets/core/css/app.css
 ```
+
+With a plugin installed, repeat the traversal against it —
+`/assets/plugin/<Name>/module.php` and `/assets/plugin/<Name>/../module.php`
+must be 404 too.
 
 If routes 404 under Apache, check these two directives:
 
@@ -2408,17 +3609,68 @@ server {
 }
 ```
 
-### Module discovery cache
+### More than one web server
 
-`modules.cache` is **off by default**. When enabled, discovery is written to
-`system/Cache/modules.php` with **no automatic invalidation** — validating it
-would require stat-ing every module directory, which is exactly the cost the
-cache exists to avoid, and mtime is unreliable on Windows and network shares.
+Three things are per-machine by default and become wrong the moment a second
+machine serves the same site, all for the same reason: a file on one host is not
+a file on the other.
 
-**`php bin/console cache:clear` clears it**, along with the compiled
-configuration, any compiled Twig templates and the application cache. All of
-them are stale-until-cleared by design, so clearing them is a deployment step
-rather than something that happens on its own.
+| | |
+|---|---|
+| `session.store` | `file` → `database`, or a user lands on the other host and is logged out |
+| `security.counters` | `file` counts per host, so a limit of 60 becomes 60 per machine |
+| `cache.store` | `file` means each host warms and invalidates its own |
+
+Sticky sessions push the first one around rather than solving it, and lose every
+session on a node when it restarts. `session:table` prints the table the shared
+store needs.
+
+The scheduler is the opposite problem: its lock is a file, so **`schedule:run`
+belongs on exactly one host**. Running it on three gives three copies of every
+task.
+
+### The production boot path
+
+```bash
+composer install --no-dev --optimize-autoloader
+php bin/console cache:clear
+php bin/console cache:warm
+```
+
+`cache:warm` writes two files: `system/Cache/config.php`, the whole resolved
+configuration, and `system/Cache/modules.php`, what discovery found — each module's
+location, and whether it has an `assets/` and a `Templates/` directory. A boot
+that has both reads one opcache-held array for each and walks no directory.
+
+**There is no setting.** The file existing is the switch, as it always was for
+the configuration cache. Until Phase 27 the module cache was a `modules.cache`
+setting, and the first request to find it missing wrote it — which is how a cache
+comes to be built on a laptop halfway through adding a module. Only `cache:warm`
+writes it now, and an architecture test keeps it that way.
+
+**A debug process never reads the module cache.** That is the specification's
+development mode — "uncached module discovery" — and it means a developer who
+warmed the cache once to try it cannot lose an afternoon to a module that does
+not exist. `cache:warm` refuses to run with debug on, and refuses again if the
+configuration on disk turns it on, rather than caching a debug configuration for
+deployment.
+
+**Two kinds of staleness are noticed, and the rest are not.** The configuration
+cache ignores itself when an environment variable it read has changed. The
+module cache ignores itself when it was built under different roots —
+`modules.paths` changed, or the application now lives in another directory.
+Both checks cost nothing, because the answers are already in hand. Adding a
+module, removing one or editing a config file is **not** noticed: detecting that
+means stat-ing the very directories the cache exists to avoid, and mtime is
+unreliable on Windows and network shares. That is what `cache:clear` in the
+deployment is for.
+
+`php bin/console about` says which path a process took:
+
+```
+Boot path    config cached, modules cached
+Boot path    config read from config/, modules scanned (debug never reads the cache)
+```
 
 ## Configuring a connection
 
@@ -2454,7 +3706,7 @@ An embedding application can still pass connections to `Bootstrap::create()`
 directly; those outrank the file.
 
 With nothing configured the application boots exactly as before and opens
-nothing; the demo modules fall back to `ArraySource`.
+nothing; the shared module's `DataSource` factory falls back to `ArraySource`.
 
 ## Configuring assets
 
@@ -2489,6 +3741,7 @@ composer cs         # coding standard, dry run
 composer cs:fix     # apply it
 composer stan       # PHPStan level 8
 composer test       # PHPUnit
+composer bench      # benchmarks; not part of the gate -- see Performance
 ```
 
 There is no coverage gate, because neither Xdebug nor PCOV is assumed to be
@@ -2500,8 +3753,17 @@ created at the start of a project becomes permanent debt.
 frozen helper set, the engine/module layering, the HTTP/routing separation, the
 model/schema/data/database separations, the repository base publishing no API,
 statement construction living only in `Grammar`, the absence of a command base
-class, and the `.htaccess` deny rules. These are the invariants that erode quietly, so
+class, the `.htaccess` deny rules, only discovery probing module directories, only
+`cache:warm` writing the discovery cache, every specified subject having a
+benchmark, no subsystem referencing the profiler, and observability keeping
+nothing of its own. These are the invariants that erode quietly, so
 each one is a test rather than a paragraph nobody re-reads.
+
+`tests/Architecture/DocumentationTest.php` does the same for the documentation's
+statements of fact: every engine class has a level in `STABILITY.md` and no
+module uses an Internal one, the lifecycle table matches what the engine fires,
+every framework command is mentioned, every link lands somewhere, and the
+version, the changelog and `composer.json` agree.
 
 ## Implementation status
 
@@ -2530,32 +3792,128 @@ each one is a test rather than a paragraph nobody re-reads.
 | 20 | Cache | done |
 | 21 | Queue / Worker | done |
 | 22 | Scheduler | done |
-| 23–30 | Security, Session, Auth, … | not started |
+| 23 | Security | done |
+| 24 | Session | done |
+| 25 | Authentication / Authorization | done |
+| 26 | Module dependency system | done |
+| 27 | Performance architecture | done |
+| 28 | Observability | done |
+| 29 | Demo application | **deferred** by the project owner; the showcase fixture covers most of §55 in the meantime |
+| 30 | Documentation / release | done |
 
-No subsystem is a seam any more. `Config` was the last one -- a read API with
-no loaders -- and the configuration phase replaced the internals behind the same
-four methods without touching a single call site, which is what the seam was
-for.
+The specification's §56 workflow ends each phase with "commit the phase". That
+step is the project owner's, and nothing here has been committed on their
+behalf.
 
-Reserved but **not implemented**, because a helper with no subsystem behind it
-would be a lie: `asset()` (phase 13) and `template()` (phase 14).
+## API stability
 
-`ModelQuery` appears in the phase 9 list in the specification but is **not**
-built here. A query object with nothing to query is the speculative abstraction
-the specification itself warns against, and §21 specifies the query API
-properly as part of the data layer. It is deferred to phase 11.
+Every public class and every public surface — hook names, configuration keys,
+console commands, the error document, asset URLs — is marked **Stable**,
+**Experimental**, **Internal** or **Deprecated** in
+[`STABILITY.md`](STABILITY.md), as specification §53 asks. The short version:
 
-**Migrations are not built.** Each module owns its own database changes, and
-the layout for them is `modules/<kind>/<Name>/Database/Migrations/` — but there
-is no migration runner and no `Database/` directory in any module yet, so
-pointing `DB_DSN` at a database means creating the tables yourself. A runner
-needs a command registry to be useful, and the CLI phase owns that.
+- **Nothing is Stable before 1.0.0.** The specification says not to promise
+  stability too early, and a framework no independent application has used yet
+  is early. What is expected to become Stable is marked *1.0 candidate*.
+- **Experimental** is what modules and applications are written against: the
+  `module.php` contract, the ten helpers, handlers' types, stores' interfaces. It
+  changes only in a minor release, and never without an entry in
+  [`UPGRADING.md`](UPGRADING.md).
+- **Internal** is wiring — kernels, registries behind collectors, resolvers, the
+  framework's own commands, concrete stores selected by name — and changes
+  whenever it needs to.
+- **Deprecated** is empty. A deprecation is announced by `@deprecated`, the
+  changelog, the upgrade notes and `STABILITY.md` — never by
+  `E_USER_DEPRECATED`, which the error handler would turn into an exception.
+- **Persisted formats are the exception to "Internal means no notice".** A queued
+  job and a session record outlive the deployment that wrote them, so a release
+  must read what the previous one wrote.
 
-Route parameters, storage rows and schema input all have to turn a loose value
-into a declared type. `Support\Coercion` is the single answer to "is there
-exactly one reading of this value?"; each caller keeps its own error handling,
-because a bad route parameter is a 400, a bad row is a mapping bug and a bad
-input field is a validation error.
+`tests/Architecture/DocumentationTest.php` keeps the file honest: every engine
+class resolves to exactly one level, no row is stale, nothing is Stable in 0.x,
+and **no module in `modules/` or in the showcase may use an Internal class** —
+the rule that makes the classification mean something.
+
+## Versioning and releases
+
+**Semantic versioning, with 0.x read the way SemVer allows.** Before 1.0.0, a
+minor release (`0.1` → `0.2`) may change Experimental APIs, with upgrade notes; a
+patch release (`0.1.0` → `0.1.1`) may not. From 1.0.0, Stable APIs change only in
+a major release, after a deprecation in a minor one.
+
+**The version is written in one place**, `Application::VERSION`, which `about`
+and `help` print. `composer.json` deliberately has no `version` field: Composer
+takes a package's version from its git tag, and a second copy is a copy that
+disagrees. A module's own `version()` is independent of the framework's — it is
+what other modules' constraints are checked against — and `modules/shared`
+changes version only when its own contract does.
+
+**A release, step by step:**
+
+1. `composer check` green locally, and CI green on both jobs: the gate on
+   8.2–8.5 and the 8.1 runtime job, which installs `--no-dev`, lints, boots and
+   serves the default pages.
+2. The checks in [Deployment and security](#deployment-and-security) through a
+   real web server, not only the test suite — every security defect this project
+   has found late was found that way.
+3. `composer bench -- --compare=<the previous release's saved run>` on the same
+   machine. Informational: a slower number is a question to answer in the
+   changelog, not a gate.
+4. `CHANGELOG.md`: rename `[Unreleased]` to `[X.Y.Z] - YYYY-MM-DD` and start a new
+   empty `[Unreleased]`. Every **Changed** or **Removed** entry has its section in
+   `UPGRADING.md`, and `STABILITY.md` reflects anything promoted or deprecated.
+5. Set `Application::VERSION` to `X.Y.Z`. `DocumentationTest` fails if it and the
+   changelog disagree.
+6. Commit, then an annotated tag: `git tag -a vX.Y.Z -m "X.Y.Z"`, and push the tag.
+
+Nothing in this list is automated, on purpose: a release is the one moment
+somebody should be reading what changed, and a script that tags on green is a
+script that releases whatever happened to pass.
+
+## What is not built
+
+Deliberate omissions, each with the reason, so that nobody mistakes one for an
+oversight — or builds one without reading why it was left out.
+
+### Deferred
+
+| Not built | Why |
+|---|---|
+| **The demo application** (Phase 29, §55: `Customer`, `Billing`, `DemoGateway`) | Deferred by the project owner. `tests/Fixtures/Showcase/` exercises nearly all of §55 through every subsystem, but it is a test fixture, not an application a reader can install, and a second plugin *depending on* the first — the part that would make module dependencies visible — does not exist |
+| **Migrations and seeders** (§23: `modules/<kind>/<Name>/Database/Migrations/`) | No runner, and no module has a `Database/` directory. Pointing `DB_DSN` at a database means creating the tables yourself. A runner is an ordering problem across modules as much as a SQL one, and it should be designed against the demo application's real schema rather than an imagined one |
+| **Database and remote log writers** | A database writer needs migrations; a remote one needs an HTTP client. `LogWriter` is three methods |
+| **APCu, Redis and Memcached cache stores; database and Redis queue stores** | None of the extensions is installed where this was developed, so every line would be unverified, and the hard parts — clearing a namespace, claiming a job atomically — cannot be written blind. Each store type has a conformance suite, which is what makes adding one safe |
+| **The asset and template hooks the specification lists as future** (§42: `asset.registered`, `asset.resolved`, `asset.served`; filters `asset.url`, `asset.version`, `asset.mime`, `asset.cache_control`, `template.path`) | Nothing needs them yet, and an asset request now loads no module, so a module could not listen to most of them anyway. `module.loaded` and `api.response` from the same list exist as `module.registered` / `module.booted` and `dispatch.response` |
+| **CSRF tokens bound to one session** | Tokens are bound to a browser and rotate when the session id does, including at login. Binding them to a session is a change to how tokens are signed and verified, and has not been made |
+| **Byte ranges for assets** | Responses say `Accept-Ranges: none`. Large media is the web server's or a CDN's job, not PHP's |
+| **Route caching and dependency-resolution caching** (§38) | Measured and declined: 0.87 ms to compile 500 routes once per process, 141 µs to resolve 50 modules. See [What is deliberately not cached](#what-is-deliberately-not-cached) |
+
+### Declined by design
+
+| Not built | Why |
+|---|---|
+| Facades, service providers, middleware, gates and policies, form requests, route-model binding, an Eloquent, Blade or Artisan clone, `make:*` generators | §54. Each has an architecture test |
+| A debug dashboard | §52: instrumentation first. Observability writes to the log and headers only, and a test holds it there |
+| A catch-all route parameter (`{path:.*}`) | It breaks the trie's determinism, and nothing has needed it |
+| `OR` and joins in `Query` | A boolean tree turns a query builder into a query language; a join cannot be honoured by every `DataSource`. Both belong in a named repository method over SQL |
+| `ModelQuery` (the §14 list) | A query object with nothing to query. `Data\Query` is the query API §21 specifies |
+| PSR-3 `LoggerInterface` on `Logger` | `log()` takes a `Level` enum; a twelve-line adapter is in [Logging](#logging) |
+| RFC 9457 `problem+json` | See [One error shape](#one-error-shape) |
+| A Content-Security-Policy by default; HSTS by default | A generic CSP is too loose or breaks the first page; HSTS cannot be taken back. Both are reported by `security:check` |
+| Sub-minute schedules, signal handling in the worker, a resident HTTP worker | No resident process and no `pcntl` on Windows; bounded worker runs and reservation expiry give correctness without them |
+| HTTP Basic authentication | It makes browsers show a dialog the application cannot style, cancel or explain |
+| A runtime deprecation notice | See [API stability](#api-stability) |
+
+### Where this departs from the specification
+
+- **Twig is required and is the default engine.** §25 and invariant 14 say Twig
+  must remain optional. The project owner decided otherwise, so the default
+  template can ship Twig pages. What survives of the invariant: the manager speaks
+  only to `TemplateEngine`, nothing outside `TwigTemplateEngine` mentions Twig,
+  and PHP templates render through the same manager.
+- **The unnamed template asset namespace is the active template's**, not a shared
+  `templates/assets/`. See [Assets](#assets).
+- **No commits per phase** (§56 step 16) — that is the project owner's step.
 
 ## License
 

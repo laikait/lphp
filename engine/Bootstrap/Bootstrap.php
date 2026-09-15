@@ -11,6 +11,17 @@ use App\Engine\Asset\AssetResolver;
 use App\Engine\Asset\AssetServer;
 use App\Engine\Asset\AssetSource;
 use App\Engine\Asset\AssetVersioning;
+use App\Engine\Auth\AccessRegistry;
+use App\Engine\Auth\Authenticators\SessionAuthenticator;
+use App\Engine\Auth\Authenticators\TokenAuthenticator;
+use App\Engine\Auth\AuthGuard;
+use App\Engine\Auth\AuthManager;
+use App\Engine\Auth\Authorizer;
+use App\Engine\Auth\Identity;
+use App\Engine\Auth\Password;
+use App\Engine\Auth\Providers\EmptyProvider;
+use App\Engine\Auth\TokenProvider;
+use App\Engine\Auth\UserProvider;
 use App\Engine\Cache\Cache;
 use App\Engine\Cache\CacheStore;
 use App\Engine\Cache\Stores\ArrayStore;
@@ -52,6 +63,9 @@ use App\Engine\Model\ModelManager;
 use App\Engine\Model\RelationManager;
 use App\Engine\Module\ModuleManager;
 use App\Engine\Module\ModuleRegistry;
+use App\Engine\Observability\Profiler;
+use App\Engine\Observability\Report;
+use App\Engine\Observability\Tracer;
 use App\Engine\Queue\Backoff;
 use App\Engine\Queue\JobRunner;
 use App\Engine\Queue\Queue;
@@ -60,21 +74,28 @@ use App\Engine\Queue\Stores\FileStore as QueueFileStore;
 use App\Engine\Queue\Stores\MemoryStore;
 use App\Engine\Queue\Stores\SyncStore;
 use App\Engine\Queue\Worker;
+use App\Engine\Routing\Route;
 use App\Engine\Routing\Router;
 use App\Engine\Scheduler\Locks\FileLock;
 use App\Engine\Scheduler\Locks\MemoryLock;
-use App\Engine\Security\CounterStore;
+use App\Engine\Scheduler\ScheduleLock;
+use App\Engine\Scheduler\Scheduler;
+use App\Engine\Scheduler\ScheduleRegistry;
 use App\Engine\Security\Counters\FileStore as CounterFileStore;
 use App\Engine\Security\Counters\MemoryStore as CounterMemoryStore;
+use App\Engine\Security\CounterStore;
 use App\Engine\Security\Csrf;
 use App\Engine\Security\Guard;
 use App\Engine\Security\RateLimiter;
 use App\Engine\Security\RequestLimits;
 use App\Engine\Security\SecurityHeaders;
 use App\Engine\Security\Signer;
-use App\Engine\Scheduler\ScheduleLock;
-use App\Engine\Scheduler\Scheduler;
-use App\Engine\Scheduler\ScheduleRegistry;
+use App\Engine\Session\Session;
+use App\Engine\Session\SessionManager;
+use App\Engine\Session\SessionStore;
+use App\Engine\Session\Stores\ArrayStore as SessionArrayStore;
+use App\Engine\Session\Stores\DatabaseStore as SessionDatabaseStore;
+use App\Engine\Session\Stores\FileStore as SessionFileStore;
 use App\Engine\Support\Extensions;
 use App\Engine\Support\Path;
 use App\Engine\Template\Escaper;
@@ -119,7 +140,8 @@ final class Bootstrap
         // them testable with a store that keeps nothing.
         //
         // Note which caches are NOT this one. Module discovery and the compiled
-        // configuration keep their own var_export files, and for good reasons:
+        // configuration keep their own var_export files, built by cache:warm,
+        // and for good reasons:
         // configuration is read before this object can exist, and both hold
         // plain data that changes only at deploy time, which is exactly what
         // opcache is better at than anything written here could be.
@@ -182,19 +204,22 @@ final class Bootstrap
         // into the next one.
         $templates = new TemplateManager($views, $manager, new Escaper(), $cache->namespace('templates'));
 
-        // PHP always. It needs nothing installed, which is what makes the Twig
-        // engine genuinely optional rather than nominally so.
+        // Twig first, PHP second, and the order is the precedence: where a
+        // directory holds both home.twig and home.php, the Twig one renders.
+        //
+        // Twig is the default because it escapes everything it prints unless
+        // told otherwise, which turns forgetting to escape from a hole into a
+        // double-escaped string somebody notices. PHP templates stay, because
+        // a module that already ships .php views should not have to be
+        // rewritten, and because opcache makes them the cheapest thing to run.
+        $templates->addEngine(new TwigTemplateEngine(
+            $views,
+            (bool) $settings->get('templates.cache', false)
+                ? Path::join($basePath, 'system', 'Cache', 'templates')
+                : null,
+            (bool) $settings->get('app.debug', false),
+        ));
         $templates->addEngine(new PhpTemplateEngine());
-
-        if (TwigTemplateEngine::isAvailable()) {
-            $templates->addEngine(new TwigTemplateEngine(
-                $views,
-                (bool) $settings->get('templates.cache', false)
-                    ? Path::join($basePath, 'system', 'Cache', 'templates')
-                    : null,
-                (bool) $settings->get('app.debug', false),
-            ));
-        }
 
         // The error handler is built here rather than earlier because it
         // renders through the template layer: an application that ships a
@@ -213,6 +238,17 @@ final class Bootstrap
         $logs = self::logging($settings, $basePath);
         $hooks->add('error.reported', (new ErrorLog($logs))(...), 10, 'engine');
 
+        // Observability. The tracer is always on: it costs an id and a clock
+        // reading per unit of work, and every log record from here on carries
+        // which request, command or job wrote it. The profiler is attached only
+        // when asked for -- see Profiler for why "off" means "not attached"
+        // rather than "attached and checking a flag".
+        $tracer = new Tracer($settings->bool('observability.trust_incoming_ids', false));
+        $profiler = new Profiler($settings->bool('observability.profile', false));
+        $report = new Report($tracer, $profiler, $logs, (bool) $settings->get('app.debug', false));
+
+        $logs->enrich($tracer->logContext(...));
+
         // The global helpers are a bridge to these four instances, and to
         // nothing else. See Support\Extensions for why that is not a facade.
         Extensions::init($hooks, $filters, $manager, $templates);
@@ -226,6 +262,9 @@ final class Bootstrap
         $container->instance(Router::class, $router);
         $container->instance(ErrorHandler::class, $errors);
         $container->instance(LogManager::class, $logs);
+        $container->instance(Tracer::class, $tracer);
+        $container->instance(Profiler::class, $profiler);
+        $container->instance(Report::class, $report);
         // Injecting a Logger gets the default channel; a module that wants its
         // own asks the manager for it by name.
         $container->instance(Logger::class, $logs->channel());
@@ -278,23 +317,35 @@ final class Bootstrap
         // Note what is NOT bound: DataSource. Which source an application reads
         // through is an application decision, made in a module, not something
         // the framework decides on its behalf.
-        $container->singleton(ConnectionManager::class, static function () use ($settings): ConnectionManager {
+        $container->singleton(ConnectionManager::class, static function () use ($settings, $report): ConnectionManager {
             /** @var mixed $connections */
             $connections = $settings->get('database.connections', []);
             /** @var mixed $default */
             $default = $settings->get('database.default');
 
-            return ConnectionManager::fromArray(
+            $manager = ConnectionManager::fromArray(
                 \is_array($connections) ? $connections : [],
                 \is_string($default) ? $default : null,
             );
+
+            // Here, inside the lazy factory, so that wanting query timing does
+            // not make every request build a connection manager it never uses.
+            $report->watchQueries($manager, $settings->int('observability.slow_query_ms', 0) ?? 0);
+
+            return $manager;
         });
 
         $container->singleton(Dispatcher::class);
         $container->singleton(HttpKernel::class);
         $container->singleton(ConsoleKernel::class);
 
-        $container->instance(ModuleManager::class, new ModuleManager(
+        // The access model, filled by modules during registration and frozen
+        // afterwards. Built here so the manager can hand it to each module and
+        // then check the whole of it once every module has spoken.
+        $access = new AccessRegistry();
+        $container->instance(AccessRegistry::class, $access);
+
+        $container->instance(ModuleManager::class, $modules = new ModuleManager(
             $container,
             $settings,
             $router,
@@ -304,21 +355,28 @@ final class Bootstrap
             $views,
             $commands,
             $schedules,
+            $access,
             new ModuleRegistry(),
             $basePath,
         ));
+
+        // Before anything boots, so module timing is there from the first
+        // stage. A no-op with profiling off.
+        $profiler->instrument($tracer, $hooks, $filters, $modules);
 
         // The queue. Its runner needs the container, and the sync store needs
         // the runner, so this is built here rather than resolved lazily -- and
         // the store is chosen exactly the way the cache's and the log's are,
         // from configuration, because where background work waits is a
         // deployment decision.
-        $runner = new JobRunner($container, $hooks);
+        $runner = new JobRunner($container, $hooks, $tracer);
         $queue = new Queue(
             self::queueStore($settings, $basePath, $runner),
             $runner,
             $hooks,
             $settings->string('queue.queue', Queue::DEFAULT) ?? Queue::DEFAULT,
+            // So a queued job carries the correlation of the work that queued it.
+            $tracer,
         );
 
         $container->instance(JobRunner::class, $runner);
@@ -382,6 +440,109 @@ final class Bootstrap
         $headers = self::securityHeaders($settings);
         $container->instance(SecurityHeaders::class, $headers);
 
+        // Sessions. Built eagerly like the guard and for the same reason -- it
+        // has to be attached to the request before a handler runs -- but it
+        // READS nothing until something asks for a session. A request that
+        // never touches one costs a method call.
+        $sessions = new SessionManager(
+            self::sessionStore($settings, $basePath, $container),
+            $hooks,
+            $settings->string('session.cookie.name', SessionManager::DEFAULT_COOKIE)
+                ?? SessionManager::DEFAULT_COOKIE,
+            $settings->int('session.idle', SessionManager::DEFAULT_IDLE) ?? SessionManager::DEFAULT_IDLE,
+            $settings->int('session.absolute', 0) ?? 0,
+            $settings->int('session.grace', SessionManager::DEFAULT_GRACE) ?? SessionManager::DEFAULT_GRACE,
+            $settings->int('session.cookie.lifetime', 0) ?? 0,
+            $settings->string('session.cookie.path', '/') ?? '/',
+            $settings->string('session.cookie.domain', '') ?? '',
+            $settings->string('session.cookie.same_site', 'Lax') ?? 'Lax',
+            $settings->get('session.cookie.secure') === null
+                ? null
+                : $settings->bool('session.cookie.secure', false),
+        );
+
+        $container->instance(SessionManager::class, $sessions);
+        $container->instance(SessionStore::class, $sessions->store());
+
+        // bind(), not singleton(): the manager owns the lifetime, and asking it
+        // every time is what makes a handler that type-hints Session get the
+        // session belonging to the request it is serving rather than the one
+        // that happened to be first.
+        $container->bind(Session::class, static fn(): Session => $sessions->session());
+
+        // Authentication. The framework does not know what a user is: a module
+        // binds a UserProvider, and until one does, every request is a guest
+        // and every protected route answers 401 -- which is the correct
+        // behaviour for an application with no user store, not a failure.
+        $container->singleton(Password::class, static fn(): Password => new Password(
+            self::passwordOptions($settings),
+        ));
+
+        if (!$container->has(UserProvider::class)) {
+            $container->singleton(UserProvider::class, EmptyProvider::class);
+        }
+
+        // The request being served, as the auth listener below last heard it.
+        // Kept here rather than read from the container, because a
+        // request.instance filter may have replaced the Request the application
+        // put there, and the manager must see the one the kernel is handling.
+        $served = new class {
+            public ?Request $request = null;
+        };
+
+        $container->singleton(AuthManager::class, static function (Container $container) use (
+            $settings,
+            $sessions,
+            $hooks,
+            $served,
+        ): AuthManager {
+            $provider = $container->get(UserProvider::class);
+            $authenticators = [];
+
+            // Token first: a bearer token is a credential somebody put on the
+            // request deliberately, a cookie is one the browser attached on its
+            // own, and when both are present the deliberate one was meant.
+            //
+            // Registered only when the provider can answer for a token, so an
+            // application without them does not carry a listener that can never
+            // succeed.
+            if ($provider instanceof TokenProvider) {
+                $authenticators[] = new TokenAuthenticator($provider);
+            }
+
+            $authenticators[] = new SessionAuthenticator($sessions, $provider);
+
+            $manager = new AuthManager(
+                $provider,
+                $container->get(Password::class),
+                $authenticators,
+                $sessions,
+                $hooks,
+                self::guestRoles($settings),
+            );
+
+            // Built part-way through a request, the manager has missed the
+            // request.received it would otherwise have heard.
+            if ($served->request !== null) {
+                $manager->onRequest($served->request);
+            }
+
+            return $manager;
+        });
+
+        $container->singleton(
+            Authorizer::class,
+            static fn(): Authorizer => new Authorizer($access, $filters),
+        );
+
+        // Resolved per call, never shared: a worker that held one request's
+        // identity for the life of the process would answer the next request's
+        // authorization questions with the previous user's roles.
+        $container->bind(
+            Identity::class,
+            static fn(Container $container): Identity => $container->get(AuthManager::class)->identity(),
+        );
+
         // Three listeners, on hooks the kernel already fires. This is what the
         // ban on middleware looks like in practice: named events rather than a
         // pipeline, and a refusal is an HttpException the kernel already knows
@@ -393,9 +554,63 @@ final class Bootstrap
         $hooks->add('request.received', $guard->onRequest(...), 1, 'engine');
         $hooks->add('dispatch.before', $guard->onDispatch(...), 5, 'engine');
         $filters->add('response.instance', $guard->onResponse(...), 20, 'engine');
+
+        // The session hears about the request straight after the size check --
+        // it only records which request is being served, so the order matters
+        // less than the fact that it is ahead of anything a module attaches.
+        $hooks->add('request.received', $sessions->onRequest(...), 2, 'engine');
+        $filters->add('response.instance', $sessions->onResponse(...), 15, 'engine');
+
+        // Authentication, after the security guard rather than before it. A
+        // request that failed the CSRF check is one this application's own
+        // pages did not make, and telling it that it also needs a login would
+        // be answering a question it was not entitled to ask.
+        //
+        // The metadata is read before anything is resolved, so a public route
+        // does not construct an AuthManager, does not resolve the provider and
+        // does not touch the session. That is what keeps "most pages are
+        // public" costing nothing.
+        //
+        // The request.received half has to hold to that too, and until Phase 27
+        // it did not: it resolved the manager to hand it the request, which
+        // built the user provider -- and with it the shared module's repository
+        // and models -- on every request, a stylesheet included. Measuring found
+        // it. Now the request is only recorded, and handed over if a manager
+        // already exists or when one is built.
+        $hooks->add('request.received', static function (Request $request) use ($container, $served): void {
+            $served->request = $request;
+
+            if ($container->resolved(AuthManager::class)) {
+                $container->get(AuthManager::class)->onRequest($request);
+            }
+        }, 3, 'engine');
+
+        $hooks->add('dispatch.before', static function (Route $route, Request $request) use ($container): void {
+            if (!AuthGuard::isProtected($route)) {
+                return;
+            }
+
+            $container->get(AuthGuard::class)->onDispatch($route, $request);
+        }, 8, 'engine');
+
+        // Changing the session id has to change the CSRF token with it.
+        // Otherwise logging in leaves the anonymous page's token valid against
+        // the authenticated session, which is the same fixation attack the
+        // regeneration was for, one layer up. Done through the hook rather than
+        // a reference so that the security layer keeps knowing nothing about
+        // sessions.
+        $hooks->add('session.regenerated', $guard->onSessionRegenerated(...), 10, 'engine');
         // Last, so that it sees every header a module decided to set and does
         // not overwrite one. See SecurityHeaders.
         $filters->add('response.instance', $headers(...), 90, 'engine');
+
+        // After the security headers, as the very last thing a response goes
+        // through: X-Request-Id on every response, and -- when profiling -- the
+        // record of what the request cost, measured as late as it can be while
+        // the request's trace is still open. See Report.
+        $filters->add('response.instance', $report->onResponse(...), 95, 'engine');
+        $hooks->add('command.finished', $report->onCommand(...), 90, 'engine');
+        $hooks->add('job.finished', $report->onJob(...), 90, 'engine');
 
         $application = new Application($container, $context, $basePath);
         $container->instance(Application::class, $application);
@@ -530,6 +745,74 @@ final class Bootstrap
         return match ($settings->string('security.counters', 'file')) {
             'memory', 'array' => new CounterMemoryStore(),
             default => new CounterFileStore(Path::join($basePath, 'system', 'Security')),
+        };
+    }
+
+    /**
+     * What password_hash() is asked for.
+     *
+     * Only int and string values are passed through: the option list goes
+     * straight into a function that throws on anything else, and a config file
+     * is exactly where a "12" arrives as a string or a nested array arrives by
+     * accident.
+     *
+     * @return array<string, int|string>
+     */
+    private static function passwordOptions(Config $settings): array
+    {
+        $options = [];
+
+        foreach ($settings->array('auth.password.options') as $key => $value) {
+            if (\is_string($key) && (\is_int($value) || \is_string($value))) {
+                $options[$key] = $value;
+            }
+        }
+
+        return $options;
+    }
+
+    /**
+     * The roles an unauthenticated request holds.
+     *
+     * @return list<string>
+     */
+    private static function guestRoles(Config $settings): array
+    {
+        $roles = [];
+
+        foreach ($settings->array('auth.guest_roles') as $role) {
+            if (\is_string($role) && $role !== '') {
+                $roles[] = $role;
+            }
+        }
+
+        return $roles;
+    }
+
+    /**
+     * Where sessions live.
+     *
+     * An unknown name falls back to the file store rather than to memory, for
+     * the same reason the counters do: a typo in a deployment's configuration
+     * must not quietly log everybody out on every request.
+     *
+     * The database store is resolved lazily through the container because it
+     * needs a connection, and an application with no database configured must
+     * still boot -- most of them have one, but the framework does not get to
+     * assume it.
+     */
+    private static function sessionStore(Config $settings, string $basePath, Container $container): SessionStore
+    {
+        return match ($settings->string('session.store', 'file')) {
+            'memory', 'array' => new SessionArrayStore(),
+            'database' => new SessionDatabaseStore(
+                $container->get(ConnectionManager::class)->connection(
+                    $settings->string('session.connection') ?: null,
+                ),
+                $settings->string('session.table', SessionDatabaseStore::DEFAULT_TABLE)
+                    ?? SessionDatabaseStore::DEFAULT_TABLE,
+            ),
+            default => new SessionFileStore(Path::join($basePath, 'system', 'Sessions')),
         };
     }
 
@@ -810,6 +1093,61 @@ final class Bootstrap
                     'extra' => [],
                 ],
             ],
+            'auth' => [
+                // Passed straight to password_hash(). Empty means the
+                // algorithm's own default, which is the right answer until
+                // somebody has measured this machine -- a cost tuned on a
+                // laptop is usually wrong for the server and always wrong for
+                // the test suite.
+                'password' => [
+                    'options' => [],
+                ],
+                // What an unauthenticated request is granted. Usually nothing.
+                // An application with genuinely public data can declare a role
+                // here instead of scattering "if guest" through its handlers.
+                'guest_roles' => [],
+            ],
+            'session' => [
+                // file, database or memory. Memory is for tests only: a web
+                // request is a process that ends, so a session kept in its
+                // memory is gone before the response is. See SessionManager.
+                'store' => Env::string('SESSION_STORE', 'file'),
+                // For the database store only. Empty means the default
+                // connection; the table is created by hand, from the statement
+                // session:table prints.
+                'connection' => Env::string('SESSION_CONNECTION', ''),
+                'table' => 'sessions',
+                // Two hours without a request and the session is gone. This is
+                // the clock users feel, so it is the one worth arguing about.
+                'idle' => Env::int('SESSION_IDLE', SessionManager::DEFAULT_IDLE),
+                // A hard ceiling regardless of activity, off by default. It
+                // stops a session kept warm by a background poll from living
+                // for ever, and it is the setting most often switched on after
+                // an incident rather than before one.
+                'absolute' => Env::int('SESSION_ABSOLUTE', 0),
+                // How long a regenerated id keeps working, so that requests
+                // already in flight when somebody logs in do not lose the
+                // session they are holding. See SessionManager::regenerate().
+                'grace' => Env::int('SESSION_GRACE', SessionManager::DEFAULT_GRACE),
+                'cookie' => [
+                    'name' => Env::string('SESSION_COOKIE', SessionManager::DEFAULT_COOKIE),
+                    // Zero means the cookie goes when the browser does, which
+                    // is the safer default. Outliving the browser is a "remember
+                    // me", and that is a decision about identity rather than
+                    // about storage.
+                    'lifetime' => Env::int('SESSION_COOKIE_LIFETIME', 0),
+                    'path' => '/',
+                    'domain' => '',
+                    // Lax, not Strict: Strict means arriving from any other
+                    // site -- an email link, a search result -- looks logged
+                    // out, and the usual fix is to turn it off entirely.
+                    'same_site' => 'Lax',
+                    // Unset means "follow the request", so development over
+                    // plain HTTP works and HTTPS gets a Secure cookie without
+                    // anybody remembering. Set it to true to require HTTPS.
+                    'secure' => Env::bool('SESSION_COOKIE_SECURE'),
+                ],
+            ],
             'scheduler' => [
                 // file or memory. Memory is for tests only and is never right
                 // in production: schedule:run is a fresh process every minute,
@@ -848,6 +1186,24 @@ final class Bootstrap
                     'identity' => 'app',
                 ],
             ],
+            'observability' => [
+                // The profiler: hook, filter, module and query timing, reported
+                // to the "profile" log channel and, in debug, a Server-Timing
+                // header. Off by default, and off means not attached at all.
+                // Worth switching on in production for a while to find out
+                // where a slow page goes; not worth leaving on.
+                'profile' => Env::bool('APP_PROFILE', false),
+                // A warning on the "database" channel for any statement slower
+                // than this, profiling or not. 0 is off. The statement is
+                // logged; its bound values never are.
+                'slow_query_ms' => Env::int('SLOW_QUERY_MS', 0),
+                // Whether X-Request-Id and X-Correlation-Id sent with a request
+                // are used rather than new ids made. True behind a gateway or
+                // load balancer that stamps them, so its log and this one agree;
+                // false otherwise, because a client should not choose the id its
+                // own requests are logged under.
+                'trust_incoming_ids' => false,
+            ],
             'templates' => [
                 // The active template: templates/<active>/views/ and
                 // templates/<active>/assets/. One name, two directories.
@@ -864,9 +1220,17 @@ final class Bootstrap
                     'plugins' => 'modules/plugins',
                     'gateways' => 'modules/gateways',
                 ],
-                // Off by default: the cache has no automatic invalidation, so
-                // opting in is a deployment decision rather than a default.
-                'cache' => false,
+                // There is no "cache" key here any more. The discovery cache is
+                // used when cache:warm has built it and app.debug is off -- the
+                // file is the switch, as it is for the configuration cache. See
+                // ModuleManager::readDiscoveryCache().
+                //
+                // Module ids installed here but switched off, e.g.
+                // ['gateways/Stripe']. A disabled module's module.php never
+                // runs, and anything that requires it refuses to boot rather
+                // than half-working. An unknown id is refused too: a typo would
+                // otherwise leave the module on. Shared cannot be disabled.
+                'disabled' => [],
             ],
         ];
 

@@ -184,4 +184,26 @@ final class ConnectionManagerTest extends TestCase
     {
         self::assertInstanceOf(Connection::class, $this->manager()->connection());
     }
+
+    /** Observation applies to connections already built and to ones built afterwards. */
+    public function test_an_observer_reaches_every_connection_whenever_it_was_opened(): void
+    {
+        $manager = $this->manager();
+        $main = $manager->connection('main');
+
+        $heard = [];
+        $manager->observe(static function (string $sql, int $ns, string $connection) use (&$heard): void {
+            $heard[] = $connection;
+        });
+
+        $main->scalar('SELECT 1');
+        $manager->connection('reports')->scalar('SELECT 1');
+
+        self::assertSame(['main', 'reports'], $heard);
+
+        $manager->observe(null);
+        $main->scalar('SELECT 1');
+
+        self::assertCount(2, $heard);
+    }
 }

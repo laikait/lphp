@@ -130,10 +130,14 @@ final class UploadPolicy
         $problems = [];
         $name = $file->clientName();
 
-        if ($name !== \basename(\str_replace('\\', '/', $name))) {
-            $problems[] = 'The file name contains a path. A name is a name.';
-        }
-
+        // Note what is NOT checked here: that the name carries no directory
+        // component. UploadedFile::clientName() has already stripped one --
+        // null byte first, then Windows separators, then basename -- so a check
+        // at this layer could never fire, and a check that can never fire is
+        // worse than none: it reads as though this class were the thing
+        // standing between "../../etc/passwd" and the filesystem. A name that
+        // was nothing but a path arrives here empty and fails the extension
+        // check below, which is the honest place for it to fail.
         $extension = $file->clientExtension();
 
         if ($extension === '' || !\in_array($extension, $this->extensions, true)) {
@@ -187,14 +191,17 @@ final class UploadPolicy
         $stored = ($name ?? \bin2hex(\random_bytes(16)))
             . (\in_array($extension, $this->extensions, true) ? '.' . $extension : '');
 
-        $destination = Path::join($directory, $stored);
-
-        // Belt and braces: a caller-supplied name is still checked against the
-        // directory it is meant to land in, so that a name of "../x" cannot
-        // write outside it even though it never came from the client.
-        if (!Path::within($directory, $destination)) {
-            throw SecurityException::unwritableDestination($destination);
+        // Belt and braces on the one part a caller supplies. The generated name
+        // is hex and cannot be anything else; a name passed in could be "../x",
+        // and this is the check that it is a single path segment rather than a
+        // path. Path::within() is the wrong tool here on purpose -- it resolves
+        // with realpath() and so is only ever true for a file that already
+        // exists, which a destination never is.
+        if ($stored !== \basename(\str_replace('\\', '/', $stored)) || \str_contains($stored, '..')) {
+            throw SecurityException::unwritableDestination($stored);
         }
+
+        $destination = Path::join($directory, $stored);
 
         $file->moveTo($destination);
 
@@ -228,14 +235,14 @@ final class UploadPolicy
             return null;
         }
 
-        $finfo = @\finfo_open(\FILEINFO_MIME_TYPE);
+        $finfo = @finfo_open(\FILEINFO_MIME_TYPE);
 
         if ($finfo === false) {
             return null;
         }
 
-        $detected = @\finfo_file($finfo, $file->temporaryPath());
-        @\finfo_close($finfo);
+        $detected = @finfo_file($finfo, $file->temporaryPath());
+        @finfo_close($finfo);
 
         if (!\is_string($detected) || \in_array($detected, $expected, true)) {
             return null;

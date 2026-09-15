@@ -333,6 +333,61 @@ final class HookEngineTest extends TestCase
 
         self::assertSame(['ok'], $this->log);
     }
+
+    // ---- the observation seam -----------------------------------------------
+
+    public function test_an_observer_hears_every_listener_with_its_module_and_duration(): void
+    {
+        $heard = [];
+        $this->hooks->observe(static function (string $hook, \App\Engine\Support\Callback $listener, int $ns) use (&$heard): void {
+            $heard[] = [$hook, $listener->module, $ns >= 0];
+        });
+
+        $this->hooks->add('invoice.paid', $this->record('a'), 10, 'plugins/Billing');
+        $this->hooks->add('invoice.paid', $this->record('b'), 20, 'gateways/Stripe');
+        $this->hooks->do('invoice.paid');
+
+        self::assertSame(['a', 'b'], $this->log);
+        self::assertSame([
+            ['invoice.paid', 'plugins/Billing', true],
+            ['invoice.paid', 'gateways/Stripe', true],
+        ], $heard);
+    }
+
+    /** The listener that failed is the one somebody diagnosing it most wants timed. */
+    public function test_a_listener_that_throws_is_still_observed(): void
+    {
+        $heard = 0;
+        $this->hooks->observe(static function () use (&$heard): void {
+            ++$heard;
+        });
+        $this->hooks->add('x', static function (): never {
+            throw new \RuntimeException('listener failed');
+        });
+
+        try {
+            $this->hooks->do('x');
+            self::fail('the exception was swallowed');
+        } catch (\RuntimeException) {
+        }
+
+        self::assertSame(1, $heard);
+    }
+
+    public function test_detaching_the_observer_stops_observation(): void
+    {
+        $heard = 0;
+        $this->hooks->observe(static function () use (&$heard): void {
+            ++$heard;
+        });
+        $this->hooks->add('x', $this->record('ran'));
+
+        $this->hooks->observe(null);
+        $this->hooks->do('x');
+
+        self::assertSame(0, $heard);
+        self::assertSame(['ran'], $this->log);
+    }
 }
 
 final class HookSpy

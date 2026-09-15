@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Tests\Unit\Module;
 
 use App\Engine\Asset\AssetRegistry;
+use App\Engine\Auth\AccessRegistry;
 use App\Engine\Cli\CommandRegistry;
 use App\Engine\Config\Config;
 use App\Engine\Container\Container;
@@ -49,7 +50,6 @@ final class ModuleManagerTest extends TestCase
                     'plugins' => 'tests/Fixtures/Modules/Plugins',
                     'gateways' => 'tests/Fixtures/Modules/Gateways',
                 ],
-                'cache' => false,
             ],
         ]);
         $this->router = new Router();
@@ -67,6 +67,7 @@ final class ModuleManagerTest extends TestCase
             new TemplateRegistry(),
             new CommandRegistry(),
             new ScheduleRegistry(),
+            new AccessRegistry(),
             $this->registry,
             $this->basePath(),
         );
@@ -145,6 +146,7 @@ final class ModuleManagerTest extends TestCase
             new TemplateRegistry(),
             new CommandRegistry(),
             new ScheduleRegistry(),
+            new AccessRegistry(),
             $registry = new ModuleRegistry(),
             $this->basePath(),
         );
@@ -387,6 +389,138 @@ final class ModuleManagerTest extends TestCase
         self::assertCount(4, $this->container->get(Recorder::class)->booted);
     }
 
+    // ---- disabling and resolution -----------------------------------------
+
+    /**
+     * Disabled means its code never runs.
+     *
+     * Not its module.php, not its boot callbacks, not its listeners. A module
+     * whose declarations still ran would be a module half on, which is worse
+     * than either.
+     */
+    public function test_a_disabled_module_is_known_and_never_runs(): void
+    {
+        $this->config->set('modules.disabled', ['gateways/Zeta']);
+
+        $this->manager->run();
+
+        self::assertTrue($this->registry->has('gateways/Zeta'), 'still installed');
+        self::assertTrue($this->registry->isDisabled('gateways/Zeta'));
+        self::assertFalse($this->registry->isEnabled('gateways/Zeta'));
+        self::assertNull($this->registry->context('gateways/Zeta'), 'its module.php never ran');
+        self::assertNotContains('gateways/Zeta', $this->registry->ids());
+        self::assertNotContains('gateways/Zeta', $this->container->get(Recorder::class)->booted);
+        self::assertSame(['gateways/Zeta'], $this->registry->disabledIds());
+        self::assertSame(3, $this->registry->count(), 'count is of enabled modules');
+    }
+
+    /** A typo here would leave the module running while the configuration says it is off. */
+    public function test_disabling_a_module_that_is_not_installed_is_refused(): void
+    {
+        $this->config->set('modules.disabled', ['gateways/Zeat']);
+
+        $this->expectException(ModuleException::class);
+        $this->expectExceptionMessage('gateways/Zeta');
+
+        $this->manager->run();
+    }
+
+    public function test_shared_cannot_be_disabled(): void
+    {
+        $this->config->set('modules.disabled', ['shared']);
+
+        $this->expectException(ModuleException::class);
+        $this->expectExceptionMessage('shared module cannot be disabled');
+
+        $this->manager->run();
+    }
+
+    /**
+     * Driving the stages by hand still resolves.
+     *
+     * register() resolves if nobody did, so code that calls the stages one at
+     * a time cannot register in an order nobody checked.
+     */
+    /**
+     * Module timing: the framework's stages as totals, and load and boot per
+     * module, because those two run a module's own code.
+     */
+    public function test_an_observer_hears_each_stage_and_each_modules_load_and_boot(): void
+    {
+        $heard = [];
+        $this->manager->observe(static function (string $stage, ?string $module, int $ns) use (&$heard): void {
+            $heard[] = $stage . ($module === null ? '' : ' ' . $module);
+        });
+
+        $this->manager->run();
+
+        $modules = ['shared', 'plugins/Alpha', 'plugins/Beta', 'gateways/Zeta'];
+
+        self::assertSame([
+            'discover',
+            ...\array_map(static fn(string $id): string => 'load ' . $id, $modules),
+            'resolve',
+            'register',
+            ...\array_map(static fn(string $id): string => 'boot ' . $id, $this->registry->ids()),
+        ], $heard);
+    }
+
+    public function test_register_resolves_if_nobody_did(): void
+    {
+        $this->manager->discover();
+        $this->manager->load();
+        $this->manager->register();
+
+        self::assertSame(
+            ['shared', 'plugins/Alpha', 'plugins/Beta', 'gateways/Zeta'],
+            $this->registry->ids(),
+        );
+    }
+
+    public function test_resolving_is_a_stage_of_its_own(): void
+    {
+        $this->manager->discover();
+        $this->manager->load();
+        $this->manager->resolve();
+
+        self::assertSame(ModuleStage::Resolving, $this->manager->stage());
+    }
+
+    /** So an optional integration can ask, by injection, whether its partner is there. */
+    public function test_the_registry_is_injectable_at_boot(): void
+    {
+        $this->manager->run();
+
+        self::assertSame($this->registry, $this->container->get(ModuleRegistry::class));
+    }
+
+    public function test_an_order_that_drops_a_module_is_refused(): void
+    {
+        $this->manager->discover();
+
+        $this->expectException(\LogicException::class);
+
+        $this->registry->setOrder(['shared', 'plugins/Alpha', 'plugins/Beta']);
+    }
+
+    /**
+     * The cache holds what discovery found, not what configuration switched off.
+     *
+     * Disabling is applied after the cache is read, so turning a module off
+     * never needs the cache cleared -- which matters, because this cache has
+     * no automatic invalidation.
+     */
+    public function test_the_discovery_cache_still_lists_a_disabled_module(): void
+    {
+        $this->config->set('modules.disabled', ['gateways/Zeta']);
+        $this->manager->run();
+
+        self::assertContains(
+            'gateways/Zeta',
+            \array_column($this->registry->toArray(), 'id'),
+        );
+    }
+
     // ---- discovery cache --------------------------------------------------
 
     public function test_the_discovery_cache_round_trips_identically(): void
@@ -423,6 +557,7 @@ final class ModuleManagerTest extends TestCase
             new TemplateRegistry(),
             new CommandRegistry(),
             new ScheduleRegistry(),
+            new AccessRegistry(),
             $registry,
             $this->basePath(),
         );

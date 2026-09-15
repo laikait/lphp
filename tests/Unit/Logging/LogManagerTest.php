@@ -23,6 +23,57 @@ use App\Tests\Support\TestCase;
  */
 final class LogManagerTest extends TestCase
 {
+    // ---- enrichment ------------------------------------------------------------
+
+    public function test_every_record_is_enriched_underneath_its_own_context(): void
+    {
+        $writer = new CollectingWriter();
+        $logs = (new LogManager())->add($writer);
+        $logs->enrich(static fn(): array => ['request_id' => 'current-request-01', 'trace' => 'http']);
+
+        $logs->channel()->info('Invoice sent', ['invoice' => 7]);
+        $logs->channel()->info('About another job', ['request_id' => 'the-job-it-is-about']);
+
+        self::assertSame(
+            ['request_id' => 'current-request-01', 'trace' => 'http', 'invoice' => 7],
+            $writer->records[0]->context,
+        );
+        self::assertSame('the-job-it-is-about', $writer->records[1]->context['request_id'], 'a caller who names the request wins');
+    }
+
+    /** Below the threshold a record is one comparison; the enricher is not even asked. */
+    public function test_a_record_below_the_threshold_is_not_enriched(): void
+    {
+        $asked = 0;
+        $logs = (new LogManager(Level::Warning))->add(new CollectingWriter());
+        $logs->enrich(static function () use (&$asked): array {
+            ++$asked;
+
+            return [];
+        });
+
+        $logs->channel()->debug('noise');
+
+        self::assertSame(0, $asked);
+    }
+
+    /** Logging never fails the request, and an enricher is part of logging. */
+    public function test_an_enricher_that_throws_is_detached_and_remembered(): void
+    {
+        $writer = new CollectingWriter();
+        $logs = (new LogManager())->add($writer);
+        $logs->enrich(static function (): never {
+            throw new \RuntimeException('no trace available');
+        });
+
+        $logs->channel()->error('first');
+        $logs->channel()->error('second');
+
+        self::assertSame(['second'], $writer->messages());
+        self::assertStringContainsString('no trace available', \implode(' ', $logs->failures()));
+        self::assertFalse($logs->isHealthy());
+    }
+
     // ---- routing ---------------------------------------------------------------
 
     public function test_a_record_reaches_every_writer_that_accepts_it(): void

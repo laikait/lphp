@@ -25,6 +25,9 @@ final class ConnectionManager
 
     private ?string $default = null;
 
+    /** @var (\Closure(string, int, string): void)|null */
+    private ?\Closure $observer = null;
+
     /** @param list<ConnectionConfig> $configs */
     public function __construct(array $configs = [], ?string $default = null)
     {
@@ -58,7 +61,30 @@ final class ConnectionManager
             \implode(', ', $this->names()),
         );
 
-        return $this->connections[$name] = new Connection($config);
+        $connection = new Connection($config);
+
+        if ($this->observer !== null) {
+            $connection->observe($this->observer);
+        }
+
+        return $this->connections[$name] = $connection;
+    }
+
+    /**
+     * Observe every statement on every connection, open now or opened later.
+     *
+     * See Connection::observe(), including why the bindings never reach the
+     * observer.
+     *
+     * @param (\Closure(string, int, string): void)|null $observer
+     */
+    public function observe(?\Closure $observer): void
+    {
+        $this->observer = $observer;
+
+        foreach ($this->connections as $connection) {
+            $connection->observe($observer);
+        }
     }
 
     public function defaultName(): string

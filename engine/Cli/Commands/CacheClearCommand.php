@@ -22,7 +22,8 @@ use App\Engine\Support\Path;
  * the application cache holds whatever the application put there. Checking any
  * of them for freshness on every request would cost the filesystem work the
  * cache exists to avoid, so the invalidation story is this command, and
- * deployment runs it.
+ * deployment runs it -- followed by cache:warm, which builds the two that make
+ * up the production boot path.
  *
  * --expired is the gentler half, and only the application cache has one: it
  * removes entries whose TTL has passed and leaves everything else warm, which

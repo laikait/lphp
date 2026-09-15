@@ -21,24 +21,34 @@ namespace App\Engine\Queue;
  * processes look at the same work, and a value that cannot be edited in place
  * is one fewer way for them to disagree.
  */
-final readonly class QueuedJob
+final class QueuedJob
 {
+    // A readonly class would say this once. The properties carry it
+    // individually instead, because composer.json declares PHP 8.1 and
+    // readonly classes arrived in 8.2; readonly properties did not.
     public function __construct(
-        public string $id,
-        public string $queue,
+        public readonly string $id,
+        public readonly string $queue,
         /** The job's class, for display. The payload is the truth. */
-        public string $class,
+        public readonly string $class,
         /** The serialised job. */
-        public string $payload,
+        public readonly string $payload,
         /** How many times a worker has taken this on, including the attempt in progress. */
-        public int $attempts = 0,
+        public readonly int $attempts = 0,
         /** Unix time from which this may be reserved. */
-        public int $availableAt = 0,
+        public readonly int $availableAt = 0,
         /** Unix time at which a reservation lapses, or null when it is not reserved. */
-        public ?int $reservedUntil = null,
-        public int $createdAt = 0,
+        public readonly ?int $reservedUntil = null,
+        public readonly int $createdAt = 0,
         /** Why it failed, once it has. */
-        public ?string $error = null,
+        public readonly ?string $error = null,
+        /**
+         * The correlation id of the work that queued this, so the job's log lines
+         * can be found from the request that caused them. Null for a job queued
+         * by an older version of this framework, which simply starts a chain of
+         * its own.
+         */
+        public readonly ?string $correlationId = null,
     ) {}
 
     /**
@@ -112,6 +122,7 @@ final readonly class QueuedJob
             'reservedUntil' => $this->reservedUntil,
             'createdAt' => $this->createdAt,
             'error' => $this->error,
+            'correlationId' => $this->correlationId,
         ];
     }
 
@@ -143,6 +154,7 @@ final readonly class QueuedJob
             reservedUntil: self::integer($data['reservedUntil'] ?? null),
             createdAt: self::integer($data['createdAt'] ?? 0) ?? 0,
             error: isset($data['error']) && \is_string($data['error']) ? $data['error'] : null,
+            correlationId: isset($data['correlationId']) && \is_string($data['correlationId']) ? $data['correlationId'] : null,
         );
     }
 
@@ -169,6 +181,7 @@ final readonly class QueuedJob
             reservedUntil: $reservedUntil,
             createdAt: $this->createdAt,
             error: $error ?? $this->error,
+            correlationId: $this->correlationId,
         );
     }
 }

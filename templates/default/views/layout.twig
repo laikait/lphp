@@ -1,0 +1,37 @@
+{#
+ # The layout every page of the default template shares.
+ #
+ # There are two ways in, and both are ordinary:
+ #
+ #   - a Twig page extends it and fills the blocks:
+ #       {% extends "layout.twig" %}
+ #       {% block content %}...{% endblock %}
+ #
+ #   - any page, in any engine, renders itself to a string and hands that over
+ #     as `content`. That is how a PHP template uses a Twig layout, and why the
+ #     block's default is the string rather than nothing.
+ #
+ # `content` is printed raw because it is markup that some other template has
+ # already escaped. Every other value is escaped by Twig, which is the reason
+ # Twig is the default engine.
+ #
+ # `home` is the application's front page as the current request addresses it,
+ # so the link survives an install under a subdirectory. A page rendered with no
+ # request to derive it from falls back to the site root.
+ #}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{% block title %}{{ title|default('App Framework') }}{% endblock %}</title>
+<link rel="stylesheet" href="{{ view.asset().core('css/app.css') }}">
+<link rel="stylesheet" href="{{ view.asset().template('css/theme.css') }}">
+</head>
+<body>
+<header class="site-header"><a class="brand" href="{{ home|default('/') }}">App Framework</a></header>
+<main>{% block content %}{{ content|default('')|raw }}{% endblock %}</main>
+<footer class="site-footer">{% block footer %}Module-first, hook and filter driven.{% endblock %}</footer>
+<script type="module" src="{{ view.asset().core('js/app.js') }}"></script>
+</body>
+</html>

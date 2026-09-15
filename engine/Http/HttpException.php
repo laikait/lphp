@@ -68,6 +68,28 @@ class HttpException extends FrameworkException
     }
 
     /**
+     * 401, for a request that has not said who it is.
+     *
+     * The pair with 403 is worth keeping straight, because getting it wrong
+     * costs a client an afternoon: **401 means "say who you are", 403 means "I
+     * know who you are and the answer is still no"**. Retrying a 401 with
+     * credentials may work; retrying a 403 with the same ones never will.
+     *
+     * The WWW-Authenticate header is not optional in RFC 9110 -- a 401 without
+     * one is malformed -- and Bearer is the scheme this framework actually
+     * accepts. Basic is deliberately not offered: it would make browsers show a
+     * dialog the application cannot style, cancel or explain.
+     */
+    public static function unauthorized(string $message = ''): self
+    {
+        return new self(
+            401,
+            $message === '' ? 'This endpoint needs a login.' : $message,
+            ['WWW-Authenticate' => 'Bearer'],
+        );
+    }
+
+    /**
      * 403, for a request that was understood and refused.
      *
      * Distinct from 401, which the authentication phase owns: 401 means "say

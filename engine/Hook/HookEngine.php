@@ -36,6 +36,9 @@ final class HookEngine
     /** @var array<string, int> */
     private array $depth = [];
 
+    /** @var (\Closure(string, Callback, int): void)|null */
+    private ?\Closure $observer = null;
+
     public function __construct()
     {
         $this->chain = new CallbackChain();
@@ -78,14 +81,47 @@ final class HookEngine
         $this->depth[$hook] = $depth;
 
         try {
+            // Two loops rather than a check per listener: with nothing observing,
+            // firing a hook costs exactly what it did before the seam existed.
+            if ($this->observer === null) {
+                foreach ($listeners as $listener) {
+                    /** @var callable $callable */
+                    $callable = $listener->callback;
+                    $callable(...$listener->limit(\array_values($arguments)));
+                }
+
+                return;
+            }
+
             foreach ($listeners as $listener) {
                 /** @var callable $callable */
                 $callable = $listener->callback;
-                $callable(...$listener->limit(\array_values($arguments)));
+                $started = \hrtime(true);
+
+                try {
+                    $callable(...$listener->limit(\array_values($arguments)));
+                } finally {
+                    ($this->observer)($hook, $listener, \hrtime(true) - $started);
+                }
             }
         } finally {
             $this->depth[$hook] = $depth - 1;
         }
+    }
+
+    /**
+     * Be told how long each listener took.
+     *
+     * The seam instrumentation attaches to, and the only one: this engine does
+     * not know what a profiler is. The observer is called after every listener,
+     * including one that threw, with the hook's name, the listener and the
+     * nanoseconds it ran for. It must not fire hooks itself. Null detaches.
+     *
+     * @param (\Closure(string, Callback, int): void)|null $observer
+     */
+    public function observe(?\Closure $observer): void
+    {
+        $this->observer = $observer;
     }
 
     public function remove(string $hook, mixed $callback, ?int $priority = null): bool

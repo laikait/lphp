@@ -6,6 +6,8 @@ namespace App\Engine\Queue;
 
 use App\Engine\Container\Container;
 use App\Engine\Hook\HookEngine;
+use App\Engine\Observability\TraceKind;
+use App\Engine\Observability\Tracer;
 
 /**
  * Runs one job, and announces that it did.
@@ -32,12 +34,34 @@ final class JobRunner
     public function __construct(
         private readonly Container $container,
         private readonly HookEngine $hooks,
+        private readonly ?Tracer $tracer = null,
     ) {}
 
     /**
+     * Run it, inside a trace of its own.
+     *
+     * The job gets its own id and the correlation it was queued with, so every
+     * line it logs can be found both as "this job" and as "what that request
+     * caused". The trace ends however the job does -- a failing job run
+     * synchronously must not leave its id on the rest of the request's log.
+     *
      * @throws \Throwable whatever the job threw
      */
     public function run(QueuedJob $queued): void
+    {
+        if ($this->tracer === null) {
+            $this->execute($queued);
+
+            return;
+        }
+
+        $this->tracer->within(
+            $this->tracer->begin(TraceKind::Job, $queued->correlationId),
+            fn() => $this->execute($queued),
+        );
+    }
+
+    private function execute(QueuedJob $queued): void
     {
         $job = $queued->job();
 

@@ -17,12 +17,15 @@ namespace App\Engine\Cache;
  * null. Every store in this framework is required to keep them apart, and the
  * conformance test that every store runs checks exactly that.
  */
-final readonly class CacheEntry
+final class CacheEntry
 {
+    // A readonly class would say this once. The properties carry it
+    // individually instead, because composer.json declares PHP 8.1 and
+    // readonly classes arrived in 8.2; readonly properties did not.
     public function __construct(
-        public mixed $value,
+        public readonly mixed $value,
         /** Unix timestamp, or null for an entry that does not expire. */
-        public ?int $expiresAt = null,
+        public readonly ?int $expiresAt = null,
     ) {}
 
     public function hasExpired(?int $now = null): bool
