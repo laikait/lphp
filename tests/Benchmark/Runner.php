@@ -103,7 +103,7 @@ final class Runner
     /** @return array{php: string, opcache: bool, zts: bool, os: string} */
     public static function environment(): array
     {
-        $status = \function_exists('opcache_get_status') ? @opcache_get_status(false) : false;
+        $status = \function_exists('opcache_get_status') ? @\opcache_get_status(false) : false;
 
         return [
             'php' => \PHP_VERSION,

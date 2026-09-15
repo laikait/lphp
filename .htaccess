@@ -18,7 +18,9 @@ Options -Indexes
 
     # Adjust to match the directory the application is served from, or drop it
     # entirely when using a dedicated virtual host.
-    RewriteBase /framework/
+    # ======================
+    # RewriteBase /my-app/
+    # ======================
 
     # Application internals are never served, rewritten or not.
     #

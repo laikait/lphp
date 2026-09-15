@@ -15,8 +15,14 @@ return (new PhpCsFixer\Config())
     ->setRules([
         '@PER-CS2.0' => true,
         'declare_strict_types' => true,
+        // @internal means "defined in the PHP running the fixer", so a function
+        // from an extension or SAPI that is missing on one machine gets its
+        // backslash added on one and stripped on the other. The functions below
+        // are only ever called behind function_exists(), and naming them here
+        // makes them always prefixed, wherever the fixer runs (opcache is on in
+        // CI and off under XAMPP, for one).
         'native_function_invocation' => [
-            'include' => ['@internal'],
+            'include' => ['@internal', 'fastcgi_finish_request', 'getallheaders', 'opcache_get_status'],
             'scope' => 'namespaced',
             'strict' => true,
         ],

@@ -124,7 +124,7 @@ final class Headers
             return $headers;
         }
 
-        foreach (getallheaders() as $name => $value) {
+        foreach (\getallheaders() as $name => $value) {
             if (\strcasecmp($name, 'Authorization') === 0 && $value !== '') {
                 $headers[self::normalize('Authorization')] = self::sanitizeValue($value);
 

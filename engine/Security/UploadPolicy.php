@@ -235,14 +235,14 @@ final class UploadPolicy
             return null;
         }
 
-        $finfo = @finfo_open(\FILEINFO_MIME_TYPE);
+        $finfo = @\finfo_open(\FILEINFO_MIME_TYPE);
 
         if ($finfo === false) {
             return null;
         }
 
-        $detected = @finfo_file($finfo, $file->temporaryPath());
-        @finfo_close($finfo);
+        $detected = @\finfo_file($finfo, $file->temporaryPath());
+        @\finfo_close($finfo);
 
         if (!\is_string($detected) || \in_array($detected, $expected, true)) {
             return null;

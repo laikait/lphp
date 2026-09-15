@@ -177,7 +177,7 @@ final class Application
     public function terminate(int $status): void
     {
         if (\function_exists('fastcgi_finish_request')) {
-            fastcgi_finish_request();
+            \fastcgi_finish_request();
         }
 
         $this->container->get(HookEngine::class)->do('app.terminating', $status);
