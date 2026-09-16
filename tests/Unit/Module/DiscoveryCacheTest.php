@@ -325,7 +325,9 @@ final class DiscoveryCacheTest extends TestCase
 
     private function module(string $kind, ?string $name, bool $assets = false, bool $templates = false): void
     {
-        $directory = $this->root . '/modules/' . $kind . ($name === null ? '' : '/' . $name);
+        // The directory is the namespace segment -- modules/Plugins, not the kind's
+        // value "plugins" -- which only a case-sensitive filesystem tells apart.
+        $directory = $this->root . '/modules/' . \ucfirst($kind) . ($name === null ? '' : '/' . $name);
         \mkdir($directory, 0o777, true);
 
         $id = $name === null ? 'shared' : $kind . '/' . $name;
