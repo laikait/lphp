@@ -15,6 +15,7 @@ use App\Engine\Cli\Commands\ConfigListCommand;
 use App\Engine\Cli\Commands\HelpCommand;
 use App\Engine\Cli\Commands\LogStatusCommand;
 use App\Engine\Cli\Commands\ModuleListCommand;
+use App\Engine\Cli\Commands\NginxMakeCommand;
 use App\Engine\Cli\Commands\QueueFailedCommand;
 use App\Engine\Cli\Commands\QueueStatusCommand;
 use App\Engine\Cli\Commands\QueueWorkCommand;
@@ -39,7 +40,8 @@ use App\Engine\Cli\Commands\TemplateListCommand;
  *
  * Every one of them answers a question that is otherwise expensive to answer --
  * what loaded, what routes exist, where templates are searched. None of them
- * generates code. A make:something command writes a file whose shape the
+ * generates code; nginx:make writes web server configuration, which nothing in
+ * the framework reads. A make:something command writes a file whose shape the
  * framework then quietly depends on, and scaffolding is how a framework stops
  * being a library you call and starts being a thing you live inside.
  */
@@ -168,6 +170,15 @@ final class CoreCommands
             ->describe('Delete the configuration, module, template and application caches.')
             ->flag('expired', 'Only remove entries that have expired, leaving the rest warm.')
             ->note('None of them invalidates itself on a file edit, which is why clearing them is a deployment step.');
+
+        $commands->add('nginx:make', NginxMakeCommand::class)
+            ->describe('Write the nginx server block for this application to nginx.conf.')
+            ->option('server-name', 'The host names nginx answers for. "_" answers any.', default: '_')
+            ->option('root', 'The application directory on the web server. Defaults to this one.')
+            ->option('listen', 'The port, or address:port, to listen on.', default: '80')
+            ->option('php', 'Where PHP-FPM listens: unix:/path/to.sock or host:port.', default: 'unix:/run/php/php-fpm.sock')
+            ->flag('force', 'Replace an existing nginx.conf.')
+            ->note('It writes configuration, not code, and refuses to overwrite a file somebody may have edited.');
 
         $commands->add('cache:warm', CacheWarmCommand::class)
             ->describe('Build the production boot path: the configuration and module discovery caches.')

@@ -52,7 +52,7 @@ change, so that the Experimental surface can stay still.
 |---|---|---|
 | The `module.php` contract: a closure receiving `ModuleContext` | Experimental | 1.0 candidate |
 | The ten global helpers (`add_hook` … `template`) | Experimental | 1.0 candidate; the set is closed |
-| Hook and filter **names** (README, *Lifecycle extension points*) | Experimental | 1.0 candidate; a test compares the README table with what the engine fires |
+| Hook and filter **names** ([Lifecycle extension points](docs/reference/hooks-and-filters.md#lifecycle-extension-points)) | Experimental | 1.0 candidate; a test compares that table with what the engine fires |
 | Arguments each hook and filter passes | Experimental | adding a trailing argument is not a break; reordering or removing one is |
 | Route metadata keys: `auth`, `can`, `csrf`, `rate_limit`, `api`, `version`, `deprecated`, `sunset` | Experimental | |
 | Configuration keys and their defaults (`Bootstrap::defaults()`) | Experimental | pinned by `BootstrapTest` |

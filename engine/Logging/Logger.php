@@ -22,7 +22,7 @@ namespace App\Engine\Logging;
  * psr/log types its level as a plain string and this framework types it as an
  * enum, and an enum is worth more here than the interface is. An application
  * that needs to hand a PSR-3 logger to a vendor SDK writes a dozen-line adapter
- * that forwards to this -- see the README -- rather than this framework
+ * that forwards to this -- see docs/reference/logging.md -- rather than this framework
  * flattening its own API to match.
  *
  * There is no {placeholder} interpolation. A message is a message and context

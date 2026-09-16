@@ -21,6 +21,8 @@ declare(strict_types=1);
 
 $path = \rawurldecode((string) \strtok((string) ($_SERVER['REQUEST_URI'] ?? '/'), '?'));
 
+// The bare name -- /templates with nothing after it -- is not denied: it is a
+// path like any other and may be a route, exactly as .htaccess treats it.
 foreach (['engine', 'modules', 'templates', 'config', 'system', 'tests', 'bin', 'vendor'] as $private) {
     if (\str_starts_with(\ltrim($path, '/'), $private . '/')) {
         \http_response_code(403);
@@ -33,7 +35,7 @@ foreach (['engine', 'modules', 'templates', 'config', 'system', 'tests', 'bin', 
 // Including this file itself. It has no .php extension, so the rule below that
 // hands real files straight to the client would serve the router's own source
 // -- and .htaccess denies it on the real web server, so the two agree.
-if (\preg_match('/^(composer\.(json|lock)|phpunit\.xml|phpstan\.neon|\.php-cs-fixer\..*|\.env.*|.*\.md|server)$/', \basename($path)) === 1) {
+if (\preg_match('/^(composer\.(json|lock)|phpunit\.xml|phpstan\.neon|\.php-cs-fixer\..*|\.env.*|.*\.md|server|nginx\.conf)$/', \basename($path)) === 1) {
     \http_response_code(403);
     echo '403 Forbidden';
 
@@ -45,6 +47,15 @@ $file = __DIR__ . \str_replace('/', \DIRECTORY_SEPARATOR, $path);
 if ($path !== '/' && \is_file($file) && !\str_ends_with($file, '.php')) {
     return false;
 }
+
+// Say which script is running, because the built-in server gets it wrong. For
+// a path that names a real directory (/templates) or looks like a file
+// (/customers.json), it reports the path itself as SCRIPT_NAME, and the base
+// path derived from that swallows the whole request: /templates would be
+// served as "/" under a base of "/templates". Apache reports /index.php.
+$_SERVER['SCRIPT_NAME'] = '/index.php';
+$_SERVER['PHP_SELF'] = '/index.php';
+$_SERVER['SCRIPT_FILENAME'] = __DIR__ . \DIRECTORY_SEPARATOR . 'index.php';
 
 require __DIR__ . '/index.php';
 

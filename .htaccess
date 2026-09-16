@@ -13,6 +13,16 @@
 
 Options -Indexes
 
+# Apache otherwise answers /templates with a redirect to /templates/ before the
+# rewrite below can hand it to the front controller. Switched off for those
+# names only: everywhere else -- the application's own directory requested as
+# http://localhost/framework, most of all -- the redirect still happens.
+<IfModule mod_dir.c>
+    <If "%{REQUEST_URI} =~ m#/(engine|modules|templates|config|system|tests|bin|vendor)$#">
+        DirectorySlash Off
+    </If>
+</IfModule>
+
 <IfModule mod_rewrite.c>
     RewriteEngine On
 
@@ -21,6 +31,17 @@ Options -Indexes
     # ======================
     # RewriteBase /my-app/
     # ======================
+
+    # A bare directory name with nothing after it -- /templates, /config -- is
+    # not a request for a file, so it goes to the front controller like any
+    # other path, and an application may have a route there. Nothing inside
+    # the directory is reachable through it: the rule after this one refuses
+    # every path that continues past the name.
+    #
+    # It comes first, and it has no !-d condition, because the name IS a real
+    # directory: the catch-all at the bottom would skip it, and Apache would
+    # redirect /templates to /templates/ and then refuse that.
+    RewriteRule ^(engine|modules|templates|config|system|tests|bin|vendor)$ index.php [L]
 
     # Application internals are never served, rewritten or not.
     #
@@ -33,7 +54,7 @@ Options -Indexes
     # Requesting one of those files today would execute it and print nothing,
     # which is not a defence -- it is a coincidence of the files currently
     # returning an array and doing nothing else.
-    RewriteRule ^(engine|modules|templates|config|system|tests|bin|vendor)(/|$) - [F,L]
+    RewriteRule ^(engine|modules|templates|config|system|tests|bin|vendor)/ - [F,L]
 
     # Neither is project metadata, nor the development router.
     #
@@ -42,7 +63,10 @@ Options -Indexes
     # source over instead. Under its old name it was worse still -- Apache
     # would have run a router meant for `php -S`. Either way it has no business
     # answering a request on a real web server.
-    RewriteRule ^(composer\.(json|lock)|phpunit\.xml|phpstan\.neon|\.php-cs-fixer.*|\.env.*|.*\.md|server)$ - [F,L]
+    #
+    # nginx.conf, which nginx:make writes here, is configuration for another
+    # server, and says exactly where this one keeps everything.
+    RewriteRule ^(composer\.(json|lock)|phpunit\.xml|phpstan\.neon|\.php-cs-fixer.*|\.env.*|.*\.md|server|nginx\.conf)$ - [F,L]
 
     # Anything else that is not a real file falls through to the front controller.
     # Apache receives Authorization and does not pass it on: it treats the
@@ -72,7 +96,7 @@ Options -Indexes
 # permissions problem rather than a policy. The list below is exactly the
 # metadata the rewrite rule above denies.
 <IfModule mod_authz_core.c>
-    <FilesMatch "^(composer\.(json|lock)|phpunit\.xml|phpstan\.neon|\.php-cs-fixer\..*|\.env.*|.*\.md|server)$">
+    <FilesMatch "^(composer\.(json|lock)|phpunit\.xml|phpstan\.neon|\.php-cs-fixer\..*|\.env.*|.*\.md|server|nginx\.conf)$">
         Require all denied
     </FilesMatch>
 </IfModule>

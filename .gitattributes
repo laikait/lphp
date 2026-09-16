@@ -1,0 +1,9 @@
+# What `composer create-project` and a release archive leave out.
+#
+# Only what belongs to this repository rather than to an application built from
+# it. tests/, the tool configuration and docs/ stay: an application keeps
+# `composer check`, autoload-dev scans tests/Fixtures/ and fails without it, and
+# README.md links into docs/.
+
+/.github        export-ignore
+/.gitattributes export-ignore

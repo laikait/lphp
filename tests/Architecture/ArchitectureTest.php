@@ -1356,7 +1356,7 @@ final class ArchitectureTest extends TestCase
         self::assertIsString($htaccess);
         self::assertIsString($router);
 
-        if (\preg_match('/RewriteRule \^\(([a-z|]+)\)\(/', $htaccess, $apache) !== 1) {
+        if (\preg_match('#RewriteRule \^\(([a-z|]+)\)/ - \[F,L\]#', $htaccess, $apache) !== 1) {
             self::fail('.htaccess no longer denies a list of directories in the shape this rule can read.');
         }
 
@@ -1378,6 +1378,76 @@ final class ArchitectureTest extends TestCase
         // And the metadata, which the built-in server would otherwise serve as
         // plain text rather than execute.
         self::assertStringContainsString('.env', $router, 'the dev router no longer refuses a .env file.');
+    }
+
+    /**
+     * nginx refuses exactly what Apache refuses.
+     *
+     * The server block nginx:make writes is copied onto real machines, and a
+     * deny list that is one name short there is a leak nobody tests: every test
+     * and every developer runs Apache or `php -S`. So the directories and the
+     * metadata are read out of both and compared name for name.
+     */
+    public function test_the_nginx_server_block_denies_what_the_web_server_denies(): void
+    {
+        $htaccess = \file_get_contents($this->basePath('.htaccess'));
+        $nginx = \App\Engine\Cli\Commands\NginxMakeCommand::serverBlock('_', '/srv/app', '80', 'unix:/run/php/php-fpm.sock');
+
+        self::assertIsString($htaccess);
+
+        $apacheDirectories = \preg_match('#RewriteRule \^\(([a-z|]+)\)/ - \[F,L\]#', $htaccess, $apache);
+        $apacheMetadata = \preg_match('#<FilesMatch "\^\((.+)\)\$">#', $htaccess, $apacheFiles);
+        $nginxDirectories = \preg_match('#location ~ \^/\(([a-z|]+)\)/ \{ deny all; \}#', $nginx, $server);
+        $nginxMetadata = \preg_match('#location ~ \^/\((.+)\)\$ \{ deny all; \}#', $nginx, $serverFiles);
+
+        if ($apacheDirectories !== 1 || $apacheMetadata !== 1 || $nginxDirectories !== 1 || $nginxMetadata !== 1) {
+            self::fail('.htaccess or the nginx:make server block no longer denies directories and metadata in the shape this rule can read.');
+        }
+
+        self::assertSame($apache[1], $server[1], 'the nginx directory deny list has drifted from .htaccess.');
+        self::assertSame($apacheFiles[1], $serverFiles[1], 'the nginx metadata deny list has drifted from .htaccess.');
+
+        // The file is written into the root the web server serves.
+        self::assertMatchesRegularExpression(
+            '#^(' . $apacheFiles[1] . ')$#',
+            \App\Engine\Cli\Commands\NginxMakeCommand::FILE,
+            '.htaccess does not refuse the file nginx:make writes.',
+        );
+    }
+
+    /**
+     * /templates may be a route; nothing under templates/ may be a file.
+     *
+     * A directory name on the deny list is also a word an application may want
+     * as a path. Apache takes three rules to allow the one without the other,
+     * and each of them fails in a way that looks like something else:
+     *
+     *   - the deny rule matching "(/|$)" refuses the bare name as a 403;
+     *   - the routing rule written after the deny never runs;
+     *   - without DirectorySlash off for exactly those names, Apache answers
+     *     /templates with a redirect to /templates/, which is then refused --
+     *     and switched off for everything, http://localhost/framework stops
+     *     redirecting to its own home page.
+     *
+     * All three lists have to be the deny list, name for name.
+     */
+    public function test_a_bare_protected_name_reaches_the_front_controller_and_nothing_inside_it_does(): void
+    {
+        $htaccess = \file_get_contents($this->basePath('.htaccess'));
+        self::assertIsString($htaccess);
+
+        $routed = \preg_match('#RewriteRule \^\(([a-z|]+)\)\$ index\.php \[L\]#', $htaccess, $route, \PREG_OFFSET_CAPTURE);
+        $denied = \preg_match('#RewriteRule \^\(([a-z|]+)\)(\S*) - \[F,L\]#', $htaccess, $deny, \PREG_OFFSET_CAPTURE);
+        $unslashed = \preg_match('~<If "%\{REQUEST_URI\} =\~ m\#/\(([a-z|]+)\)\$\#">\s*DirectorySlash Off\s*</If>~', $htaccess, $slash);
+
+        if ($routed !== 1 || $denied !== 1 || $unslashed !== 1) {
+            self::fail('.htaccess no longer routes bare directory names, denies their contents, and exempts them from DirectorySlash in the shape this rule can read.');
+        }
+
+        self::assertSame('/', $deny[2][0], 'the deny rule must require the slash, or it refuses the bare name too');
+        self::assertLessThan($deny[0][1], $route[0][1], 'the routing rule must come before the deny rule, or it never runs');
+        self::assertSame($deny[1][0], $route[1][0], 'the routed names and the denied names have drifted apart');
+        self::assertSame($deny[1][0], $slash[1], 'the DirectorySlash exemption and the denied names have drifted apart');
     }
 
     // ---- the console ------------------------------------------------------
@@ -1415,6 +1485,7 @@ final class ArchitectureTest extends TestCase
             'engine/Cli/Commands/HelpCommand.php',
             'engine/Cli/Commands/LogStatusCommand.php',
             'engine/Cli/Commands/ModuleListCommand.php',
+            'engine/Cli/Commands/NginxMakeCommand.php',
             'engine/Cli/Commands/QueueFailedCommand.php',
             'engine/Cli/Commands/QueueStatusCommand.php',
             'engine/Cli/Commands/QueueWorkCommand.php',
@@ -1542,6 +1613,7 @@ final class ArchitectureTest extends TestCase
             'about',
             'help',
             'module:list',
+            'nginx:make',
             'queue:failed',
             'queue:status',
             'queue:work',
@@ -2546,7 +2618,7 @@ final class ArchitectureTest extends TestCase
             self::assertIsString($contents);
 
             self::assertStringContainsString(
-                '|server)',
+                '|server|',
                 $contents,
                 \sprintf(
                     '%s no longer refuses the development router, whose source would then be served '

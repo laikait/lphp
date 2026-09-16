@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Tests\Architecture;
 
 use App\Engine\Cli\CommandRegistry;
+use App\Engine\Cli\CoreCommands;
 use App\Engine\Core\Application;
 use App\Tests\Support\TestCase;
 
@@ -25,6 +26,12 @@ use App\Tests\Support\TestCase;
 final class DocumentationTest extends TestCase
 {
     private const LEVELS = ['Stable', 'Experimental', 'Internal', 'Deprecated'];
+
+    private const INDEX_PAGE = 'docs/README.md';
+
+    private const LIFECYCLE_PAGE = 'docs/reference/hooks-and-filters.md';
+
+    private const CONSOLE_PAGE = 'docs/reference/console.md';
 
     // ---- STABILITY.md -------------------------------------------------------
 
@@ -136,7 +143,7 @@ final class DocumentationTest extends TestCase
         self::assertGreaterThan(0, $checked, 'no module references any engine class, so this checked nothing');
     }
 
-    // ---- the README ---------------------------------------------------------
+    // ---- README.md and docs/ -------------------------------------------------
 
     /**
      * The lifecycle table lists exactly the hooks and filters the engine fires.
@@ -150,55 +157,95 @@ final class DocumentationTest extends TestCase
         [$documentedHooks, $documentedFilters] = $this->lifecycleTable();
         [$firedHooks, $appliedFilters] = $this->extensionPointsInEngine();
 
-        self::assertSame($firedHooks, $documentedHooks, 'README "Lifecycle extension points": the hooks column');
-        self::assertSame($appliedFilters, $documentedFilters, 'README "Lifecycle extension points": the filters column');
-    }
-
-    /** Every command the framework registers is named somewhere a reader will find it. */
-    public function test_every_framework_command_is_documented(): void
-    {
-        $readme = $this->read('README.md');
-        $commands = $this->shippedApplication()->boot()->container()->get(CommandRegistry::class);
-
-        foreach ($commands->names() as $name) {
-            self::assertMatchesRegularExpression(
-                '/(?<![a-z:-])' . \preg_quote($name, '/') . '(?![a-z:-])/',
-                $readme,
-                \sprintf('The command "%s" is not mentioned in the README.', $name),
-            );
-        }
+        self::assertSame($firedHooks, $documentedHooks, self::LIFECYCLE_PAGE . ' "Lifecycle extension points": the hooks column');
+        self::assertSame($appliedFilters, $documentedFilters, self::LIFECYCLE_PAGE . ' "Lifecycle extension points": the filters column');
     }
 
     /**
-     * Every in-page link lands on a heading, and every relative link on a file.
+     * Every command the framework registers is in the console reference's list.
+     *
+     * The framework's own, meaning the ones CoreCommands declares: a command an
+     * application's module adds is that module's to document, and an application
+     * with one should not fail the framework's documentation test for it.
+     */
+    public function test_every_framework_command_is_documented(): void
+    {
+        $reference = $this->read(self::CONSOLE_PAGE);
+        $commands = $this->shippedApplication()->boot()->container()->get(CommandRegistry::class);
+        $checked = 0;
+
+        foreach ($commands->all() as $command) {
+            if ($command->module !== CoreCommands::MODULE) {
+                continue;
+            }
+
+            ++$checked;
+            $name = $command->name;
+
+            self::assertMatchesRegularExpression(
+                '/(?<![a-z:-])' . \preg_quote($name, '/') . '(?![a-z:-])/',
+                $reference,
+                \sprintf('The command "%s" is not mentioned in %s.', $name, self::CONSOLE_PAGE),
+            );
+        }
+
+        self::assertGreaterThan(0, $checked, 'no command is declared by ' . CoreCommands::MODULE . ', so this checked nothing');
+    }
+
+    /**
+     * Every in-page link lands on a heading, every relative link on a file, and
+     * a link into another page on a heading in that page.
      *
      * Headings get renamed; the links to them do not follow. On GitHub a broken
      * anchor does nothing at all when clicked, which is the least noticeable
-     * way for documentation to fail.
+     * way for documentation to fail -- and with the documentation split across
+     * pages, most links now cross from one file into another.
      */
     public function test_documentation_links_go_somewhere(): void
     {
-        foreach (['README.md', 'STABILITY.md', 'CHANGELOG.md', 'UPGRADING.md'] as $document) {
+        foreach ($this->documents() as $document) {
             $markdown = $this->withoutCodeBlocks($this->read($document));
-            $anchors = $this->anchors($markdown);
 
             \preg_match_all('/\]\(([^)\s]+)\)/', $markdown, $matches);
 
             foreach ($matches[1] as $target) {
-                if (\preg_match('#^[a-z]+://#i', $target) === 1) {
+                if (\preg_match('#^[a-z]+:#i', $target) === 1) {
                     continue;
                 }
 
-                if (\str_starts_with($target, '#')) {
-                    self::assertContains(\substr($target, 1), $anchors, \sprintf('%s links to %s, which is no heading.', $document, $target));
+                [$file, $anchor] = \array_pad(\explode('#', $target, 2), 2, null);
+                $path = $file === '' ? $document : $this->normalise(\dirname($document) . '/' . $file);
 
+                self::assertFileExists($this->basePath($path), \sprintf('%s links to %s, which does not exist.', $document, $target));
+
+                if ($anchor === null) {
                     continue;
                 }
 
-                $file = \explode('#', $target, 2)[0];
-
-                self::assertFileExists($this->basePath($file), \sprintf('%s links to %s, which does not exist.', $document, $target));
+                self::assertStringEndsWith('.md', $path, \sprintf('%s links to an anchor in %s, which is not a document.', $document, $target));
+                self::assertContains(
+                    $anchor,
+                    $this->anchors($this->withoutCodeBlocks($this->read($path))),
+                    \sprintf('%s links to %s, which is no heading in %s.', $document, $target, $path),
+                );
             }
+        }
+    }
+
+    /** A page nobody links to from the index is a page nobody finds. */
+    public function test_every_documentation_page_is_in_the_index(): void
+    {
+        $index = $this->withoutCodeBlocks($this->read(self::INDEX_PAGE));
+        \preg_match_all('/\]\(([^)#\s]+)(?:#[^)\s]*)?\)/', $index, $matches);
+
+        $linked = \array_map(fn(string $target): string => $this->normalise('docs/' . $target), $matches[1]);
+
+        foreach ($this->documents() as $document) {
+            if (!\str_starts_with($document, 'docs/') || $document === self::INDEX_PAGE) {
+                continue;
+            }
+
+            self::assertContains($document, $linked, \sprintf('%s is not linked from %s.', $document, self::INDEX_PAGE));
         }
     }
 
@@ -353,18 +400,18 @@ final class DocumentationTest extends TestCase
     }
 
     /**
-     * Hook and filter names from the README's lifecycle table.
+     * Hook and filter names from the lifecycle table.
      *
      * @return array{list<string>, list<string>}
      */
     private function lifecycleTable(): array
     {
-        $readme = $this->read('README.md');
-        $start = \strpos($readme, '### Lifecycle extension points');
-        self::assertIsInt($start, 'README has no "Lifecycle extension points" section');
+        $page = $this->read(self::LIFECYCLE_PAGE);
+        $start = \strpos($page, '## Lifecycle extension points');
+        self::assertIsInt($start, self::LIFECYCLE_PAGE . ' has no "Lifecycle extension points" section');
 
-        $end = \strpos($readme, "\n## ", $start);
-        $section = \substr($readme, $start, $end === false ? null : $end - $start);
+        $end = \preg_match('/\n#{1,2} /', $page, $next, \PREG_OFFSET_CAPTURE, $start + 1) === 1 ? $next[0][1] : null;
+        $section = \substr($page, $start, $end === null ? null : $end - $start);
 
         $hooks = [];
         $filters = [];
@@ -458,6 +505,50 @@ final class DocumentationTest extends TestCase
     private function withoutCodeBlocks(string $markdown): string
     {
         return (string) \preg_replace('/^```.*?^```/ms', '', $markdown);
+    }
+
+    /**
+     * Every document a reader is pointed at, relative to the project root.
+     *
+     * @return list<string>
+     */
+    private function documents(): array
+    {
+        $documents = ['README.md', 'STABILITY.md', 'CHANGELOG.md', 'UPGRADING.md'];
+
+        foreach (new \RecursiveIteratorIterator(
+            new \RecursiveDirectoryIterator($this->basePath('docs'), \FilesystemIterator::SKIP_DOTS),
+        ) as $file) {
+            if ($file instanceof \SplFileInfo && $file->getExtension() === 'md') {
+                $documents[] = $this->relative($file->getPathname());
+            }
+        }
+
+        \sort($documents);
+
+        return $documents;
+    }
+
+    /** "docs/guides/../reference/x.md" to "docs/reference/x.md". */
+    private function normalise(string $path): string
+    {
+        $parts = [];
+
+        foreach (\explode('/', \str_replace('\\', '/', $path)) as $segment) {
+            if ($segment === '' || $segment === '.') {
+                continue;
+            }
+
+            if ($segment === '..') {
+                \array_pop($parts);
+
+                continue;
+            }
+
+            $parts[] = $segment;
+        }
+
+        return \implode('/', $parts);
     }
 
     /** @return list<string> */

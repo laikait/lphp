@@ -2,8 +2,8 @@
 
 Every release, newest first. The format is
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versions follow
-[Semantic Versioning](https://semver.org/spec/v2.0.0.html) as described in the
-README's *Versioning and releases*.
+[Semantic Versioning](https://semver.org/spec/v2.0.0.html) as described in
+[Versioning and releases](docs/contributing/releases.md#versioning-and-releases).
 
 Breaking changes are listed under **Changed** or **Removed** and each one has a
 matching section in [`UPGRADING.md`](UPGRADING.md). What is public, and how
@@ -41,7 +41,7 @@ note.
   values, one JSON error document, `ApiResponse`, prefix versioning with
   `Deprecation`/`Sunset` headers.
 - **Console** with declared arguments and options, typed binding, meaningful exit
-  codes and generated help; 23 framework commands, none of which writes code.
+  codes and generated help; 24 framework commands, none of which writes code.
 - **Errors** rendered by audience (browser, API, console) with disclosure rules,
   and **logging** as a listener, with redaction, retiring writers and file,
   stream and syslog destinations.
@@ -63,13 +63,27 @@ note.
 - **Observability**: request and correlation ids across the queue, log
   enrichment, an opt-in profiler reporting to the log and `Server-Timing`, and
   slow-query warnings.
-- **Documentation**: `STABILITY.md`, `UPGRADING.md`, this file, and a README
-  section on what is not built.
+- **Documentation**: `docs/` — a getting-started tutorial, task guides for
+  application developers, a reference page per subsystem, operations and
+  troubleshooting pages, and a contributors' guide — plus `STABILITY.md`,
+  `UPGRADING.md` and this file.
+- **`nginx:make`** writes an nginx server block to `nginx.conf`, with the same
+  deny lists as `.htaccess`.
 
 ### Changed
 
 - **PHP 8.2 or newer is required.** Support for 8.1, which reached end of life
   in December 2025, is dropped.
+- **A route may use the bare name of a protected directory**, such as
+  `/templates` or `/config`. `.htaccess` hands the bare path to the front
+  controller; everything inside those directories is still refused.
+
+### Fixed
+
+- **`composer serve` routed some paths to the home page.** For a path naming a
+  real directory (`/templates`) or looking like a file (`/customers.json`), PHP's
+  built-in server reported the path as the script name, so the whole path became
+  the base path. The development router now sets `SCRIPT_NAME` to `/index.php`.
 
 ### Decided against the specification
 
