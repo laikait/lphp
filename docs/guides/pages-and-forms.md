@@ -1,5 +1,7 @@
 # Pages and forms
 
+<!-- Twig below: GitHub Pages must not run it as Liquid. {% raw %} -->
+
 How to put HTML in front of people: pages rendered from a module, layouts and
 partials, styles and scripts, forms that survive CSRF checks and bad input,
 uploads, and changing the look of pages you did not write.
@@ -303,3 +305,5 @@ debug mode — turn `APP_DEBUG` off to see yours. See
 **The whole look.** Copy `templates/default/` to `templates/<name>/` and set
 `APP_TEMPLATE=<name>`. A template has `views/` and `assets/`; anything it does
 not have is not found — there is no fallback to `default`.
+
+<!-- {% endraw %} -->

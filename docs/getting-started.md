@@ -1,5 +1,7 @@
 # Getting started
 
+<!-- Twig below: GitHub Pages must not run it as Liquid. {% raw %} -->
+
 This tutorial builds one small module from nothing: **Notes**, which keeps short
 notes in a database, shows them on a page, lists them as JSON, and adds them
 from the command line. On the way it touches the pieces every module is made of —
@@ -634,3 +636,5 @@ filter, the template namespace. Nothing outside the directory knew it existed.
 - **See a larger module:** `tests/Fixtures/Showcase/Plugins/Example/` uses every
   subsystem at once. It is a test fixture rather than an application, and reading
   its `module.php` is the fastest tour there is.
+
+<!-- {% endraw %} -->

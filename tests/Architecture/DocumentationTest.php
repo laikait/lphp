@@ -249,6 +249,37 @@ final class DocumentationTest extends TestCase
         }
     }
 
+    /**
+     * GitHub Pages builds docs/ with Jekyll, which runs every page through
+     * Liquid first -- and Liquid shares Twig's delimiters. An unknown tag such
+     * as {% extends %} fails the whole site's build; {{ title }} is worse, and
+     * quietly renders as nothing. A page that shows Twig has to sit between raw
+     * tags, written inside HTML comments so GitHub's own Markdown view hides them.
+     */
+    public function test_a_page_showing_twig_is_hidden_from_liquid(): void
+    {
+        $checked = 0;
+
+        foreach ($this->documents() as $document) {
+            $markdown = $this->read($document);
+
+            if (!\str_starts_with($document, 'docs/') || \preg_match('/\{[{%]/', $markdown) !== 1) {
+                continue;
+            }
+
+            ++$checked;
+            $outside = (string) \preg_replace('/<!--[^>]*\{% raw %\} -->.*<!-- \{% endraw %\} -->/s', '', $markdown);
+
+            self::assertDoesNotMatchRegularExpression(
+                '/\{[{%]/',
+                $outside,
+                \sprintf('%s has Twig or Liquid syntax outside <!-- {%% raw %%} --> ... <!-- {%% endraw %%} -->, which breaks the GitHub Pages build.', $document),
+            );
+        }
+
+        self::assertGreaterThan(0, $checked, 'no page shows Twig any more, so this rule reads nothing.');
+    }
+
     // ---- versions -----------------------------------------------------------
 
     /**

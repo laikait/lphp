@@ -1,5 +1,7 @@
 # Templates
 
+<!-- Twig below: GitHub Pages must not run it as Liquid. {% raw %} -->
+
 ```php
 template()->render('customer/profile', ['customer' => $customer]);
 template()->render('@plugin.Example/invoice', $data);
@@ -203,3 +205,5 @@ there. Nothing under `templates/` is reachable through it.
 |---|---|---|
 | `templates.active` | `default` (or `APP_TEMPLATE`) | The active template. One name, two directories: `templates/<active>/views/` and `templates/<active>/assets/`. It is checked against `[A-Za-z0-9][A-Za-z0-9_-]*` before it becomes a path. |
 | `templates.cache` | `false` | Twig's compilation cache, under `system/Cache/templates`. PHP templates never need it - opcache already has them. |
+
+<!-- {% endraw %} -->
