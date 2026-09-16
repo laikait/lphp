@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace App\Engine\Routing;
 
+use App\Engine\Support\Unicode;
+
 /**
  * Route storage, matching and URL generation.
  *
@@ -196,7 +198,9 @@ final class Router
 
             $pattern = $parameter['pattern'] ?? null;
 
-            if (\is_string($pattern) && \preg_match('#^(?:' . $pattern . ')$#', $segment) !== 1) {
+            // As UTF-8, so \p{L} means a letter in any script rather than a
+            // byte. A segment that is not valid UTF-8 fails every constraint.
+            if (\is_string($pattern) && \preg_match('#^(?:' . $pattern . ')$#u', $segment) !== 1) {
                 continue;
             }
 
@@ -261,9 +265,15 @@ final class Router
         $segments = [];
         $consumed = [];
 
-        foreach (Route::segments($route->path()) as $segment) {
+        foreach (Route::segments($this->normalize($route->path())) as $segment) {
             if (!\str_starts_with($segment, '{')) {
-                $segments[] = $segment;
+                // Only the bytes outside ASCII, so a URL for /পণ্য is as
+                // encoded as its parameters while /v1:batch stays as written.
+                $segments[] = (string) \preg_replace_callback(
+                    '/[\x80-\xFF]+/',
+                    static fn(array $bytes): string => \rawurlencode($bytes[0]),
+                    $segment,
+                );
 
                 continue;
             }
@@ -280,12 +290,12 @@ final class Router
                 throw RoutingException::missingParameter($name, $parameter);
             }
 
-            $value = (string) $values[$parameter];
+            $value = Unicode::nfc((string) $values[$parameter]);
             $pattern = $route->constraint($parameter);
 
             // Generating a URL the router would then refuse to match is a bug
             // worth surfacing at the call site rather than at the next request.
-            if ($pattern !== null && \preg_match('#^(?:' . $pattern . ')$#', $value) !== 1) {
+            if ($pattern !== null && \preg_match('#^(?:' . $pattern . ')$#u', $value) !== 1) {
                 throw RoutingException::parameterRejected($name, $parameter, $value, $pattern);
             }
 
@@ -406,9 +416,14 @@ final class Router
         unset($node);
     }
 
+    /**
+     * One spelling of a path, for both sides of a comparison: the route as
+     * declared and the path as requested are each NFC, so a route file saved
+     * by an editor that decomposes accents still matches.
+     */
     private function normalize(string $path): string
     {
-        $path = '/' . \ltrim($path, '/');
+        $path = '/' . \ltrim(Unicode::nfc($path), '/');
 
         return $path === '/' ? $path : \rtrim($path, '/');
     }

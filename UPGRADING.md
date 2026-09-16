@@ -21,6 +21,20 @@ repository as it stood at that commit, and they become the 0.1.0 notes.
   the development server fails on every request.
 - **Do:** upgrade the host to PHP 8.2 or newer before upgrading the framework.
 
+### ext-intl is required, and route constraints are UTF-8
+
+- **Changed:** `composer.json` requires `ext-intl`; request and route paths are
+  normalised to NFC with it. Route constraints are now matched with the `u`
+  modifier, and `url()` percent-encodes non-ASCII bytes in fixed segments.
+- **Affected:** a host without intl — Composer refuses to install there, and XAMPP
+  ships it switched off. A constraint that relied on matching bytes rather than
+  characters, such as `.{6}` meant as six bytes, or one containing raw non-UTF-8
+  bytes. A test that compared a generated URL containing a raw non-ASCII fixed
+  segment.
+- **Do:** enable intl (`extension=intl` in `php.ini`, or `apt install
+  php8.3-intl`). Write constraints in characters; add `\p{M}` to letter classes
+  for scripts with combining vowel signs. Compare URLs in their encoded form.
+
 ### Module directories are capitalised
 
 - **Changed:** `modules/shared`, `modules/plugins` and `modules/gateways` are

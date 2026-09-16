@@ -16,7 +16,8 @@ explicit rather than ORM-driven.
 
 ## Requirements
 
-- PHP 8.2 or newer, with `ext-json`, `ext-mbstring` and `ext-pdo`
+- PHP 8.2 or newer, with `ext-intl`, `ext-json`, `ext-mbstring` and `ext-pdo`.
+  XAMPP ships intl switched off: enable `extension=intl` in `php\php.ini`.
 - Composer 2
 - A PDO driver for whichever database you use. `pdo_sqlite` is enough to run
   the test suite, which includes real database integration tests.

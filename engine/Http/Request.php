@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace App\Engine\Http;
 
+use App\Engine\Support\Unicode;
+
 /**
  * An incoming HTTP request.
  *
@@ -236,7 +238,9 @@ final class Request
             $path = \substr($path, \strlen($basePath));
         }
 
-        $path = \rawurldecode($path);
+        // Decoded, then normalised: a path in any language is compared as the
+        // same bytes however the visitor's system happened to spell it.
+        $path = Unicode::nfc(\rawurldecode($path));
         $path = '/' . \ltrim($path, '/');
 
         // A trailing slash is not a different resource, but "/" itself is.

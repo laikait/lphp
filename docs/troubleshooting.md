@@ -32,6 +32,16 @@ whose `DirectoryMatch` denies the directory — see
 a slash added means the `DirectorySlash Off` block is missing from `.htaccess`,
 and the path is a real directory.
 
+**`Class "Normalizer" not found`, or Composer refuses to install asking for
+`ext-intl`.** PHP's intl extension is not loaded; route paths are normalised with
+it. In XAMPP, remove the `;` before `extension=intl` in `php\php.ini` and restart
+Apache. On Debian or Ubuntu, `apt install php8.3-intl` (your PHP version).
+
+**A route with a non-English slug is a 404 with a constraint on it, and works
+without one.** Scripts such as Bengali or Hindi are written with combining vowel
+signs, which `\p{L}` does not cover. Use `[\p{L}\p{M}\p{N}-]+` — see
+[Paths in any language](reference/routing.md#paths-in-any-language).
+
 **It is slow — 50 ms for a simple page.** Opcache is off. It is off in XAMPP by
 default.
 

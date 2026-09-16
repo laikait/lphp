@@ -72,6 +72,11 @@ note.
 
 ### Changed
 
+- **Paths in any language route reliably.** The request path and every declared
+  route path are normalised to NFC, so both spellings of `é` or Bengali `য়`
+  reach the same route; route constraints are matched as UTF-8, so `\p{L}` means
+  a letter in any script; `url()` percent-encodes fixed segments outside ASCII as
+  it already did parameters. `ext-intl` is now required.
 - **PHP 8.2 or newer is required.** Support for 8.1, which reached end of life
   in December 2025, is dropped.
 - **Module directories are `modules/Shared`, `modules/Plugins` and

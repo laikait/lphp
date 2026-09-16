@@ -36,6 +36,16 @@ final class RequestTest extends TestCase
         self::assertSame('/customers', $request->path());
     }
 
+    /** Decoded and normalised, so a handler sees one spelling of the same text. */
+    public function test_a_path_in_another_language_is_decoded_to_nfc(): void
+    {
+        $request = Request::create('GET', '/framework/' . \rawurlencode("cafe\u{301}") . '/' . \rawurlencode('ঢাকা'), [
+            'server' => ['SCRIPT_NAME' => '/framework/index.php'],
+        ]);
+
+        self::assertSame("/caf\u{E9}/ঢাকা", $request->path());
+    }
+
     public function test_the_builtin_server_has_no_base_path(): void
     {
         $request = Request::create('GET', '/customers', [

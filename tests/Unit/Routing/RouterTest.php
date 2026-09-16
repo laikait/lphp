@@ -126,6 +126,54 @@ final class RouterTest extends TestCase
         self::assertSame('dynamic', ($this->router->match('GET', '/customers/9')->route?->handler())());
     }
 
+    // ---- paths in any language ------------------------------------------------
+
+    public function test_a_route_in_another_script_matches(): void
+    {
+        $this->routes->get('/পণ্য/{slug}', $this->handler());
+
+        $match = $this->router->match('GET', '/পণ্য/ঢাকা-শহর');
+
+        self::assertTrue($match->isMatched());
+        self::assertSame(['slug' => 'ঢাকা-শহর'], $match->parameters);
+    }
+
+    /** Matched as UTF-8: \p{L} is a letter in any script, not a byte. */
+    public function test_a_unicode_constraint_matches_letters_in_any_script(): void
+    {
+        $this->routes->get('/tags/{slug}', $this->handler())->where('slug', '[\p{L}\p{M}-]+');
+
+        self::assertTrue($this->router->match('GET', '/tags/ঢাকা-শহর')->isMatched());
+        self::assertTrue($this->router->match('GET', '/tags/café')->isMatched());
+        self::assertTrue($this->router->match('GET', '/tags/东京')->isMatched());
+        self::assertSame(MatchStatus::NotFound, $this->router->match('GET', '/tags/2026')->status);
+    }
+
+    public function test_a_segment_that_is_not_utf8_fails_a_constraint(): void
+    {
+        $this->routes->get('/tags/{slug}', $this->handler())->where('slug', '.+');
+
+        self::assertSame(MatchStatus::NotFound, $this->router->match('GET', "/tags/\xFF\xFE")->status);
+    }
+
+    /**
+     * The same word typed on two systems: é as one character, and e followed
+     * by a combining accent. Either spelling reaches a route written in either.
+     */
+    public function test_a_path_matches_however_its_accents_were_spelled(): void
+    {
+        $this->routes->get("/caf\u{E9}", $this->handler('composed'));
+        $this->routes->get("/cafe\u{301}s/{name}", $this->handler('decomposed'));
+
+        self::assertSame('composed', ($this->router->match('GET', "/cafe\u{301}")->route?->handler())());
+
+        $match = $this->router->match('GET', "/caf\u{E9}s/Zo\u{EB}");
+
+        self::assertSame('decomposed', ($match->route?->handler())());
+        self::assertSame(['name' => "Zo\u{EB}"], $match->parameters);
+        self::assertSame(['name' => "Zo\u{EB}"], $this->router->match('GET', "/cafe\u{301}s/Zoe\u{308}")->parameters);
+    }
+
     public function test_a_parameter_does_not_match_across_a_separator(): void
     {
         $this->routes->get('/customers/{id}', $this->handler());
@@ -361,6 +409,35 @@ final class RouterTest extends TestCase
         $this->routes->get('/customers/{name}', $this->handler())->name('customers.byName');
 
         self::assertSame('/customers/Ada%20Lovelace', $this->router->url('customers.byName', ['name' => 'Ada Lovelace']));
+    }
+
+    /** Fixed segments are encoded like parameters, and the URL routes back to the route. */
+    public function test_a_fixed_segment_in_another_script_is_percent_encoded(): void
+    {
+        $this->routes->get('/পণ্য/{slug}', $this->handler())->name('products.show');
+
+        $url = $this->router->url('products.show', ['slug' => 'ঢাকা']);
+
+        self::assertSame('/' . \rawurlencode('পণ্য') . '/' . \rawurlencode('ঢাকা'), $url);
+
+        $request = \App\Engine\Http\Request::create('GET', $url);
+
+        self::assertSame(['slug' => 'ঢাকা'], $this->router->match('GET', $request->path())->parameters);
+    }
+
+    /** Only bytes outside ASCII are encoded, so an existing ASCII URL does not change. */
+    public function test_an_ascii_fixed_segment_is_written_as_declared(): void
+    {
+        $this->routes->get('/v1:batch/~reports', $this->handler())->name('batch');
+
+        self::assertSame('/v1:batch/~reports', $this->router->url('batch'));
+    }
+
+    public function test_a_unicode_value_passes_a_unicode_constraint_when_building_a_url(): void
+    {
+        $this->routes->get('/tags/{slug}', $this->handler())->where('slug', '[\p{L}\p{M}-]+')->name('tags.show');
+
+        self::assertSame('/tags/' . \rawurlencode("caf\u{E9}"), $this->router->url('tags.show', ['slug' => "cafe\u{301}"]));
     }
 
     public function test_an_absent_optional_parameter_is_omitted(): void

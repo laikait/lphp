@@ -28,6 +28,35 @@ $hooks->add('dispatch.before', static function (Route $route) use ($settings): v
 });
 ```
 
+## Paths in any language
+
+A path may be written in any script, and so may its parameters:
+
+```php
+$routes->get('/পণ্য/{slug}', ProductPage::class)
+    ->where('slug', '[\p{L}\p{M}\p{N}-]+')
+    ->name('products.show');
+
+url('products.show', ['slug' => 'ঢাকা-শহর']);
+// /%E0%A6%AA%E0%A6%A3%E0%A7%8D%E0%A6%AF/%E0%A6%A2%E0%A6%BE…
+```
+
+- **The request path is percent-decoded, then normalised to NFC**, and so is
+  every route path as declared. The same word can arrive as different bytes —
+  `é` as one character or as `e` plus a combining accent, Bengali `য়` as one
+  character or as `য` plus a nukta — and both spellings reach the same route. A
+  handler receives the NFC form. This is why `ext-intl` is required.
+- **Constraints are matched as UTF-8.** `\p{L}` is a letter in any script and
+  `\p{N}` a digit in any script. Include `\p{M}` for scripts written with vowel
+  signs and other combining marks — Bengali, Hindi, Arabic, Thai — or `ঢাকা`
+  fails a letters-only pattern at its `া`. A segment that is not valid UTF-8
+  fails every constraint; an unconstrained parameter still receives it as it
+  arrived.
+- **`url()` percent-encodes both parameters and fixed segments**, but only bytes
+  outside ASCII in a fixed segment, so `/v1:batch` is written exactly as declared.
+- An encoded slash, `%2F`, is decoded before matching and separates segments
+  like `/` does, so a parameter can never contain one.
+
 ## Handlers
 
 Three forms, no base class, no controllers directory:
