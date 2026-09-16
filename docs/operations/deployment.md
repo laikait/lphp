@@ -5,30 +5,37 @@ The layout puts `index.php` in the same directory as `engine/`, `modules/` and
 on its own**, so `.htaccess` is load-bearing — and it does nothing at all if
 `AllowOverride` is `None`.
 
-Verify after any deployment; each of these must return **403**, not 200:
+Verify after any deployment. The project's metadata must return **403**:
+
+```bash
+curl -i http://localhost/framework/composer.json
+curl -i http://localhost/framework/.env
+```
+
+Every path under `engine/`, `modules/`, `templates/`, `config/`, `system/`,
+`tests/`, `bin/` and `vendor/` goes to the application instead: each of these must
+be answered by the framework — its 404 page, or a route of yours — and **never**
+by the file, a 403 or a 301 redirect:
 
 ```bash
 curl -i http://localhost/framework/engine/Core/Application.php
-curl -i http://localhost/framework/modules/shared/module.php
+curl -i http://localhost/framework/modules/Shared/module.php
 curl -i http://localhost/framework/templates/default/views/home.twig
-curl -i http://localhost/framework/composer.json
 curl -i http://localhost/framework/vendor/autoload.php
-curl -i http://localhost/framework/templates/
-```
-
-The bare directory names are the exception, on purpose: a path such as
-`/templates` or `/config` with nothing after it is handed to the application, so
-it may be a route. It must be answered by the framework — its 404 page, or your
-route — and **not** by a 403 or a redirect to `/templates/`:
-
-```bash
+curl -i http://localhost/framework/engine/Core
 curl -i http://localhost/framework/templates
 ```
 
-`.htaccess` does this with three rules that share one list of names: route the
-bare name to `index.php`, refuse anything after `name/`, and switch off Apache's
-`DirectorySlash` redirect for exactly those names. An architecture test keeps the
-three lists identical and in that order.
+Routed rather than refused, for two reasons. An application may have routes
+there — `/templates`, `/config/app`. And a real file answers exactly as a missing
+one does: a 403 for what exists and a 404 for what does not would map the source
+tree for anyone who asks.
+
+`.htaccess` does this with two pieces sharing one list of names: a rule, ahead of
+the catch-all, sending the name and everything under it to `index.php`, and
+Apache's `DirectorySlash` redirect switched off for those paths only. An
+architecture test keeps the lists identical and checks that no rule refuses
+those directories again.
 
 And these, which check that the asset layer did not become a second way in.
 The first two must be refused — **403** or **404**, depending on whether Apache or
@@ -68,8 +75,8 @@ front controller, so a server misconfiguration cannot expose source at all:
 ```
 
 The `DirectoryMatch` refuses each directory **itself**, before `.htaccess` runs,
-so behind this virtual host a route named `/templates`, `/config` or any other
-name on the list is a 403. Leave it out and rely on `.htaccess` if an application
+so behind this virtual host a route at or under `/templates`, `/config` or any
+other name on the list is a 403. Leave it out and rely on `.htaccess` if an application
 needs such a route; keep it if none does.
 
 ### nginx
@@ -88,9 +95,9 @@ without `--force`. `--root` defaults to the directory the command runs in, so on
 the server itself it can be left out; `--server-name` defaults to `_`, any host,
 and `--listen` to `80`.
 
-The block refuses the same directories and metadata as `.htaccess` — an
-architecture test compares the two lists name for name — lets the bare directory
-names through to `index.php`, and runs no PHP file except the front controller.
+The block routes the same directories and refuses the same metadata as
+`.htaccess` — an architecture test compares the lists name for name — and runs no
+PHP file except the front controller.
 Run the same `curl` checks against it; `nginx -t` only proves the syntax.
 
 One difference from Apache: `/assets/core/` is served straight from `assets/`

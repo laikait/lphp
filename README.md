@@ -41,7 +41,7 @@ Under XAMPP the application answers at `http://localhost/framework/` with no
 configuration: the base path is derived from `SCRIPT_NAME`, so the same code
 runs unchanged in a subdirectory, at a domain root, and under `php -S`.
 
-A fresh installation ships one module, `modules/shared`, and a default template.
+A fresh installation ships one module, `modules/Shared`, and a default template.
 It answers two pages, both rendered by Twig through the default layout:
 
 ```bash

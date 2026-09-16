@@ -38,7 +38,7 @@ commands below.
 ## 2. Create the module
 
 A module is a directory with a `module.php` in it. Create
-`modules/plugins/Notes/module.php`:
+`modules/Plugins/Notes/module.php`:
 
 ```php
 <?php
@@ -77,7 +77,7 @@ Three things worth knowing now:
   or hooked. The framework replays every module's declarations afterwards, in a
   fixed order, which is why the order modules run in never depends on the
   filesystem.
-- **Classes autoload from the directory name.** `modules/plugins/Notes/Model/Note.php`
+- **Classes autoload from the directory name.** `modules/Plugins/Notes/Model/Note.php`
   is `App\Modules\Plugins\Notes\Model\Note`, with no `composer.json` change. The
   case must match exactly — Windows will not tell you when it does not, Linux
   will.
@@ -87,7 +87,7 @@ Three things worth knowing now:
 ## 3. A model and a repository
 
 A **model** is domain state with the rules that protect it. It does not save
-itself. Create `modules/plugins/Notes/Model/Note.php`:
+itself. Create `modules/Plugins/Notes/Model/Note.php`:
 
 ```php
 <?php
@@ -126,7 +126,7 @@ so the table below has the columns `id` and `body`.
 
 A **repository** is where storage is reached. It inherits no `find()` or `save()`:
 every public method is one you name after something the application does.
-Create `modules/plugins/Notes/Data/NoteRepository.php`:
+Create `modules/Plugins/Notes/Data/NoteRepository.php`:
 
 ```php
 <?php
@@ -194,7 +194,7 @@ DB_DSN=sqlite:/path/to/framework/system/Runtime/notes.sqlite
 environment variable always beats the file.
 
 The framework has no migrations yet, so the module creates its own table with a
-command. Create `modules/plugins/Notes/Commands/InstallNotes.php`:
+command. Create `modules/Plugins/Notes/Commands/InstallNotes.php`:
 
 ```php
 <?php
@@ -229,7 +229,7 @@ final class InstallNotes
 }
 ```
 
-And `modules/plugins/Notes/Commands/AddNote.php`:
+And `modules/Plugins/Notes/Commands/AddNote.php`:
 
 ```php
 <?php
@@ -331,8 +331,8 @@ failed, `2` was used wrongly, `127` no such command — see
 ## 5. A page
 
 A module's `Templates/` directory becomes a template namespace on its own:
-`modules/plugins/Notes/Templates/` is `@plugin.Notes`. Create
-`modules/plugins/Notes/Templates/index.twig`:
+`modules/Plugins/Notes/Templates/` is `@plugin.Notes`. Create
+`modules/Plugins/Notes/Templates/index.twig`:
 
 ```twig
 {% extends "layout.twig" %}
@@ -355,7 +355,7 @@ Twig escapes everything it prints, so a note containing `<script>` shows up as
 text.
 
 A handler turns a request into a response. There is no controller base class.
-Create `modules/plugins/Notes/Http/NotesPage.php`:
+Create `modules/Plugins/Notes/Http/NotesPage.php`:
 
 ```php
 <?php
@@ -597,8 +597,8 @@ nothing touches your notes file. No request goes over the network:
 The module's own code is checked by the same tools the framework uses:
 
 ```bash
-vendor/bin/phpstan analyse modules/plugins/Notes tests/Feature/NotesTest.php
-vendor/bin/php-cs-fixer fix --dry-run --diff --path-mode=override modules/plugins/Notes
+vendor/bin/phpstan analyse modules/Plugins/Notes tests/Feature/NotesTest.php
+vendor/bin/php-cs-fixer fix --dry-run --diff --path-mode=override modules/Plugins/Notes
 ```
 
 `composer check` runs both over `engine/` and `tests/` only, plus the whole test
@@ -613,7 +613,7 @@ describe a fresh install.
 ## What you built
 
 ```
-modules/plugins/Notes/
+modules/Plugins/Notes/
   module.php                 everything the module contributes, in one file
   Model/Note.php             a note, and the rule that it cannot be empty
   Data/NoteRepository.php    latest() and write(), and nothing inherited
@@ -624,7 +624,7 @@ modules/plugins/Notes/
 tests/Feature/NotesTest.php
 ```
 
-Deleting `modules/plugins/Notes/` removes all of it — routes, commands, the
+Deleting `modules/Plugins/Notes/` removes all of it — routes, commands, the
 filter, the template namespace. Nothing outside the directory knew it existed.
 
 ## Where next

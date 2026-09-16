@@ -3,7 +3,7 @@
 A module owns a business capability and declares itself in one file:
 
 ```php
-<?php // modules/plugins/Customer/module.php
+<?php // modules/Plugins/Customer/module.php
 
 return static function (ModuleContext $module): void {
     $module->name('Customers')->version('1.0.0');

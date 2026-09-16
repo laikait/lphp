@@ -87,7 +87,7 @@ final class Path
      * $path expressed relative to $base, or unchanged when it is not under it.
      *
      * Purely textual, and deliberately so: this is for printing a path to
-     * somebody reading a console listing, where "modules/plugins/Example" is
+     * somebody reading a console listing, where "modules/Plugins/Example" is
      * the useful answer and the absolute path is noise. Nothing decides access
      * from this -- within() is the one that resolves symlinks, and the one
      * containment is checked with.

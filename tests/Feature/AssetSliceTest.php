@@ -138,7 +138,7 @@ final class AssetSliceTest extends TestCase
     /**
      * The whole point of the phase, in one assertion.
      *
-     * modules/plugins/Example/assets/js/example.js sits inside a directory the
+     * modules/Plugins/Example/assets/js/example.js sits inside a directory the
      * web server is configured to refuse, and it comes back over HTTP anyway --
      * through a URL that says "the plugin called Example" and nothing about
      * where that plugin is.

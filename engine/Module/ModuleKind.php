@@ -29,7 +29,7 @@ enum ModuleKind: string
     /**
      * Whether the configured path holds many modules or is itself one module.
      *
-     * modules/shared is a single module; modules/plugins and modules/gateways
+     * modules/Shared is a single module; modules/Plugins and modules/Gateways
      * are directories of them.
      */
     public function isContainer(): bool

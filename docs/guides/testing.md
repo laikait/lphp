@@ -244,8 +244,8 @@ The kernel and registry are internal classes: fine in a test, not in a module.
 way:
 
 ```bash
-vendor/bin/phpstan analyse modules/plugins/Desk
-vendor/bin/php-cs-fixer fix --dry-run --diff --path-mode=override modules/plugins/Desk
+vendor/bin/phpstan analyse modules/Plugins/Desk
+vendor/bin/php-cs-fixer fix --dry-run --diff --path-mode=override modules/Plugins/Desk
 ```
 
 One framework test already reads your modules:

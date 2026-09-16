@@ -27,8 +27,8 @@ look.
 | `/assets/core/` | `assets/` |
 | `/assets/template/` | `templates/<active>/assets/` |
 | `/assets/template/admin/` | `templates/admin/assets/` |
-| `/assets/plugin/Example/` | `modules/plugins/Example/assets/` |
-| `/assets/gateway/Stripe/` | `modules/gateways/Stripe/assets/` |
+| `/assets/plugin/Example/` | `modules/Plugins/Example/assets/` |
+| `/assets/gateway/Stripe/` | `modules/Gateways/Stripe/assets/` |
 
 **A module is published because it has an `assets/` directory**, not because it
 asked to be. There is nothing about assets in any `module.php`. That is a
@@ -42,15 +42,15 @@ the application's own, under `assets/`.
 
 ## Why PHP serves them at all
 
-Because `.htaccess` denies `modules/` outright — it has to, since `module.php`
-and every repository lives there. A plugin's `assets/` directory is therefore
-unreachable by the web server *by design*, and the asset server is what makes
-those files reachable without unlocking the directory holding the source. With a
-plugin called `Example` installed that ships `assets/js/example.js`, you can
-prove both halves at once:
+Because `.htaccess` never serves a file under `modules/` — every path there goes
+to the front controller, since `module.php` and every repository lives there. A
+plugin's `assets/` directory is therefore unreachable by the web server *by
+design*, and the asset server is what makes those files reachable without
+unlocking the directory holding the source. With a plugin called `Example`
+installed that ships `assets/js/example.js`, you can prove both halves at once:
 
 ```bash
-curl -i http://localhost/framework/modules/plugins/Example/assets/js/example.js  # 403
+curl -i http://localhost/framework/modules/Plugins/Example/assets/js/example.js  # 404, from the application
 curl -i http://localhost/framework/assets/plugin/Example/js/example.js           # 200
 ```
 

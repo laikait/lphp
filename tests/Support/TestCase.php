@@ -50,7 +50,7 @@ abstract class TestCase extends PHPUnitTestCase
     protected function application(array $config = []): Application
     {
         $config['modules']['paths'] ??= [
-            'shared' => 'modules/shared',
+            'shared' => 'modules/Shared',
             'plugins' => self::SHOWCASE . '/Plugins',
             'gateways' => self::SHOWCASE . '/Gateways',
         ];

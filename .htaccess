@@ -6,19 +6,22 @@
 # in the same web-served directory, so this file is load-bearing. It also does
 # nothing at all if AllowOverride is None. Verify with:
 #
-#   curl -i http://localhost/framework/engine/Core/Application.php   -> must be 403
+#   curl -i http://localhost/framework/engine/Core/Application.php   -> the application's 404, never the file
 #
 # For production, prefer a virtual host whose DocumentRoot is a directory
 # containing only index.php. See README.md.
 
 Options -Indexes
 
-# Apache otherwise answers /templates with a redirect to /templates/ before the
-# rewrite below can hand it to the front controller. Switched off for those
-# names only: everywhere else -- the application's own directory requested as
-# http://localhost/framework, most of all -- the redirect still happens.
+# Apache otherwise answers /templates or /engine/Core -- real directories -- with
+# a redirect to the same path plus a slash, before the rewrite below can hand it
+# to the front controller. That redirect is also a map: a directory that exists
+# answers 301 and one that does not answers 404. Switched off for those names
+# and everything under them only: everywhere else -- the application's own
+# directory requested as http://localhost/framework, most of all -- the redirect
+# still happens.
 <IfModule mod_dir.c>
-    <If "%{REQUEST_URI} =~ m#/(engine|modules|templates|config|system|tests|bin|vendor)$#">
+    <If "%{REQUEST_URI} =~ m#/(engine|modules|templates|config|system|tests|bin|vendor)(/|$)#">
         DirectorySlash Off
     </If>
 </IfModule>
@@ -32,18 +35,15 @@ Options -Indexes
     # RewriteBase /my-app/
     # ======================
 
-    # A bare directory name with nothing after it -- /templates, /config -- is
-    # not a request for a file, so it goes to the front controller like any
-    # other path, and an application may have a route there. Nothing inside
-    # the directory is reachable through it: the rule after this one refuses
-    # every path that continues past the name.
+    # Application internals are never served. Every path that starts with one
+    # of these names -- /templates, /templates/, /engine/Core/Application.php,
+    # anything -- goes to the front controller instead, so no file under them
+    # is read or executed by Apache, and an application may have routes there:
+    # /config/app is the application's to answer, or its 404 page.
     #
-    # It comes first, and it has no !-d condition, because the name IS a real
-    # directory: the catch-all at the bottom would skip it, and Apache would
-    # redirect /templates to /templates/ and then refuse that.
-    RewriteRule ^(engine|modules|templates|config|system|tests|bin|vendor)$ index.php [L]
-
-    # Application internals are never served, rewritten or not.
+    # Routed rather than refused so that the answer does not depend on which
+    # characters a path happens to contain, and so that a real file and a
+    # missing one look the same from outside.
     #
     # templates/ is on this list for the same reason engine/ is: a view is
     # a .php file, and a .php file Apache can reach is a .php file Apache
@@ -51,10 +51,10 @@ Options -Indexes
     # through the asset manager, which is the only way in.
     #
     # config/ is on it because that is where the database credentials live.
-    # Requesting one of those files today would execute it and print nothing,
-    # which is not a defence -- it is a coincidence of the files currently
-    # returning an array and doing nothing else.
-    RewriteRule ^(engine|modules|templates|config|system|tests|bin|vendor)/ - [F,L]
+    #
+    # It comes first, and it has no !-f or !-d condition, because these ARE real
+    # files and directories: the catch-all at the bottom would serve them.
+    RewriteRule ^(engine|modules|templates|config|system|tests|bin|vendor)(/|$) index.php [L]
 
     # Neither is project metadata, nor the development router.
     #

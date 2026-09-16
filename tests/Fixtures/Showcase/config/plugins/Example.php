@@ -5,7 +5,7 @@ declare(strict_types=1);
 /*
  * Configuration for one module.
  *
- * The path is the module's id: modules/plugins/Example has the id
+ * The path is the module's id: modules/Plugins/Example has the id
  * "plugins/Example", so config/plugins/Example.php is where an application
  * overrides what that module declared for itself.
  *

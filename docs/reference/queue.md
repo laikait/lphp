@@ -1,7 +1,7 @@
 # Queue and worker
 
 ```php
-// modules/plugins/Example/Jobs/WelcomeCustomer.php
+// modules/Plugins/Example/Jobs/WelcomeCustomer.php
 final class WelcomeCustomer implements Job
 {
     public function __construct(private readonly int $customerId) {}
@@ -154,6 +154,6 @@ where no browser is waiting.
 
 **Queued payloads are not web-readable.** A job file is a serialised object that
 something later unserialises, so a directory anybody could write to is a
-directory that could hand a worker an object of its choosing. `system/` is
-denied by `.htaccess` and by the development router, and an architecture test
-checks both.
+directory that could hand a worker an object of its choosing. No file under
+`system/` is served by `.htaccess` or by the development router, and an
+architecture test checks both.

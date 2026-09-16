@@ -88,9 +88,9 @@ final class DiscoveryCacheTest extends TestCase
     public function test_the_roots_are_absolute_and_normalised(): void
     {
         self::assertSame([
-            'shared' => $this->root . '/modules/shared',
-            'plugins' => $this->root . '/modules/plugins',
-            'gateways' => $this->root . '/modules/gateways',
+            'shared' => $this->root . '/modules/Shared',
+            'plugins' => $this->root . '/modules/Plugins',
+            'gateways' => $this->root . '/modules/Gateways',
         ], $this->discovery()->roots());
     }
 
@@ -163,7 +163,7 @@ final class DiscoveryCacheTest extends TestCase
     public function test_a_cache_written_by_an_older_version_is_ignored(): void
     {
         $this->writeCacheFile(\var_export([
-            ['id' => 'shared', 'kind' => 'shared', 'path' => $this->root . '/modules/shared', 'entryFile' => 'x', 'directory' => 'shared'],
+            ['id' => 'shared', 'kind' => 'shared', 'path' => $this->root . '/modules/Shared', 'entryFile' => 'x', 'directory' => 'shared'],
         ], true));
 
         $manager = $this->manager();
@@ -176,7 +176,7 @@ final class DiscoveryCacheTest extends TestCase
     /** One bad entry among good ones means scan, never a boot that found half its modules. */
     public function test_a_cache_with_one_malformed_entry_is_ignored_entirely(): void
     {
-        $good = ModuleDefinition::create(ModuleKind::Shared, $this->root . '/modules/shared', 'shared')->toArray();
+        $good = ModuleDefinition::create(ModuleKind::Shared, $this->root . '/modules/Shared', 'shared')->toArray();
         $bad = [...$good, 'id' => 'plugins/Broken', 'assets' => 'yes'];
 
         $this->writeCacheFile(\var_export(['roots' => $this->discovery()->roots(), 'modules' => [$good, $bad]], true));
@@ -286,9 +286,9 @@ final class DiscoveryCacheTest extends TestCase
     }
 
     private const PATHS = [
-        'shared' => 'modules/shared',
-        'plugins' => 'modules/plugins',
-        'gateways' => 'modules/gateways',
+        'shared' => 'modules/Shared',
+        'plugins' => 'modules/Plugins',
+        'gateways' => 'modules/Gateways',
     ];
 
     private function discovery(): ModuleDiscovery

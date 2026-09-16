@@ -30,7 +30,7 @@ First hit wins, in this order:
 |---|---|
 | 1. the active template | `templates/<active>/views/` |
 | 2. the override of a namespace | `templates/<active>/views/<namespace>/` |
-| 3. the module itself | `modules/plugins/Example/Templates/` |
+| 3. the module itself | `modules/Plugins/Example/Templates/` |
 
 So a site replaces a plugin's invoice by creating
 
@@ -60,9 +60,9 @@ is nothing about templates in any `module.php`, the same bargain as assets.
 
 | Module | Namespace |
 |---|---|
-| `modules/shared/Templates/` | `@shared/…` |
-| `modules/plugins/Example/Templates/` | `@plugin.Example/…` |
-| `modules/gateways/Stripe/Templates/` | `@gateway.Stripe/…` |
+| `modules/Shared/Templates/` | `@shared/…` |
+| `modules/Plugins/Example/Templates/` | `@plugin.Example/…` |
+| `modules/Gateways/Stripe/Templates/` | `@gateway.Stripe/…` |
 
 The dot is not decoration: a Twig namespace cannot contain a slash, and the two
 engines have to agree on how a template is named. The shared module *does* get a
@@ -164,7 +164,7 @@ escaped. Every other value in the layout is escaped by Twig.
 
 ```
 templates/default/views/layout.twig        shared by every page below
-templates/default/views/home.twig          GET /, declared by modules/shared
+templates/default/views/home.twig          GET /, declared by modules/Shared
 templates/default/views/errors/404.twig    any path nothing answers
 templates/default/views/errors/error.twig  every other error status
 ```
@@ -189,15 +189,15 @@ built-in diagnostic page so a trace is never hidden behind a pretty one.
 
 ## Templates are not web-readable
 
-`templates/` is denied by `.htaccess` alongside `engine/` and `modules/`, for
-exactly the same reason: a PHP view the web server can reach is a PHP file it
-will execute, and a Twig view it can reach is source it will hand out. The
-active template's assets stay reachable as `/assets/template/…` through the asset
-manager, which is the only way in.
+`.htaccess` never serves a file under `templates/`, alongside `engine/` and
+`modules/`, for exactly the same reason: a PHP view the web server can reach is a
+PHP file it will execute, and a Twig view it can reach is source it will hand
+out. The active template's assets stay reachable as `/assets/template/…` through
+the asset manager, which is the only way in.
 
-The bare path `/templates`, with nothing after it, is not a file request and is
-handed to the application like any other path, so a module may declare a route
-there. Nothing under `templates/` is reachable through it.
+Every path under `/templates` is handed to the application instead, so a module
+may declare a route at `/templates` or `/templates/anything`; a path with no
+route is the application's 404, whether or not a file of that name exists.
 
 ## Configuring templates
 

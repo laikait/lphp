@@ -24,7 +24,7 @@ web server's.
 1. **PHP 8.2+** with `json`, `mbstring`, `pdo` and your database's PDO driver;
    `fileinfo` if the application accepts uploads. **Turn opcache on** — without
    it a request costs 45–60 ms, almost all of it compiling PHP.
-2. **Replace the demo accounts.** The shipped `modules/shared` authenticates
+2. **Replace the demo accounts.** The shipped `modules/Shared` authenticates
    `ada` / `secret` as an administrator, plus a fixed API token. A real
    `UserProvider` must be bound before anyone else can reach the site — see
    [Users and permissions](../guides/users-and-permissions.md).
@@ -84,8 +84,8 @@ php bin/console security:check
 - Never `composer dump-autoload --classmap-authoritative`: modules added later
   would not autoload.
 
-After deploying, confirm the web server still refuses source files — the curl
-checks in [Deployment and security](deployment.md) must return 403.
+After deploying, confirm the web server still never serves source files — run
+the curl checks in [Deployment and security](deployment.md).
 
 ## Cron
 

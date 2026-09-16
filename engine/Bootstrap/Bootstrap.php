@@ -1216,9 +1216,9 @@ final class Bootstrap
             ],
             'modules' => [
                 'paths' => [
-                    'shared' => 'modules/shared',
-                    'plugins' => 'modules/plugins',
-                    'gateways' => 'modules/gateways',
+                    'shared' => 'modules/Shared',
+                    'plugins' => 'modules/Plugins',
+                    'gateways' => 'modules/Gateways',
                 ],
                 // There is no "cache" key here any more. The discovery cache is
                 // used when cache:warm has built it and app.debug is off -- the

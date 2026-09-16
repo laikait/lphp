@@ -13,7 +13,8 @@ use App\Engine\Core\Application;
  * **It writes configuration, not source.** Nothing in the framework reads the
  * file, so it has no shape the framework quietly depends on -- which is what the
  * ban on generators is about. It is the nginx counterpart of .htaccess, and an
- * architecture test keeps its deny lists identical to that file's.
+ * architecture test keeps its directory and metadata lists identical to that
+ * file's.
  *
  * **Generated rather than shipped** because the three values that differ per
  * machine -- the host name, the directory and the PHP-FPM address -- are wrong
@@ -66,7 +67,7 @@ final class NginxMakeCommand
         ]);
         $output->line();
         $output->line('Copy it into /etc/nginx/conf.d/ or sites-enabled/, then run nginx -t and reload.');
-        $output->line('Check it refuses what it should: curl -i http://<host>/engine/Core/Application.php must be 403.');
+        $output->line('Check it: curl -i http://<host>/engine/Core/Application.php must be the application 404, not the file.');
         $output->line();
 
         return 0;
@@ -75,8 +76,8 @@ final class NginxMakeCommand
     /**
      * The server block itself.
      *
-     * The two deny lists are .htaccess's, character for character; the
-     * architecture test reads both files' patterns and compares them.
+     * The directory and metadata lists are .htaccess's, character for character;
+     * the architecture test reads both files' patterns and compares them.
      */
     public static function serverBlock(string $serverName, string $root, string $listen, string $php): string
     {
@@ -87,7 +88,7 @@ final class NginxMakeCommand
             # the same directory as engine/, modules/ and vendor/, and nginx serves
             # whatever it can reach. Verify after deploying:
             #
-            #   curl -i http://<host>/engine/Core/Application.php   -> must be 403
+            #   curl -i http://<host>/engine/Core/Application.php   -> the application's 404, never the file
 
             server {
                 listen {$listen};
@@ -95,9 +96,10 @@ final class NginxMakeCommand
                 root {$root};
                 index index.php;
 
-                # Anything inside these directories. The bare names -- /templates, /config
-                # -- are not refused: they fall through to index.php and may be routes.
-                location ~ ^/(engine|modules|templates|config|system|tests|bin|vendor)/ { deny all; }
+                # These directories and everything under them go to the front controller,
+                # as they do in .htaccess: no file there is ever served, and the
+                # application may have routes there -- /config/app is its to answer.
+                location ~ ^/(engine|modules|templates|config|system|tests|bin|vendor)(/|$) { rewrite ^ /index.php last; }
 
                 # The project's metadata, by name -- the list .htaccess refuses -- and
                 # Markdown anywhere. Not by extension: a route or a published asset may end
@@ -108,7 +110,7 @@ final class NginxMakeCommand
                 location ~ /\.ht { deny all; }
 
                 # The application's own assets are served directly; /assets/core/<path> is
-                # <root>/assets/<path>. Every other asset namespace lives inside the denied
+                # <root>/assets/<path>. Every other asset namespace lives inside the routed
                 # modules/ tree and goes through the front controller.
                 location ^~ /assets/core/ {
                     alias {$root}/assets/;

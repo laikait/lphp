@@ -241,7 +241,7 @@ are now enforced rather than merely intended:
 | SQL injection | the grammar is the only thing that builds a statement |
 | Path traversal | `AssetResolver` is the only thing that turns a path into a file |
 | XSS | `Escaper` escapes by context; Twig autoescapes |
-| Directory access | `.htaccess` and the dev router deny the same list, compared by a test |
+| Directory access | `.htaccess`, the dev router and `nginx:make` route the same directories to the front controller, compared by a test |
 
 That last one gained a member this phase: the development router itself. It is a
 PHP file whose name does not end in `.php`, so a real web server will not execute

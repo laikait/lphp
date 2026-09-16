@@ -34,7 +34,7 @@ system/                cache, logs, sessions, queued work (not web-readable)
   Sessions/            one file per session, named by hash rather than by id
   Logs/                where the file writer puts records
 tests/
-  Benchmark/           composer bench; denied to the web server with the rest of tests/
+  Benchmark/           composer bench; never served, with the rest of tests/
   Fixtures/Showcase/   plugins/Example and gateways/Example: every subsystem in
                        one application, booted by the feature tests
 ```
@@ -46,19 +46,19 @@ Directories are created when they are used, never in advance.
 | Directory | Namespace |
 |---|---|
 | `engine/` | `App\Engine\` |
-| `modules/shared/` | `App\Modules\Shared\` |
-| `modules/plugins/` | `App\Modules\Plugins\` |
-| `modules/gateways/` | `App\Modules\Gateways\` |
+| `modules/` | `App\Modules\` — so `modules/Shared/`, `modules/Plugins/` and `modules/Gateways/` hold `App\Modules\Shared\`, `…\Plugins\` and `…\Gateways\` |
 
 A new module autoloads with no `composer.json` change and no custom autoloader:
-`modules/plugins/Billing/Api/Invoices.php` declares
+`modules/Plugins/Billing/Api/Invoices.php` declares
 `App\Modules\Plugins\Billing\Api\Invoices` and simply works.
 
 Two consequences:
 
 - **Directory casing under `modules/` is load-bearing on Linux.** Windows will
-  not catch a mismatch between a directory name and its namespace segment. The
-  Linux CI job is the enforcement mechanism; do not skip it.
+  not catch a mismatch between a directory name and its namespace segment, so an
+  architecture test compares the names as stored on disk, and the Linux CI job
+  backs it up. Renaming only the case of a directory on Windows or macOS needs
+  two `git mv` steps (`shared` → `_Shared` → `Shared`), or git records nothing.
 - **Never use `composer dump-autoload --classmap-authoritative` in production.**
   It disables the PSR-4 fallback and breaks any module added after the dump.
   `--optimize` alone is fine and recommended.

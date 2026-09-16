@@ -29,7 +29,7 @@ For more than one connection, write `config/database.php` — see
 [Configuring a connection](../reference/database.md#configuring-a-connection).
 
 The switch from memory to database is made in one place,
-`modules/shared/module.php`, which binds `DataSource`. Repositories never know
+`modules/Shared/module.php`, which binds `DataSource`. Repositories never know
 which they have.
 
 ## Create the tables
@@ -102,7 +102,7 @@ final class Message extends Model
   only those columns.
 - `identity()` is `null` until the row is stored.
 - Models live in the module that owns them, never in a shared `Models/`
-  directory. `modules/shared/` holds only models more than one module needs.
+  directory. `modules/Shared/` holds only models more than one module needs.
 
 ## A repository
 

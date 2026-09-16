@@ -75,7 +75,7 @@ the next number. Three rules keep that honest, all enforced by tests in
 
 The helpers exist for `module.php` files, templates and one-off extension code
 — places with no constructor to inject into. Module *classes* should prefer
-injection, as the ones in `modules/shared/` and the showcase do.
+injection, as the ones in `modules/Shared/` and the showcase do.
 
 ## Lifecycle extension points
 

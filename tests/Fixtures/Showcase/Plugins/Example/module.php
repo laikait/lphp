@@ -85,7 +85,7 @@ return static function (ModuleContext $module): void {
             // see this module's Api/ handlers, which take everything that way.
             //
             // None of these URLs says where the file is. The plugin's script
-            // lives under modules/plugins/Example/assets/, a directory Apache
+            // lives under modules/Plugins/Example/assets/, a directory Apache
             // is configured to refuse, and the URL knows only that it belongs
             // to the plugin called Example.
             'assets' => [

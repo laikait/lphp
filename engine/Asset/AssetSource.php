@@ -16,8 +16,8 @@ use App\Engine\Support\Path;
  *     core                 ->  <base>/assets
  *     template             ->  <base>/templates/assets
  *     template + "admin"   ->  <base>/templates/admin/assets
- *     plugin  + "Example"  ->  <base>/modules/plugins/Example/assets
- *     gateway + "Stripe"   ->  <base>/modules/gateways/Stripe/assets
+ *     plugin  + "Example"  ->  <base>/modules/Plugins/Example/assets
+ *     gateway + "Stripe"   ->  <base>/modules/Gateways/Stripe/assets
  *
  * The root is stored normalised but NOT resolved: a source may legitimately be
  * registered for a directory that does not exist yet (a template that ships no

@@ -38,7 +38,7 @@ a major release, after a deprecation in a minor one.
 and `help` print. `composer.json` deliberately has no `version` field: Composer
 takes a package's version from its git tag, and a second copy is a copy that
 disagrees. A module's own `version()` is independent of the framework's — it is
-what other modules' constraints are checked against — and `modules/shared`
+what other modules' constraints are checked against — and `modules/Shared`
 changes version only when its own contract does.
 
 **A release, step by step:**

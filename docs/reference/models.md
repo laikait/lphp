@@ -78,5 +78,5 @@ Three columns, no tracking, no relations. The fields in the payload are the ones
 someone chose to put there.
 
 Business models never live in `engine/Model/`, which holds infrastructure only.
-They belong to the module that owns the capability, or to `modules/shared/` when
+They belong to the module that owns the capability, or to `modules/Shared/` when
 genuinely more than one module needs them. Both rules are enforced by tests.

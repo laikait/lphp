@@ -1,7 +1,7 @@
 # Scheduler
 
 ```php
-// modules/plugins/Example/module.php
+// modules/Plugins/Example/module.php
 $module->schedules(static function (ScheduleCollector $schedules): void {
     $schedules->command('invoice:send-reminders')->dailyAt('02:00');
     $schedules->job(RecalculateBilling::class)->monthlyOn(1, '03:00')->onQueue('billing');

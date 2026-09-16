@@ -1076,6 +1076,67 @@ final class ArchitectureTest extends TestCase
     }
 
     /**
+     * modules/ autoloads through one PSR-4 root, so directory names are namespace
+     * segments, letter for letter.
+     *
+     * A mismatch -- modules/shared holding App\Modules\Shared -- works on
+     * Windows and macOS, whose filesystems ignore case, and is "Class not found"
+     * on the Linux server it is deployed to. Nothing on a developer's machine
+     * fails, so this reads the names as they are stored rather than asking the
+     * filesystem whether a path exists.
+     */
+    public function test_module_directories_match_their_namespace_case_for_case(): void
+    {
+        $composer = \file_get_contents($this->basePath('composer.json'));
+        self::assertIsString($composer);
+
+        /** @var array{autoload: array{psr-4: array<string, string>}} $manifest */
+        $manifest = \json_decode($composer, true, 16, \JSON_THROW_ON_ERROR);
+
+        self::assertSame('modules/', $manifest['autoload']['psr-4']['App\\Modules\\'] ?? null, 'App\\Modules\\ no longer maps to modules/.');
+
+        // Each kind's default root is the namespace segment its classes use.
+        /** @var array<string, string> $paths */
+        $paths = \App\Engine\Bootstrap\Bootstrap::defaults()['modules']['paths'];
+
+        foreach (\App\Engine\Module\ModuleKind::cases() as $kind) {
+            self::assertSame(
+                'modules/' . \ucfirst($kind->value),
+                $paths[$kind->value] ?? null,
+                \sprintf('the default %s root does not match App\\Modules\\%s\\.', $kind->value, \ucfirst($kind->value)),
+            );
+        }
+
+        // And every class under modules/ sits where PSR-4 will look for it.
+        $checked = 0;
+        $root = $this->basePath('modules');
+
+        foreach (new \RecursiveIteratorIterator(new \RecursiveDirectoryIterator($root, \FilesystemIterator::SKIP_DOTS)) as $file) {
+            if (!$file instanceof \SplFileInfo || $file->getExtension() !== 'php') {
+                continue;
+            }
+
+            $source = \file_get_contents($file->getPathname());
+            self::assertIsString($source);
+
+            if (\preg_match('/^namespace (App\\\\Modules\\\\[^;]+);/m', $source, $namespace) !== 1) {
+                continue;
+            }
+
+            ++$checked;
+            $directory = \str_replace('\\', '/', \substr($file->getPath(), \strlen($root) + 1));
+
+            self::assertSame(
+                \str_replace('\\', '/', \substr($namespace[1], \strlen('App\\Modules\\'))),
+                $directory,
+                \sprintf('%s declares %s, which PSR-4 looks for in modules/ with exactly that case.', $this->relative($file->getPathname()), $namespace[1]),
+            );
+        }
+
+        self::assertGreaterThan(0, $checked, 'no namespaced class under modules/, so this rule reads nothing.');
+    }
+
+    /**
      * Twig first, PHP second: the order Bootstrap adds engines is the order
      * they win in, so it is pinned here rather than left to whoever next
      * reorders two lines.
@@ -1340,15 +1401,16 @@ final class ArchitectureTest extends TestCase
     }
 
     /**
-     * The development server refuses exactly what Apache refuses.
+     * The development server keeps the same directories away from the client as
+     * Apache does.
      *
-     * Two deny lists in two languages, and nothing but a habit keeps them in
-     * step -- which is how config/ ended up denied in one of them and not the
+     * Two lists in two languages, and nothing but a habit keeps them in step --
+     * which is how config/ once ended up protected in one of them and not the
      * other. The consequence is not theoretical: a .env is not a .php file, so
      * `php -S` hands one over as plain text to anybody on the same network as
      * the developer.
      */
-    public function test_the_development_server_denies_what_the_web_server_denies(): void
+    public function test_the_development_server_protects_what_the_web_server_protects(): void
     {
         $htaccess = \file_get_contents($this->basePath('.htaccess'));
         $router = \file_get_contents($this->basePath('server'));
@@ -1356,24 +1418,24 @@ final class ArchitectureTest extends TestCase
         self::assertIsString($htaccess);
         self::assertIsString($router);
 
-        if (\preg_match('#RewriteRule \^\(([a-z|]+)\)/ - \[F,L\]#', $htaccess, $apache) !== 1) {
-            self::fail('.htaccess no longer denies a list of directories in the shape this rule can read.');
+        if (\preg_match(self::HTACCESS_ROUTED_DIRECTORIES, $htaccess, $apache) !== 1) {
+            self::fail('.htaccess no longer routes a list of directories in the shape this rule can read.');
         }
 
         if (\preg_match('/foreach \(\[([^\]]+)\] as \$private\)/', $router, $builtIn) !== 1) {
-            self::fail('the dev router no longer denies a list of directories in the shape this rule can read.');
+            self::fail('the dev router no longer lists directories in the shape this rule can read.');
         }
 
-        $denied = \explode('|', $apache[1]);
+        $routed = \explode('|', $apache[1]);
         $mirrored = \array_map(
             static fn(string $entry): string => \trim(\trim($entry), "'"),
             \explode(',', $builtIn[1]),
         );
 
-        \sort($denied);
+        \sort($routed);
         \sort($mirrored);
 
-        self::assertSame($denied, $mirrored, 'the two deny lists have drifted apart.');
+        self::assertSame($routed, $mirrored, 'the two directory lists have drifted apart.');
 
         // And the metadata, which the built-in server would otherwise serve as
         // plain text rather than execute.
@@ -1381,30 +1443,30 @@ final class ArchitectureTest extends TestCase
     }
 
     /**
-     * nginx refuses exactly what Apache refuses.
+     * nginx keeps away from the client exactly what Apache keeps away.
      *
      * The server block nginx:make writes is copied onto real machines, and a
-     * deny list that is one name short there is a leak nobody tests: every test
-     * and every developer runs Apache or `php -S`. So the directories and the
+     * list that is one name short there is a leak nobody tests: every test and
+     * every developer runs Apache or `php -S`. So the directories and the
      * metadata are read out of both and compared name for name.
      */
-    public function test_the_nginx_server_block_denies_what_the_web_server_denies(): void
+    public function test_the_nginx_server_block_protects_what_the_web_server_protects(): void
     {
         $htaccess = \file_get_contents($this->basePath('.htaccess'));
         $nginx = \App\Engine\Cli\Commands\NginxMakeCommand::serverBlock('_', '/srv/app', '80', 'unix:/run/php/php-fpm.sock');
 
         self::assertIsString($htaccess);
 
-        $apacheDirectories = \preg_match('#RewriteRule \^\(([a-z|]+)\)/ - \[F,L\]#', $htaccess, $apache);
+        $apacheDirectories = \preg_match(self::HTACCESS_ROUTED_DIRECTORIES, $htaccess, $apache);
         $apacheMetadata = \preg_match('#<FilesMatch "\^\((.+)\)\$">#', $htaccess, $apacheFiles);
-        $nginxDirectories = \preg_match('#location ~ \^/\(([a-z|]+)\)/ \{ deny all; \}#', $nginx, $server);
+        $nginxDirectories = \preg_match('#location ~ \^/\(([a-z|]+)\)\(/\|\$\) \{ rewrite \^ /index\.php last; \}#', $nginx, $server);
         $nginxMetadata = \preg_match('#location ~ \^/\((.+)\)\$ \{ deny all; \}#', $nginx, $serverFiles);
 
         if ($apacheDirectories !== 1 || $apacheMetadata !== 1 || $nginxDirectories !== 1 || $nginxMetadata !== 1) {
-            self::fail('.htaccess or the nginx:make server block no longer denies directories and metadata in the shape this rule can read.');
+            self::fail('.htaccess or the nginx:make server block no longer routes directories and denies metadata in the shape this rule can read.');
         }
 
-        self::assertSame($apache[1], $server[1], 'the nginx directory deny list has drifted from .htaccess.');
+        self::assertSame($apache[1], $server[1], 'the nginx directory list has drifted from .htaccess.');
         self::assertSame($apacheFiles[1], $serverFiles[1], 'the nginx metadata deny list has drifted from .htaccess.');
 
         // The file is written into the root the web server serves.
@@ -1415,39 +1477,53 @@ final class ArchitectureTest extends TestCase
         );
     }
 
+    /** The rule in .htaccess that hands application directories to the front controller. */
+    private const HTACCESS_ROUTED_DIRECTORIES = '#RewriteRule \^\(([a-z|]+)\)\(/\|\$\) index\.php \[L\]#';
+
     /**
-     * /templates may be a route; nothing under templates/ may be a file.
+     * Every path under an application directory reaches the front controller,
+     * and none reaches a file.
      *
-     * A directory name on the deny list is also a word an application may want
-     * as a path. Apache takes three rules to allow the one without the other,
-     * and each of them fails in a way that looks like something else:
+     * Routed rather than refused, so /templates and /config/app may be routes
+     * and a real file answers exactly like a missing one. Apache takes two
+     * pieces to do that, and each fails in a way that looks like something else:
      *
-     *   - the deny rule matching "(/|$)" refuses the bare name as a 403;
-     *   - the routing rule written after the deny never runs;
-     *   - without DirectorySlash off for exactly those names, Apache answers
-     *     /templates with a redirect to /templates/, which is then refused --
-     *     and switched off for everything, http://localhost/framework stops
-     *     redirecting to its own home page.
+     *   - the rule has to match the name alone and anything after "name/",
+     *     whatever characters follow -- a narrower pattern refuses or serves
+     *     paths depending on whether they contain a dot or a hyphen;
+     *   - it has to come before the catch-all, whose !-f would serve the file;
+     *   - without DirectorySlash off for those names and everything under
+     *     them, Apache answers /engine/Core with a 301 to /engine/Core/ -- and a
+     *     missing directory with a 404, which maps the tree -- while switched
+     *     off for everything, http://localhost/framework stops redirecting to
+     *     its own home page.
      *
-     * All three lists have to be the deny list, name for name.
+     * Nothing may deny those directories either: a 403 for a file that exists
+     * and a 404 for one that does not is the same map.
      */
-    public function test_a_bare_protected_name_reaches_the_front_controller_and_nothing_inside_it_does(): void
+    public function test_every_path_under_an_application_directory_reaches_the_front_controller(): void
     {
         $htaccess = \file_get_contents($this->basePath('.htaccess'));
         self::assertIsString($htaccess);
 
-        $routed = \preg_match('#RewriteRule \^\(([a-z|]+)\)\$ index\.php \[L\]#', $htaccess, $route, \PREG_OFFSET_CAPTURE);
-        $denied = \preg_match('#RewriteRule \^\(([a-z|]+)\)(\S*) - \[F,L\]#', $htaccess, $deny, \PREG_OFFSET_CAPTURE);
-        $unslashed = \preg_match('~<If "%\{REQUEST_URI\} =\~ m\#/\(([a-z|]+)\)\$\#">\s*DirectorySlash Off\s*</If>~', $htaccess, $slash);
+        $routed = \preg_match(self::HTACCESS_ROUTED_DIRECTORIES, $htaccess, $route, \PREG_OFFSET_CAPTURE);
+        $unslashed = \preg_match('~<If "%\{REQUEST_URI\} =\~ m\#/\(([a-z|]+)\)\(/\|\$\)\#">\s*DirectorySlash Off\s*</If>~', $htaccess, $slash);
+        $catchAll = \strpos($htaccess, 'RewriteRule ^ index.php [L]');
 
-        if ($routed !== 1 || $denied !== 1 || $unslashed !== 1) {
-            self::fail('.htaccess no longer routes bare directory names, denies their contents, and exempts them from DirectorySlash in the shape this rule can read.');
+        if ($routed !== 1 || $unslashed !== 1 || $catchAll === false) {
+            self::fail('.htaccess no longer routes application directories, exempts them from DirectorySlash, and ends in a catch-all in the shape this rule can read.');
         }
 
-        self::assertSame('/', $deny[2][0], 'the deny rule must require the slash, or it refuses the bare name too');
-        self::assertLessThan($deny[0][1], $route[0][1], 'the routing rule must come before the deny rule, or it never runs');
-        self::assertSame($deny[1][0], $route[1][0], 'the routed names and the denied names have drifted apart');
-        self::assertSame($deny[1][0], $slash[1], 'the DirectorySlash exemption and the denied names have drifted apart');
+        self::assertLessThan($catchAll, $route[0][1], 'the directory rule must come before the catch-all, which would serve a real file');
+        self::assertSame($route[1][0], $slash[1], 'the DirectorySlash exemption and the routed names have drifted apart');
+
+        foreach (\explode('|', $route[1][0]) as $name) {
+            self::assertDoesNotMatchRegularExpression(
+                '#RewriteRule \^\(?[a-z|]*\b' . $name . '\b[^\n]*\[F#',
+                $htaccess,
+                \sprintf('.htaccess refuses %s/ again, which answers a real file differently from a missing one.', $name),
+            );
+        }
     }
 
     // ---- the console ------------------------------------------------------
@@ -3562,7 +3638,7 @@ final class ArchitectureTest extends TestCase
     {
         $definition = \App\Engine\Module\ModuleDefinition::create(
             \App\Engine\Module\ModuleKind::Plugin,
-            '/modules/plugins/Example',
+            '/modules/Plugins/Example',
             'Example',
         );
 

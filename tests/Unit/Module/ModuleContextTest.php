@@ -18,7 +18,7 @@ final class ModuleContextTest extends TestCase
     private function context(ModuleStage $stage = ModuleStage::Loading): ModuleContext
     {
         $context = new ModuleContext(
-            ModuleDefinition::create(ModuleKind::Plugin, '/modules/plugins/Example', 'Example'),
+            ModuleDefinition::create(ModuleKind::Plugin, '/modules/Plugins/Example', 'Example'),
         );
 
         $context->enterStage($stage);
@@ -34,8 +34,8 @@ final class ModuleContextTest extends TestCase
 
         self::assertSame('plugins/Example', $context->id());
         self::assertSame(ModuleKind::Plugin, $context->kind());
-        self::assertSame('/modules/plugins/Example', $context->path());
-        self::assertSame('/modules/plugins/Example/Templates', $context->path('Templates'));
+        self::assertSame('/modules/Plugins/Example', $context->path());
+        self::assertSame('/modules/Plugins/Example/Templates', $context->path('Templates'));
     }
 
     public function test_metadata_is_fluent(): void

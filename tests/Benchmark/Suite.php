@@ -542,7 +542,7 @@ final class Suite
             [
                 'app' => ['handle_errors' => false],
                 'modules' => ['paths' => [
-                    'shared' => 'modules/shared',
+                    'shared' => 'modules/Shared',
                     'plugins' => 'tests/Fixtures/Showcase/Plugins',
                     'gateways' => 'tests/Fixtures/Showcase/Gateways',
                 ]],

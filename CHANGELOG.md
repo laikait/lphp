@@ -74,9 +74,15 @@ note.
 
 - **PHP 8.2 or newer is required.** Support for 8.1, which reached end of life
   in December 2025, is dropped.
-- **A route may use the bare name of a protected directory**, such as
-  `/templates` or `/config`. `.htaccess` hands the bare path to the front
-  controller; everything inside those directories is still refused.
+- **Module directories are `modules/Shared`, `modules/Plugins` and
+  `modules/Gateways`**, autoloaded through one PSR-4 root, `App\Modules\` →
+  `modules/`. Directory names now match their namespace segment, which Linux
+  requires.
+- **Paths under application directories are routed, not refused.** Every path
+  starting with `engine`, `modules`, `templates`, `config`, `system`, `tests`,
+  `bin` or `vendor` goes to the front controller under `.htaccess`, `composer
+  serve` and `nginx:make`, so `/templates` or `/config/app` may be routes and a
+  real file answers exactly like a missing one. No file under them is served.
 
 ### Fixed
 

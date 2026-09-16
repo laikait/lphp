@@ -224,17 +224,17 @@ final class BootstrapTest extends TestCase
         $paths = (new Config(Bootstrap::defaults()))->get('modules.paths');
 
         self::assertSame([
-            'shared' => 'modules/shared',
-            'plugins' => 'modules/plugins',
-            'gateways' => 'modules/gateways',
+            'shared' => 'modules/Shared',
+            'plugins' => 'modules/Plugins',
+            'gateways' => 'modules/Gateways',
         ], $paths);
 
         // Only shared has to exist. The framework ships no plugin and no
         // gateway, git keeps no empty directory, and an invariant forbids one
-        // kept for appearance -- so modules/plugins/ appears when the first
+        // kept for appearance -- so modules/Plugins/ appears when the first
         // plugin does, and discovery reads an absent root as an empty one.
         // DefaultPagesSliceTest boots exactly that.
-        self::assertDirectoryExists($this->basePath('modules/shared'));
+        self::assertDirectoryExists($this->basePath('modules/Shared'));
     }
 
     public function test_overrides_merge_recursively_over_the_defaults(): void

@@ -16,8 +16,8 @@ use App\Tests\Support\TestCase;
  * What a fresh installation answers, with nothing added to it.
  *
  * The framework ships one module -- shared -- and a default template. These
- * tests boot exactly that: no showcase, no fixtures, modules/plugins/ and
- * modules/gateways/ absent. What they prove is that such an application has a
+ * tests boot exactly that: no showcase, no fixtures, modules/Plugins/ and
+ * modules/Gateways/ absent. What they prove is that such an application has a
  * front page and a 404 page, both rendered by Twig through the default
  * template's layout, and that neither is something an application has to
  * fight to replace.
@@ -49,8 +49,8 @@ final class DefaultPagesSliceTest extends TestCase
         $registry = $this->shipped()->container()->get(ModuleRegistry::class);
 
         self::assertSame(['shared'], $registry->ids());
-        self::assertDirectoryDoesNotExist($this->basePath('modules/plugins/Example'));
-        self::assertDirectoryDoesNotExist($this->basePath('modules/gateways/Example'));
+        self::assertDirectoryDoesNotExist($this->basePath('modules/Plugins/Example'));
+        self::assertDirectoryDoesNotExist($this->basePath('modules/Gateways/Example'));
     }
 
     /** Twig is the default engine, so both pages resolve to .twig files. */
@@ -111,7 +111,7 @@ final class DefaultPagesSliceTest extends TestCase
     public function test_a_module_that_declares_the_front_page_replaces_the_default(): void
     {
         $app = $this->shipped(['modules' => ['paths' => [
-            'shared' => 'modules/shared',
+            'shared' => 'modules/Shared',
             'plugins' => 'tests/Fixtures/Modules/FrontPage/Plugins',
         ]]]);
 

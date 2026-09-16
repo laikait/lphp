@@ -58,12 +58,12 @@ on the defaults and the environment.
 A subdirectory joins with a slash, and a module's id *is* a path:
 
 ```php
-// config/plugins/Example.php — the module at modules/plugins/Example
+// config/plugins/Example.php — the module at modules/Plugins/Example
 return ['page_size' => 10];
 ```
 
 ```php
-// modules/plugins/Example/module.php
+// modules/Plugins/Example/module.php
 $module->config(['page_size' => 25]);
 ```
 
@@ -179,12 +179,12 @@ otherwise while running `config:cache` on a production machine.
 
 ## config/ is not web-readable
 
-It holds the database credentials. Both `.htaccess` and the `php -S` router deny
-the directory, and both deny `.env*` by name — a `.env` is not a `.php` file, so
-without that the built-in server would hand one over as plain text on a port a
-colleague on the same network can reach. An architecture test compares the two
-deny lists and fails when they drift apart, which is how `config/` came to be on
-both.
+It holds the database credentials. Both `.htaccess` and the `php -S` router send
+every path under it to the front controller rather than to a file, and both deny
+`.env*` by name — a `.env` is not a `.php` file, so without that the built-in
+server would hand one over as plain text on a port a colleague on the same
+network can reach. An architecture test compares the two lists and fails when
+they drift apart, which is how `config/` came to be on both.
 
 `config:list` prints `[hidden]` for a handful of key names — `password`,
 `token`, `dsn` and a few more. There is deliberately no flag to reveal them: a

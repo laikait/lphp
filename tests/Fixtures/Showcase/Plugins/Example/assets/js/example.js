@@ -1,4 +1,4 @@
-// A plugin's script, published from modules/plugins/Example/assets/.
+// A plugin's script, published from modules/Plugins/Example/assets/.
 //
 // Apache denies modules/ outright -- it has to, since module.php and every
 // repository lives there. This file is reachable only as

@@ -21,6 +21,22 @@ repository as it stood at that commit, and they become the 0.1.0 notes.
   the development server fails on every request.
 - **Do:** upgrade the host to PHP 8.2 or newer before upgrading the framework.
 
+### Module directories are capitalised
+
+- **Changed:** `modules/shared`, `modules/plugins` and `modules/gateways` are
+  `modules/Shared`, `modules/Plugins` and `modules/Gateways`, the defaults of
+  `modules.paths` say so, and `composer.json` autoloads all three through one
+  root, `App\Modules\` → `modules/`. Module ids (`shared`, `plugins/Billing`),
+  template and asset namespaces are unchanged.
+- **Affected:** every application with a module, and any `config/modules.php`
+  that sets `paths`. On Linux, classes in a lowercase directory are no longer
+  found.
+- **Do:** rename the directories. On a case-insensitive filesystem (Windows,
+  macOS) take two steps, or git records nothing:
+  `git mv modules/plugins modules/_Plugins && git mv modules/_Plugins modules/Plugins`.
+  Update `paths` if you set it, copy the new `autoload` block into
+  `composer.json`, and run `composer dump-autoload`.
+
 ### A fresh install ships no demo modules
 
 - **Changed:** `modules/plugins/Example` and `modules/gateways/Example` are no
@@ -36,7 +52,7 @@ repository as it stood at that commit, and they become the 0.1.0 notes.
 ### `/` is answered by the shared module
 
 - **Changed:** `GET /` renders the default template's `home` page, declared by
-  `modules/shared` under the route name `home`.
+  `modules/Shared` under the route name `home`.
 - **Affected:** a module that declares `/` **and** names that route `home` —
   route names are unique, so boot stops with a duplicate-name error.
 - **Do:** rename your route. Your `/` still wins: every other module registers

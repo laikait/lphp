@@ -15,7 +15,7 @@ php bin/console auth:hash 'hunter2'   # a hash, for seeding the first account
 `UserProvider` interface with two lookups, `byId()` and `byLogin()`, plus
 `describe()` for the console. An architecture test freezes that list, because a
 third lookup is how an interface starts describing a schema it does not own. Everything that knows what a user actually is lives in a module; in
-this repository that is `modules/shared/Auth/AccountProvider.php`. Point it at
+this repository that is `modules/Shared/Auth/AccountProvider.php`. Point it at
 LDAP and nothing in `engine/` changes.
 
 ```php

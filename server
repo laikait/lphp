@@ -8,10 +8,9 @@ declare(strict_types=1);
  *
  * Development only. It serves a real file when one exists and hands everything
  * else to the front controller, which is what Apache does via .htaccess. The
- * built-in server has no concept of a document root restriction, so the deny
- * list below mirrors the one in .htaccess; without it, `php -S` would happily
- * serve engine/ and vendor/ as plain text -- and execute templates/, since a
- * view is a .php file like any other.
+ * built-in server has no concept of a document root restriction, so the list of
+ * directories below mirrors the one in .htaccess; without it, `php -S` would
+ * happily serve engine/ and vendor/ as plain text.
  *
  * The named files matter as much as the directories. A .env is not a .php file,
  * so without the second list below this server would hand one over as plain
@@ -21,21 +20,21 @@ declare(strict_types=1);
 
 $path = \rawurldecode((string) \strtok((string) ($_SERVER['REQUEST_URI'] ?? '/'), '?'));
 
-// The bare name -- /templates with nothing after it -- is not denied: it is a
-// path like any other and may be a route, exactly as .htaccess treats it.
-foreach (['engine', 'modules', 'templates', 'config', 'system', 'tests', 'bin', 'vendor'] as $private) {
-    if (\str_starts_with(\ltrim($path, '/'), $private . '/')) {
-        \http_response_code(403);
-        echo '403 Forbidden';
+// A path under an application directory -- /templates, /engine/Core/Application.php
+// -- never reaches a file: it goes to the front controller, where it is a route
+// or a 404, exactly as .htaccess treats it. Compared without case, because on
+// Windows and macOS /Vendor/autoload.php is the same file as /vendor/autoload.php.
+$first = \strtolower(\explode('/', \ltrim($path, '/'), 2)[0]);
+$internal = false;
 
-        return true;
-    }
+foreach (['engine', 'modules', 'templates', 'config', 'system', 'tests', 'bin', 'vendor'] as $private) {
+    $internal = $internal || $first === $private;
 }
 
 // Including this file itself. It has no .php extension, so the rule below that
 // hands real files straight to the client would serve the router's own source
 // -- and .htaccess denies it on the real web server, so the two agree.
-if (\preg_match('/^(composer\.(json|lock)|phpunit\.xml|phpstan\.neon|\.php-cs-fixer\..*|\.env.*|.*\.md|server|nginx\.conf)$/', \basename($path)) === 1) {
+if (!$internal && \preg_match('/^(composer\.(json|lock)|phpunit\.xml|phpstan\.neon|\.php-cs-fixer\..*|\.env.*|.*\.md|server|nginx\.conf)$/', \basename($path)) === 1) {
     \http_response_code(403);
     echo '403 Forbidden';
 
@@ -44,7 +43,7 @@ if (\preg_match('/^(composer\.(json|lock)|phpunit\.xml|phpstan\.neon|\.php-cs-fi
 
 $file = __DIR__ . \str_replace('/', \DIRECTORY_SEPARATOR, $path);
 
-if ($path !== '/' && \is_file($file) && !\str_ends_with($file, '.php')) {
+if (!$internal && $path !== '/' && \is_file($file) && !\str_ends_with(\strtolower($file), '.php')) {
     return false;
 }
 

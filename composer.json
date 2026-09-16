@@ -19,9 +19,7 @@
     "autoload": {
         "psr-4": {
             "App\\Engine\\": "engine/",
-            "App\\Modules\\Shared\\": "modules/shared/",
-            "App\\Modules\\Plugins\\": "modules/plugins/",
-            "App\\Modules\\Gateways\\": "modules/gateways/"
+            "App\\Modules\\": "modules/"
         },
         "files": [
             "engine/Support/helpers.php"

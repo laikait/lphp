@@ -11,7 +11,7 @@ permission checks around the answer. Reference:
 
 ## Before anything else: the shared module's demo accounts
 
-`modules/shared/Auth/AccountProvider.php` is a **demonstration**. It knows two
+`modules/Shared/Auth/AccountProvider.php` is a **demonstration**. It knows two
 accounts, `ada` and `grace`, whose password is `secret` and which exist whenever
 no database is configured; `ada` is an administrator, and a fixed bearer token
 logs in as her. The shared module also declares `POST /login`, `POST /logout`,

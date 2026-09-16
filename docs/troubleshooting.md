@@ -24,11 +24,13 @@ Without it, the deny rules are ignored too — see
 `SCRIPT_NAME`. Behind a proxy that rewrites paths, set `http.base_path` in
 `config/http.php`.
 
-**A route named after a protected directory — `/templates`, `/config`,
-`/modules` — is a 403.** The bare name is routed to the application; only paths
-*inside* those directories are refused. A 403 means an older `.htaccess`, or a
-virtual host whose `DirectoryMatch` denies the directory itself — see
-[Deployment and security](operations/deployment.md).
+**A route under an application directory — `/templates`, `/config/app`,
+`/modules/list` — is a 403 or a 301.** Every path under those directories is
+routed to the application. A 403 means an older `.htaccess`, or a virtual host
+whose `DirectoryMatch` denies the directory — see
+[Deployment and security](operations/deployment.md). A 301 to the same path with
+a slash added means the `DirectorySlash Off` block is missing from `.htaccess`,
+and the path is a real directory.
 
 **It is slow — 50 ms for a simple page.** Opcache is off. It is off in XAMPP by
 default.
@@ -46,7 +48,7 @@ route or variable.
 
 - A module cache from `cache:warm` exists and debug is off. Run
   `php bin/console cache:clear`.
-- The file is not `modules/plugins/<Name>/module.php` exactly, or does not
+- The file is not `modules/Plugins/<Name>/module.php` exactly, or does not
   `return` a closure.
 - It is listed in `modules.disabled` — `module:list` shows disabled modules
   beneath the table.

@@ -100,7 +100,7 @@ Put them in your module's `assets/` directory. It is published because it
 exists — nothing to declare:
 
 ```
-modules/plugins/Desk/assets/css/desk.css   →   /assets/plugin/Desk/css/desk.css?v=…
+modules/Plugins/Desk/assets/css/desk.css   →   /assets/plugin/Desk/css/desk.css?v=…
 ```
 
 In Twig:
@@ -285,7 +285,7 @@ It needs `ext-fileinfo`. Store uploads outside the web root, or under
 module's namespace, and edit the copy:
 
 ```
-modules/plugins/Billing/Templates/invoice.twig          the module's own
+modules/Plugins/Billing/Templates/invoice.twig          the module's own
 templates/default/views/plugin.Billing/invoice.twig     yours, which wins
 ```
 
