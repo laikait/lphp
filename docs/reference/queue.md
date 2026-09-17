@@ -154,6 +154,5 @@ where no browser is waiting.
 
 **Queued payloads are not web-readable.** A job file is a serialised object that
 something later unserialises, so a directory anybody could write to is a
-directory that could hand a worker an object of its choosing. No file under
-`system/` is served by `.htaccess` or by the development router, and an
-architecture test checks both.
+directory that could hand a worker an object of its choosing. `system/` is
+outside `public/`, the document root, and an architecture test keeps it there.

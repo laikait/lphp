@@ -162,7 +162,7 @@ final class Bootstrap
         // rather than to templates/assets/. A named one, template('admin', ...),
         // reaches templates/admin/assets/ the same way.
         $assets = new AssetRegistry();
-        $assets->register(new AssetSource(AssetKind::Core, null, $basePath . '/assets'));
+        $assets->register(new AssetSource(AssetKind::Core, null, Path::join($basePath, 'public', 'assets')));
         $assets->register(new AssetSource(
             AssetKind::Template,
             null,

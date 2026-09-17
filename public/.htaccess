@@ -1,0 +1,33 @@
+# The front controller.
+#
+# This directory is the document root: index.php and the application's own
+# assets, and nothing else. engine/, modules/, config/, vendor/ and the project's
+# metadata are one level up, where no URL reaches them, so there is nothing here
+# to deny by name. Point a virtual host's DocumentRoot at this directory.
+
+Options -Indexes
+
+<IfModule mod_rewrite.c>
+    RewriteEngine On
+
+    # Dotfiles are not content -- this one least of all. /.well-known/ is the
+    # exception, because certificate authorities read challenges from it.
+    RewriteRule (^|/)\.(?!well-known/) - [F,L]
+
+    # Apache receives Authorization and does not pass it on: it treats the
+    # header as its own business, so $_SERVER never sees it and a bearer token
+    # the client definitely sent is invisible to PHP. The failure is silent and
+    # only happens on a real server -- token auth works under php -S and in
+    # every test, then answers 401 to everything once deployed.
+    #
+    # The framework also recovers it from getallheaders() where that exists, so
+    # this is the belt to that pair of braces. Both are needed: getallheaders()
+    # is absent under FastCGI, and this rule is absent from an nginx install.
+    RewriteCond %{HTTP:Authorization} .
+    RewriteRule .* - [E=HTTP_AUTHORIZATION:%{HTTP:Authorization}]
+
+    # Anything that is not a real file here goes to the application.
+    RewriteCond %{REQUEST_FILENAME} !-f
+    RewriteCond %{REQUEST_FILENAME} !-d
+    RewriteRule ^ index.php [L]
+</IfModule>

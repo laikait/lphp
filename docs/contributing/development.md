@@ -18,7 +18,7 @@ created at the start of a project becomes permanent debt.
 frozen helper set, the engine/module layering, the HTTP/routing separation, the
 model/schema/data/database separations, the repository base publishing no API,
 statement construction living only in `Grammar`, the absence of a command base
-class, the `.htaccess` deny rules, only discovery probing module directories, only
+class, `public/` holding only the front controller and assets, only discovery probing module directories, only
 `cache:warm` writing the discovery cache, every specified subject having a
 benchmark, no subsystem referencing the profiler, and observability keeping
 nothing of its own. These are the invariants that erode quietly, so

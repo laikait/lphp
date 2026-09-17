@@ -12,9 +12,9 @@ use App\Engine\Core\Application;
  *
  * **It writes configuration, not source.** Nothing in the framework reads the
  * file, so it has no shape the framework quietly depends on -- which is what the
- * ban on generators is about. It is the nginx counterpart of .htaccess, and an
- * architecture test keeps its directory and metadata lists identical to that
- * file's.
+ * ban on generators is about. It is the nginx counterpart of public/.htaccess:
+ * the root is public/, so nothing but the front controller and the assets can
+ * be reached, and there is no list of directories to deny.
  *
  * **Generated rather than shipped** because the three values that differ per
  * machine -- the host name, the directory and the PHP-FPM address -- are wrong
@@ -61,13 +61,13 @@ final class NginxMakeCommand
         $output->line();
         $output->pairs([
             'server_name' => $serverName,
-            'root' => $root,
+            'root' => $root . '/public',
             'listen' => $listen,
             'fastcgi_pass' => $php,
         ]);
         $output->line();
         $output->line('Copy it into /etc/nginx/conf.d/ or sites-enabled/, then run nginx -t and reload.');
-        $output->line('Check it: curl -i http://<host>/engine/Core/Application.php must be the application 404, not the file.');
+        $output->line('Check it: curl -i http://<host>/composer.json must be the application 404, not the file.');
         $output->line();
 
         return 0;
@@ -76,44 +76,34 @@ final class NginxMakeCommand
     /**
      * The server block itself.
      *
-     * The directory and metadata lists are .htaccess's, character for character;
-     * the architecture test reads both files' patterns and compares them.
+     * $root is the project directory; nginx is rooted at its public/.
      */
     public static function serverBlock(string $serverName, string $root, string $listen, string $php): string
     {
         return <<<NGINX
             # nginx server block, written by `php bin/console nginx:make`.
             #
-            # The counterpart of .htaccess, and just as load-bearing: index.php sits in
-            # the same directory as engine/, modules/ and vendor/, and nginx serves
-            # whatever it can reach. Verify after deploying:
+            # The root is public/, which holds only index.php and the application's
+            # assets: engine/, modules/, config/, vendor/ and .env are one level up, out
+            # of reach of any URL. Verify after deploying:
             #
-            #   curl -i http://<host>/engine/Core/Application.php   -> the application's 404, never the file
+            #   curl -i http://<host>/composer.json   -> the application's 404, never the file
 
             server {
                 listen {$listen};
                 server_name {$serverName};
-                root {$root};
+                root {$root}/public;
                 index index.php;
 
-                # These directories and everything under them go to the front controller,
-                # as they do in .htaccess: no file there is ever served, and the
-                # application may have routes there -- /config/app is its to answer.
-                location ~ ^/(engine|modules|templates|config|system|tests|bin|vendor)(/|$) { rewrite ^ /index.php last; }
-
-                # The project's metadata, by name -- the list .htaccess refuses -- and
-                # Markdown anywhere. Not by extension: a route or a published asset may end
-                # in .json, and refusing the extension would 403 it here and nowhere else.
-                location ~ ^/(composer\.(json|lock)|phpunit\.xml|phpstan\.neon|\.php-cs-fixer\..*|\.env.*|.*\.md|server|nginx\.conf)$ { deny all; }
-
-                # Apache refuses .htaccess and .htpasswd by default; nginx has to be told.
-                location ~ /\.ht { deny all; }
+                # Dotfiles are refused, as public/.htaccess refuses them, except
+                # /.well-known/ for certificate challenges.
+                location ~ /\.(?!well-known/) { deny all; }
 
                 # The application's own assets are served directly; /assets/core/<path> is
-                # <root>/assets/<path>. Every other asset namespace lives inside the routed
-                # modules/ tree and goes through the front controller.
+                # public/assets/<path>. Every other asset namespace lives in modules/ or
+                # templates/ and goes through the front controller.
                 location ^~ /assets/core/ {
-                    alias {$root}/assets/;
+                    alias {$root}/public/assets/;
                     access_log off;
                 }
 

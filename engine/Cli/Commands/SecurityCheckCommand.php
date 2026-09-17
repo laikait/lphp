@@ -52,8 +52,8 @@ final class SecurityCheckCommand
 
     public const OK = 'ok';
 
-    /** Files that must not be readable over HTTP, whatever else is true. */
-    public const MUST_BE_DENIED = ['engine', 'modules', 'templates', 'config', 'system', 'tests', 'bin', 'vendor'];
+    /** The document root: everything in it can be requested by URL. */
+    public const PUBLIC_DIRECTORY = 'public';
 
     public function __construct(
         private readonly Application $application,
@@ -407,53 +407,48 @@ final class SecurityCheckCommand
     /**
      * The rule that matters most and is easiest to get wrong.
      *
-     * The specified layout puts index.php, vendor/, engine/ and modules/ in one
-     * web-served directory, so .htaccess is load-bearing -- and it does nothing
-     * at all if AllowOverride is None. This can check that the file says the
-     * right thing; only a request can prove the web server is reading it, which
-     * is why the last line says so.
+     * The document root is public/, so what has to hold is that public/ contains
+     * nothing but the front controller and assets: a second PHP file there is a
+     * second way in that nothing routes, authenticates or rate-limits. What this
+     * cannot see is the web server's own configuration -- a DocumentRoot left at
+     * the project directory, or AllowOverride None making the forwarding file
+     * inert -- which is why the last line says how to check with a request.
      *
      * @return list<array{string, string, string}>
      */
     private function checkWebServer(): array
     {
-        $findings = [];
+        $public = Path::join($this->application->basePath(), self::PUBLIC_DIRECTORY);
 
-        foreach (['.htaccess', 'server'] as $file) {
-            $path = Path::join($this->application->basePath(), $file);
-            $contents = \is_file($path) ? @\file_get_contents($path) : false;
-
-            if (!\is_string($contents)) {
-                $findings[] = [self::FAIL, $file . ' is missing.', 'Application directories may be served directly.'];
-
-                continue;
-            }
-
-            $missing = [];
-
-            foreach (self::MUST_BE_DENIED as $directory) {
-                if (!\str_contains($contents, $directory)) {
-                    $missing[] = $directory;
-                }
-            }
-
-            $findings[] = $missing === []
-                ? [self::OK, $file . ' denies every application directory.', '']
-                : [
-                    self::FAIL,
-                    \sprintf('%s does not deny: %s', $file, \implode(', ', $missing)),
-                    'Those directories are inside the web root and would be served as files.',
-                ];
+        if (!\is_file(Path::join($public, 'index.php'))) {
+            return [[self::FAIL, 'public/index.php is missing.', 'The document root has no front controller.']];
         }
 
-        $findings[] = [
-            self::WARN,
-            'This check reads .htaccess; it cannot prove Apache does.',
-            'AllowOverride None makes the file inert with no error anywhere. Confirm with: '
-            . 'curl -i http://your-host/engine/Core/Application.php -- it must be 403.',
-        ];
+        $scripts = [];
 
-        return $findings;
+        foreach (new \RecursiveIteratorIterator(new \RecursiveDirectoryIterator($public, \FilesystemIterator::SKIP_DOTS)) as $file) {
+            $relative = $file instanceof \SplFileInfo ? \substr(Path::normalize($file->getPathname()), \strlen(Path::normalize($public)) + 1) : '';
+
+            if ($relative !== 'index.php' && \preg_match('/\.(php\d?|phtml|phar)$/i', $relative) === 1) {
+                $scripts[] = $relative;
+            }
+        }
+
+        return [
+            $scripts === []
+                ? [self::OK, 'public/ holds no PHP but the front controller.', '']
+                : [
+                    self::FAIL,
+                    \sprintf('public/ holds PHP besides index.php: %s', \implode(', ', $scripts)),
+                    'The web server executes these directly, outside routing, authentication and rate limits.',
+                ],
+            [
+                self::WARN,
+                'This check reads files; it cannot prove the web server serves only public/.',
+                'A DocumentRoot left at the project directory, or AllowOverride None, fails silently. Confirm with: '
+                . 'curl -i http://your-host/composer.json -- it must not return the file.',
+            ],
+        ];
     }
 
     /** @return list<array{string, string, string}> */

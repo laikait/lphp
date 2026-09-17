@@ -21,6 +21,23 @@ repository as it stood at that commit, and they become the 0.1.0 notes.
   the development server fails on every request.
 - **Do:** upgrade the host to PHP 8.2 or newer before upgrading the framework.
 
+### The document root is public/
+
+- **Changed:** `index.php` is `public/index.php`, and the application's own
+  assets moved from `assets/` to `public/assets/`. The root `.htaccess` now only
+  forwards into `public/`; the front-controller rules are in `public/.htaccess`.
+  `composer serve` runs `php -S 127.0.0.1:8080 -t public server`. `nginx:make`
+  writes `root <app>/public`.
+- **Affected:** every deployment. A virtual host whose `DocumentRoot` is the
+  project directory keeps working only while `.htaccess` is read; a custom
+  `nginx.conf`; anything that runs `php -S` by hand; files an application added to
+  `assets/`; a custom `.htaccess` rule.
+- **Do:** point `DocumentRoot` (or nginx `root`) at `public/` and regenerate
+  `nginx.conf` with `php bin/console nginx:make --force`. Move your own files from
+  `assets/` to `public/assets/` — `asset()->core()` URLs do not change. Move any
+  custom rewrite rule into `public/.htaccess`. Then run the curl checks in
+  [Deployment and security](docs/operations/deployment.md).
+
 ### ext-intl is required, and route constraints are UTF-8
 
 - **Changed:** `composer.json` requires `ext-intl`; request and route paths are

@@ -114,10 +114,10 @@ In Twig:
 In PHP, `$view->asset()->plugin('Desk', 'css/desk.css')`; in `module.php`,
 `asset()->plugin(...)`. The `?v=` is a hash of the file's contents, so browsers
 may cache it for a year and still see every change. Files for the whole
-application go in the top-level `assets/` and are addressed with
+application go in `public/assets/` and are addressed with
 `asset()->core('css/app.css')`.
 
-`modules/` is refused by the web server; the URL works because the framework
+`modules/` is outside the document root; the URL works because the framework
 serves those files itself, after checking the path. See
 [Why PHP serves them at all](../reference/assets.md#why-php-serves-them-at-all).
 

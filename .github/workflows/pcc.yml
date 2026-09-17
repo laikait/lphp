@@ -90,7 +90,7 @@ jobs:
         run: |
           find engine modules -name '*.php' -print0 \
             | xargs -0 -n1 -P4 php -l > /dev/null
-          php -l index.php
+          php -l public/index.php
           php -l server
           php -l bin/console
 
@@ -110,7 +110,7 @@ jobs:
       # require-dev, the front page would be a 500 here and nowhere else.
       - name: Serve the default pages
         run: |
-          php -S 127.0.0.1:8080 server &
+          php -S 127.0.0.1:8080 -t public server &
           for i in $(seq 1 20); do
             curl -fsS http://127.0.0.1:8080/ > /dev/null && break
             sleep 0.5

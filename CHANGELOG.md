@@ -67,11 +67,19 @@ note.
   application developers, a reference page per subsystem, operations and
   troubleshooting pages, and a contributors' guide — plus `STABILITY.md`,
   `UPGRADING.md` and this file.
-- **`nginx:make`** writes an nginx server block to `nginx.conf`, with the same
-  deny lists as `.htaccess`.
+- **`nginx:make`** writes an nginx server block to `nginx.conf`, rooted at
+  `public/`.
 
 ### Changed
 
+- **The document root is `public/`.** `index.php` and the application's own
+  `assets/` moved into it; everything else — `engine/`, `modules/`, `config/`,
+  `vendor/`, `.env` — is out of reach of any URL, so the lists of directories and
+  files that `.htaccess`, the development router and `nginx:make` used to deny
+  are gone. Where the document root cannot be changed, the project's `.htaccess`
+  forwards every request into `public/`, and URLs keep their old form.
+  `composer serve` runs `php -S 127.0.0.1:8080 -t public server`, and
+  `security:check` fails if `public/` holds PHP besides `index.php`.
 - **Paths in any language route reliably.** The request path and every declared
   route path are normalised to NFC, so both spellings of `é` or Bengali `য়`
   reach the same route; route constraints are matched as UTF-8, so `\p{L}` means
@@ -83,11 +91,9 @@ note.
   `modules/Gateways`**, autoloaded through one PSR-4 root, `App\Modules\` →
   `modules/`. Directory names now match their namespace segment, which Linux
   requires.
-- **Paths under application directories are routed, not refused.** Every path
-  starting with `engine`, `modules`, `templates`, `config`, `system`, `tests`,
-  `bin` or `vendor` goes to the front controller under `.htaccess`, `composer
-  serve` and `nginx:make`, so `/templates` or `/config/app` may be routes and a
-  real file answers exactly like a missing one. No file under them is served.
+- **Any path may be a route**, including `/templates` or `/config/app`: with the
+  document root at `public/`, no path names a file outside it, and a real file
+  answers exactly like a missing one.
 
 ### Fixed
 
@@ -104,5 +110,10 @@ note.
   manager, and the manager itself does not depend on Twig.
 - **The unnamed template asset namespace is the active template's `assets/`**,
   not a shared `templates/assets/`, so switching templates switches stylesheets.
+- **`index.php` and the application's `assets/` live in `public/`**, where the
+  specification's layout puts them at the project root. The project owner's
+  decision: a document root holding nothing but the front controller cannot
+  expose source through a forgotten deny rule, and a server that cannot change its
+  document root still works through the forwarding `.htaccess`.
 
 [Unreleased]: https://github.com/laikait/lphp/commits/main

@@ -1,49 +1,63 @@
 # Deployment and security
 
-The layout puts `index.php` in the same directory as `engine/`, `modules/` and
-`vendor/`. **A front controller does not protect files the web server can reach
-on its own**, so `.htaccess` is load-bearing — and it does nothing at all if
-`AllowOverride` is `None`.
+**The web server serves `public/` and nothing else.** It holds `index.php`, its
+`.htaccess` and the application's own `assets/`. `engine/`, `modules/`,
+`config/`, `vendor/`, `.env` and the rest of the project are one level up, where
+no URL can reach them — so there is no list of directories or files to deny, and
+nothing to forget to add to one. An architecture test keeps `public/` to exactly
+those three entries, and `security:check` fails if a second PHP file appears in it.
 
-Verify after any deployment. The project's metadata must return **403**:
+**For production, point the document root at `public/`:**
+
+```apache
+<VirtualHost *:80>
+    ServerName app.example.com
+    DocumentRoot /srv/app/public
+    <Directory /srv/app/public>
+        AllowOverride All
+        Require all granted
+    </Directory>
+</VirtualHost>
+```
+
+`AllowOverride All` is what lets `public/.htaccess` route requests to
+`index.php`; with `None` every route is a 404 while the home page still works.
+
+**Where the document root cannot be changed** — XAMPP at
+`http://localhost/framework/`, or shared hosting — serve the project directory
+and its own `.htaccess` forwards every request into `public/`. Every request, by
+design: `/composer.json` becomes `public/composer.json`, which does not exist, so
+the application answers it. The visitor's URL never shows `/public`, and without
+`mod_rewrite` that file refuses everything rather than serving the source.
+
+Verify after any deployment. Each of these must be answered by the application
+— its 404 page, or a route of yours — and **never** by the file or a redirect:
 
 ```bash
 curl -i http://localhost/framework/composer.json
-curl -i http://localhost/framework/.env
-```
-
-Every path under `engine/`, `modules/`, `templates/`, `config/`, `system/`,
-`tests/`, `bin/` and `vendor/` goes to the application instead: each of these must
-be answered by the framework — its 404 page, or a route of yours — and **never**
-by the file, a 403 or a 301 redirect:
-
-```bash
 curl -i http://localhost/framework/engine/Core/Application.php
 curl -i http://localhost/framework/modules/Shared/module.php
-curl -i http://localhost/framework/templates/default/views/home.twig
 curl -i http://localhost/framework/vendor/autoload.php
-curl -i http://localhost/framework/engine/Core
+curl -i http://localhost/framework/engine
 curl -i http://localhost/framework/templates
 ```
 
-Routed rather than refused, for two reasons. An application may have routes
-there — `/templates`, `/config/app`. And a real file answers exactly as a missing
-one does: a 403 for what exists and a 404 for what does not would map the source
-tree for anyone who asks.
-
-`.htaccess` does this with two pieces sharing one list of names: a rule, ahead of
-the catch-all, sending the name and everything under it to `index.php`, and
-Apache's `DirectorySlash` redirect switched off for those paths only. An
-architecture test keeps the lists identical and checks that no rule refuses
-those directories again.
-
-And these, which check that the asset layer did not become a second way in.
-The first two must be refused — **403** or **404**, depending on whether Apache or
-the asset server says no first — and the last must be **200**:
+Dotfiles in `public/` are refused with **403**, `/.well-known/` excepted so
+certificate authorities can read their challenges:
 
 ```bash
-curl -i http://localhost/framework/assets/core/../composer.json
-curl -i http://localhost/framework/assets/core/../index.php
+curl -i http://localhost/framework/.htaccess
+```
+
+A route may use any of those paths — `/templates`, `/config/app` — because none
+of them names a file the web server could serve.
+
+And these, which check that the asset layer did not become a second way in.
+The first two must be refused — **403** or **404** — and the last must be **200**:
+
+```bash
+curl -i --path-as-is http://localhost/framework/assets/core/../composer.json
+curl -i --path-as-is http://localhost/framework/assets/core/../index.php
 curl -i http://localhost/framework/assets/core/css/app.css
 ```
 
@@ -57,28 +71,6 @@ If routes 404 under Apache, check these two directives:
 grep -E 'rewrite_module|AllowOverride' /path/to/httpd.conf
 ```
 
-**For production, prefer a virtual host** whose `DocumentRoot` contains only the
-front controller, so a server misconfiguration cannot expose source at all:
-
-```apache
-<VirtualHost *:80>
-    ServerName app.example.com
-    DocumentRoot /srv/app
-    <Directory /srv/app>
-        AllowOverride All
-        Require all granted
-    </Directory>
-    <DirectoryMatch "/srv/app/(engine|modules|templates|config|system|tests|bin|vendor)">
-        Require all denied
-    </DirectoryMatch>
-</VirtualHost>
-```
-
-The `DirectoryMatch` refuses each directory **itself**, before `.htaccess` runs,
-so behind this virtual host a route at or under `/templates`, `/config` or any
-other name on the list is a 403. Leave it out and rely on `.htaccess` if an application
-needs such a route; keep it if none does.
-
 ### nginx
 
 Generate the server block rather than writing one:
@@ -89,19 +81,15 @@ sudo cp nginx.conf /etc/nginx/conf.d/app.conf
 sudo nginx -t && sudo systemctl reload nginx
 ```
 
-It writes `nginx.conf` in the application root, which `.htaccess` and
-`composer serve` both refuse to serve, and will not replace an existing one
-without `--force`. `--root` defaults to the directory the command runs in, so on
-the server itself it can be left out; `--server-name` defaults to `_`, any host,
-and `--listen` to `80`.
+`--root` is the application directory; the block serves its `public/`. The file
+is written to the application directory, outside `public/`, and an existing one
+is not replaced without `--force`. `--root` defaults to the directory the command
+runs in, so on the server itself it can be left out; `--server-name` defaults to
+`_`, any host, and `--listen` to `80`.
 
-The block routes the same directories and refuses the same metadata as
-`.htaccess` — an architecture test compares the lists name for name — and runs no
-PHP file except the front controller.
-Run the same `curl` checks against it; `nginx -t` only proves the syntax.
-
-One difference from Apache: `/assets/core/` is served straight from `assets/`
-without passing the deny rules, so keep nothing but assets in that directory.
+The block refuses dotfiles, runs no PHP file except the front controller, and
+serves `/assets/core/` straight from `public/assets/`. Run the same `curl` checks
+against it; `nginx -t` only proves the syntax.
 
 ## More than one web server
 

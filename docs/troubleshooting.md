@@ -17,20 +17,25 @@ debug on a public web server is not.
 **Every page under Apache is a 404, but `composer serve` works.**
 `mod_rewrite` is not loaded, or `AllowOverride` is `None` for the directory, so
 `.htaccess` is ignored. `grep -E 'rewrite_module|AllowOverride' httpd.conf`.
-Without it, the deny rules are ignored too — see
-[Deployment and security](operations/deployment.md).
+Where the project directory itself is served, its `.htaccess` is also what keeps
+the source out of reach — see [Deployment and security](operations/deployment.md).
 
 **Links and styles point at the wrong directory.** The base path comes from
 `SCRIPT_NAME`. Behind a proxy that rewrites paths, set `http.base_path` in
 `config/http.php`.
 
-**A route under an application directory — `/templates`, `/config/app`,
-`/modules/list` — is a 403 or a 301.** Every path under those directories is
-routed to the application. A 403 means an older `.htaccess`, or a virtual host
-whose `DirectoryMatch` denies the directory — see
-[Deployment and security](operations/deployment.md). A 301 to the same path with
-a slash added means the `DirectorySlash Off` block is missing from `.htaccess`,
-and the path is a real directory.
+**Only the home page works under Apache; every other route is a 404.**
+`AllowOverride` is `None` for `public/`, so `public/.htaccess` is ignored and
+nothing routes to `index.php`. See
+[Deployment and security](operations/deployment.md).
+
+**`composer.json` or `engine/` is downloadable.** The document root is the
+project directory and its `.htaccess` is not being read. Point `DocumentRoot` at
+`public/`, or enable `mod_rewrite` and `AllowOverride`.
+
+**`composer serve` answers every request with "The document root must be
+public/".** The built-in server was started without `-t public`. Use
+`composer serve`, or `php -S 127.0.0.1:8080 -t public server`.
 
 **`Class "Normalizer" not found`, or Composer refuses to install asking for
 `ext-intl`.** PHP's intl extension is not loaded; route paths are normalised with

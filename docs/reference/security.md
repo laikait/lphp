@@ -241,9 +241,8 @@ are now enforced rather than merely intended:
 | SQL injection | the grammar is the only thing that builds a statement |
 | Path traversal | `AssetResolver` is the only thing that turns a path into a file |
 | XSS | `Escaper` escapes by context; Twig autoescapes |
-| Directory access | `.htaccess`, the dev router and `nginx:make` route the same directories to the front controller, compared by a test |
+| Directory access | every server serves `public/` only, which holds the front controller and assets; a test and `security:check` keep it that way |
 
-That last one gained a member this phase: the development router itself. It is a
-PHP file whose name does not end in `.php`, so a real web server will not execute
-it and hands over the source instead — which is a map of the deny list to anyone
-who asks for it. Both lists now name it.
+That last one used to be a list of directories and files to deny, kept in step
+across `.htaccess`, the development router and nginx. It is now a document root
+that contains nothing to deny, so there is no list to fall behind.

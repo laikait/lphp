@@ -69,8 +69,9 @@ final class NginxMakeCommandTest extends TestCase
         $root = \rtrim(\str_replace('\\', '/', $this->directory), '/');
 
         self::assertStringContainsString('server_name app.example.com;', $conf);
-        self::assertStringContainsString('root ' . $root . ';', $conf);
-        self::assertStringContainsString('alias ' . $root . '/assets/;', $conf);
+        // nginx serves public/ and nothing above it.
+        self::assertStringContainsString('root ' . $root . '/public;', $conf);
+        self::assertStringContainsString('alias ' . $root . '/public/assets/;', $conf);
         self::assertStringContainsString('fastcgi_pass unix:/run/php/php-fpm.sock;', $conf);
 
         // nginx variables survive the template rather than being interpolated away.
@@ -82,8 +83,8 @@ final class NginxMakeCommandTest extends TestCase
     {
         $this->make(root: '/srv/app/');
 
-        self::assertStringContainsString('root /srv/app;', $this->written());
-        self::assertStringContainsString('alias /srv/app/assets/;', $this->written());
+        self::assertStringContainsString('root /srv/app/public;', $this->written());
+        self::assertStringContainsString('alias /srv/app/public/assets/;', $this->written());
     }
 
     /** A hand-edited file is exactly the one that must not be regenerated silently. */

@@ -46,6 +46,53 @@ final class RequestTest extends TestCase
         self::assertSame("/caf\u{E9}/ঢাকা", $request->path());
     }
 
+    /**
+     * The project directory served by Apache, its .htaccess forwarding into
+     * public/: the script is public/index.php, and the address is its parent.
+     * A URL built from the base path must not grow a "/public".
+     */
+    public function test_a_request_forwarded_into_public_keeps_the_address_the_visitor_used(): void
+    {
+        $request = Request::create('GET', '/framework/customers', [
+            'server' => ['SCRIPT_NAME' => '/framework/public/index.php'],
+        ]);
+
+        self::assertSame('/framework', $request->basePath());
+        self::assertSame('/customers', $request->path());
+    }
+
+    public function test_the_forwarded_root_resolves_to_a_single_slash(): void
+    {
+        $request = Request::create('GET', '/framework/', [
+            'server' => ['SCRIPT_NAME' => '/framework/public/index.php'],
+        ]);
+
+        self::assertSame('/framework', $request->basePath());
+        self::assertSame('/', $request->path());
+    }
+
+    /** Addressing public/ directly still works; it is simply a longer base. */
+    public function test_a_request_that_names_public_uses_it_as_the_base(): void
+    {
+        $request = Request::create('GET', '/framework/public/customers', [
+            'server' => ['SCRIPT_NAME' => '/framework/public/index.php'],
+        ]);
+
+        self::assertSame('/framework/public', $request->basePath());
+        self::assertSame('/customers', $request->path());
+    }
+
+    /** A directory merely called public/ elsewhere in the URL is not forwarding. */
+    public function test_public_at_the_domain_root_with_a_rewrite_has_no_base(): void
+    {
+        $request = Request::create('GET', '/customers', [
+            'server' => ['SCRIPT_NAME' => '/public/index.php'],
+        ]);
+
+        self::assertSame('', $request->basePath());
+        self::assertSame('/customers', $request->path());
+    }
+
     public function test_the_builtin_server_has_no_base_path(): void
     {
         $request = Request::create('GET', '/customers', [

@@ -102,7 +102,7 @@ When you add…
 | **a framework command** | its line in the [command list](../reference/console.md#the-frameworks-own-commands-are-not-special). It must answer a question, not generate code |
 | **an environment variable** | an entry in `.env.example`, with its default and what it means. A test checks |
 | **a configuration key** | a default in `Bootstrap::defaults()`, and documentation on the subsystem's reference page |
-| **a directory the web server must refuse** | the same entry in `.htaccess` **and** in `server`, the development router. A test compares the two lists |
+| **a file the web server must never serve** | nothing — keep it out of `public/`. A test allows only `index.php`, `.htaccess` and `assets/` there |
 | **a store implementation** | add it to the store type's conformance test; a test fails if a store exists that it does not run |
 | **a persisted format change** (queued jobs, sessions, caches) | the next release must still read what the previous one wrote |
 | **anything user-visible** | a line under `[Unreleased]` in [`CHANGELOG.md`](../../CHANGELOG.md) |

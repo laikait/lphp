@@ -327,13 +327,14 @@ final class BootstrapTest extends TestCase
      */
     public function test_index_php_contains_no_framework_logic(): void
     {
-        $source = \file_get_contents($this->basePath('index.php'));
+        $source = \file_get_contents($this->basePath('public/index.php'));
         self::assertIsString($source);
 
         $statements = \array_values(\array_filter(
             \array_map('trim', \explode("\n", $source)),
             static fn(string $line): bool => $line !== ''
                 && !\str_starts_with($line, '<?php')
+                && !\str_starts_with($line, '//')
                 && !\str_starts_with($line, 'declare('),
         ));
 

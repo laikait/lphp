@@ -24,7 +24,7 @@ look.
 
 | URL prefix | Directory |
 |---|---|
-| `/assets/core/` | `assets/` |
+| `/assets/core/` | `public/assets/` |
 | `/assets/template/` | `templates/<active>/assets/` |
 | `/assets/template/admin/` | `templates/admin/assets/` |
 | `/assets/plugin/Example/` | `modules/Plugins/Example/assets/` |
@@ -38,15 +38,14 @@ deliberate asymmetry with everything else a module declares: the URL space is
 
 The shared module is excluded. Its id is just `shared`, with no name of its own,
 so no URL could address it; assets belonging to the application as a whole are
-the application's own, under `assets/`.
+the application's own, under `public/assets/`.
 
 ## Why PHP serves them at all
 
-Because `.htaccess` never serves a file under `modules/` — every path there goes
-to the front controller, since `module.php` and every repository lives there. A
-plugin's `assets/` directory is therefore unreachable by the web server *by
-design*, and the asset server is what makes those files reachable without
-unlocking the directory holding the source. With a plugin called `Example`
+Because the web server serves only `public/`, and `modules/` is outside it —
+where `module.php` and every repository live. A plugin's `assets/` directory is
+therefore unreachable by the web server *by design*, and the asset server is what
+makes those files reachable without unlocking the directory holding the source. With a plugin called `Example`
 installed that ships `assets/js/example.js`, you can prove both halves at once:
 
 ```bash
@@ -54,9 +53,9 @@ curl -i http://localhost/framework/modules/Plugins/Example/assets/js/example.js 
 curl -i http://localhost/framework/assets/plugin/Example/js/example.js           # 200
 ```
 
-The application's own `assets/` directory is different: the web server can serve
-it directly, and letting it is faster and fully supported. The URL scheme is the
-same either way.
+The application's own `public/assets/` directory is different: the web server can
+serve it directly, and letting it is faster and fully supported. The URL scheme is
+the same either way.
 
 ## What is checked before a file is delivered
 

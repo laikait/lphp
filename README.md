@@ -68,7 +68,7 @@ subsystem; they are a reference to read, not something an installation carries.
 ## Architecture
 
 ```
-index.php
+public/index.php
    -> engine/bootstrap.php        builds the container, picks an execution context
    -> Application::boot()         discover -> load -> register -> boot -> ready
    -> HttpKernel::handle()        Request -> Response, pure

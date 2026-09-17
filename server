@@ -4,58 +4,50 @@
 declare(strict_types=1);
 
 /*
- * Router for PHP's built-in server: `php -S 127.0.0.1:8080 server`.
+ * Router for PHP's built-in server: `php -S 127.0.0.1:8080 -t public server`,
+ * which is what `composer serve` runs.
  *
- * Development only. It serves a real file when one exists and hands everything
- * else to the front controller, which is what Apache does via .htaccess. The
- * built-in server has no concept of a document root restriction, so the list of
- * directories below mirrors the one in .htaccess; without it, `php -S` would
- * happily serve engine/ and vendor/ as plain text.
- *
- * The named files matter as much as the directories. A .env is not a .php file,
- * so without the second list below this server would hand one over as plain
- * text -- which is a development machine leaking the credentials a developer
- * uses, on a port a colleague on the same network can reach.
+ * Development only. The document root is public/, as it is for Apache and nginx,
+ * so nothing outside it -- engine/, config/, vendor/, a .env, this file -- can be
+ * addressed at all. The router serves a real file from public/ when one exists
+ * and hands everything else to the front controller.
  */
 
-$path = \rawurldecode((string) \strtok((string) ($_SERVER['REQUEST_URI'] ?? '/'), '?'));
+$public = __DIR__ . \DIRECTORY_SEPARATOR . 'public';
 
-// A path under an application directory -- /templates, /engine/Core/Application.php
-// -- never reaches a file: it goes to the front controller, where it is a route
-// or a 404, exactly as .htaccess treats it. Compared without case, because on
-// Windows and macOS /Vendor/autoload.php is the same file as /vendor/autoload.php.
-$first = \strtolower(\explode('/', \ltrim($path, '/'), 2)[0]);
-$internal = false;
+// Started without -t public, the built-in server's document root is the project
+// directory, and returning false below would serve files from there. Refuse to
+// run like that rather than work in a way no real server does.
+$root = \realpath((string) ($_SERVER['DOCUMENT_ROOT'] ?? ''));
 
-foreach (['engine', 'modules', 'templates', 'config', 'system', 'tests', 'bin', 'vendor'] as $private) {
-    $internal = $internal || $first === $private;
-}
-
-// Including this file itself. It has no .php extension, so the rule below that
-// hands real files straight to the client would serve the router's own source
-// -- and .htaccess denies it on the real web server, so the two agree.
-if (!$internal && \preg_match('/^(composer\.(json|lock)|phpunit\.xml|phpstan\.neon|\.php-cs-fixer\..*|\.env.*|.*\.md|server|nginx\.conf)$/', \basename($path)) === 1) {
-    \http_response_code(403);
-    echo '403 Forbidden';
+if ($root === false || $root !== \realpath($public)) {
+    \http_response_code(500);
+    echo "The document root must be public/. Start the server with:\n\n    php -S 127.0.0.1:8080 -t public server\n";
 
     return true;
 }
 
-$file = __DIR__ . \str_replace('/', \DIRECTORY_SEPARATOR, $path);
+$path = \rawurldecode((string) \strtok((string) ($_SERVER['REQUEST_URI'] ?? '/'), '?'));
+$file = $public . \str_replace('/', \DIRECTORY_SEPARATOR, $path);
 
-if (!$internal && $path !== '/' && \is_file($file) && !\str_ends_with(\strtolower($file), '.php')) {
+// A real file in public/ is served as it is -- except PHP, which only ever runs
+// as the front controller, and dotfiles such as public/.htaccess. Compared
+// without case, because on Windows and macOS INDEX.PHP is the same file.
+$dotfile = \preg_match('#(^|/)\.(?!well-known/)#', $path) === 1;
+
+if ($path !== '/' && !$dotfile && \is_file($file) && !\str_ends_with(\strtolower($file), '.php')) {
     return false;
 }
 
 // Say which script is running, because the built-in server gets it wrong. For
-// a path that names a real directory (/templates) or looks like a file
+// a path that names a real directory (/assets) or looks like a file
 // (/customers.json), it reports the path itself as SCRIPT_NAME, and the base
-// path derived from that swallows the whole request: /templates would be
-// served as "/" under a base of "/templates". Apache reports /index.php.
+// path derived from that swallows the whole request: /assets would be served as
+// "/" under a base of "/assets". Apache with DocumentRoot=public/ reports /index.php.
 $_SERVER['SCRIPT_NAME'] = '/index.php';
 $_SERVER['PHP_SELF'] = '/index.php';
-$_SERVER['SCRIPT_FILENAME'] = __DIR__ . \DIRECTORY_SEPARATOR . 'index.php';
+$_SERVER['SCRIPT_FILENAME'] = $public . \DIRECTORY_SEPARATOR . 'index.php';
 
-require __DIR__ . '/index.php';
+require $public . '/index.php';
 
 return true;

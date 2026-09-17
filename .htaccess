@@ -1,102 +1,39 @@
-# Single front controller, plus denial of everything the application should not
-# serve directly.
+# Forwards every request into public/, the real document root.
 #
-# IMPORTANT: a front controller does NOT protect files the web server can reach
-# on its own. The specified layout puts index.php, vendor/, engine/ and modules/
-# in the same web-served directory, so this file is load-bearing. It also does
-# nothing at all if AllowOverride is None. Verify with:
+# Only read when the web server serves this project directory itself -- XAMPP at
+# http://localhost/framework/, or shared hosting that cannot change its document
+# root. A production virtual host points DocumentRoot at public/ instead, and
+# never sees this file. Verify either way:
 #
-#   curl -i http://localhost/framework/engine/Core/Application.php   -> the application's 404, never the file
+#   curl -i http://localhost/framework/composer.json   -> the application's 404, never the file
 #
-# For production, prefer a virtual host whose DocumentRoot is a directory
-# containing only index.php. See README.md.
+# Everything is forwarded, whatever it names: /composer.json becomes
+# public/composer.json, which does not exist, so the application answers it. No
+# file outside public/ is ever served, and there is no list of names to keep up
+# to date. public/.htaccess takes over from there -- a request inside public/
+# is rewritten by that file's rules, not these, so this cannot loop.
 
 Options -Indexes
 
-# Apache otherwise answers /templates or /engine/Core -- real directories -- with
-# a redirect to the same path plus a slash, before the rewrite below can hand it
-# to the front controller. That redirect is also a map: a directory that exists
-# answers 301 and one that does not answers 404. Switched off for those names
-# and everything under them only: everywhere else -- the application's own
-# directory requested as http://localhost/framework, most of all -- the redirect
-# still happens.
+# A real directory requested without its slash -- /engine, /modules/Shared -- is
+# otherwise answered by Apache with a 301 to the same path plus a slash, before
+# the rewrite below runs. That redirect is a map of the source tree: a directory
+# that exists answers 301 and one that does not answers 404. Switched off for
+# every directory except this one, recognised by what it holds rather than by
+# name, so http://localhost/framework still redirects to its own home page.
 <IfModule mod_dir.c>
-    <If "%{REQUEST_URI} =~ m#/(engine|modules|templates|config|system|tests|bin|vendor)(/|$)#">
+    <If "! -f '%{REQUEST_FILENAME}/public/index.php'">
         DirectorySlash Off
     </If>
 </IfModule>
 
 <IfModule mod_rewrite.c>
     RewriteEngine On
-
-    # Adjust to match the directory the application is served from, or drop it
-    # entirely when using a dedicated virtual host.
-    # ======================
-    # RewriteBase /my-app/
-    # ======================
-
-    # Application internals are never served. Every path that starts with one
-    # of these names -- /templates, /templates/, /engine/Core/Application.php,
-    # anything -- goes to the front controller instead, so no file under them
-    # is read or executed by Apache, and an application may have routes there:
-    # /config/app is the application's to answer, or its 404 page.
-    #
-    # Routed rather than refused so that the answer does not depend on which
-    # characters a path happens to contain, and so that a real file and a
-    # missing one look the same from outside.
-    #
-    # templates/ is on this list for the same reason engine/ is: a view is
-    # a .php file, and a .php file Apache can reach is a .php file Apache
-    # will execute. Template assets are reachable as /assets/template/...
-    # through the asset manager, which is the only way in.
-    #
-    # config/ is on it because that is where the database credentials live.
-    #
-    # It comes first, and it has no !-f or !-d condition, because these ARE real
-    # files and directories: the catch-all at the bottom would serve them.
-    RewriteRule ^(engine|modules|templates|config|system|tests|bin|vendor)(/|$) index.php [L]
-
-    # Neither is project metadata, nor the development router.
-    #
-    # "server" is on this list because it is a PHP file without a .php name,
-    # which is the worst of both: Apache will not execute it, so it hands the
-    # source over instead. Under its old name it was worse still -- Apache
-    # would have run a router meant for `php -S`. Either way it has no business
-    # answering a request on a real web server.
-    #
-    # nginx.conf, which nginx:make writes here, is configuration for another
-    # server, and says exactly where this one keeps everything.
-    RewriteRule ^(composer\.(json|lock)|phpunit\.xml|phpstan\.neon|\.php-cs-fixer.*|\.env.*|.*\.md|server|nginx\.conf)$ - [F,L]
-
-    # Anything else that is not a real file falls through to the front controller.
-    # Apache receives Authorization and does not pass it on: it treats the
-    # header as its own business, so $_SERVER never sees it and a bearer token
-    # the client definitely sent is invisible to PHP. The failure is silent and
-    # only happens on a real server -- token auth works under php -S and in
-    # every test, then answers 401 to everything once deployed.
-    #
-    # The framework also recovers it from getallheaders() where that exists, so
-    # this is the belt to that pair of braces. Both are needed: getallheaders()
-    # is absent under FastCGI, and this rule is absent from an nginx install.
-    RewriteCond %{HTTP:Authorization} .
-    RewriteRule .* - [E=HTTP_AUTHORIZATION:%{HTTP:Authorization}]
-
-    RewriteCond %{REQUEST_FILENAME} !-f
-    RewriteCond %{REQUEST_FILENAME} !-d
-    RewriteRule ^ index.php [L]
+    RewriteRule ^(.*)$ public/$1 [L]
 </IfModule>
 
-# Belt and braces: if mod_rewrite is unavailable, deny the project metadata by
-# name anyway.
-#
-# This names files rather than extensions on purpose. A blanket deny on
-# "*.json" also refuses an import map, an i18n bundle or a Lottie animation
-# published through the asset manager -- and it refuses them at the web server,
-# before any of the framework's own checks run, so the failure looks like a
-# permissions problem rather than a policy. The list below is exactly the
-# metadata the rewrite rule above denies.
-<IfModule mod_authz_core.c>
-    <FilesMatch "^(composer\.(json|lock)|phpunit\.xml|phpstan\.neon|\.php-cs-fixer\..*|\.env.*|.*\.md|server|nginx\.conf)$">
-        Require all denied
-    </FilesMatch>
+# Without mod_rewrite nothing is forwarded, and serving this directory would
+# serve the source. Refuse everything instead.
+<IfModule !mod_rewrite.c>
+    Require all denied
 </IfModule>

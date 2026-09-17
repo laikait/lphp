@@ -189,15 +189,15 @@ built-in diagnostic page so a trace is never hidden behind a pretty one.
 
 ## Templates are not web-readable
 
-`.htaccess` never serves a file under `templates/`, alongside `engine/` and
-`modules/`, for exactly the same reason: a PHP view the web server can reach is a
+`templates/` is outside the document root, alongside `engine/` and `modules/`,
+for exactly the same reason: a PHP view the web server can reach is a
 PHP file it will execute, and a Twig view it can reach is source it will hand
 out. The active template's assets stay reachable as `/assets/template/…` through
 the asset manager, which is the only way in.
 
-Every path under `/templates` is handed to the application instead, so a module
-may declare a route at `/templates` or `/templates/anything`; a path with no
-route is the application's 404, whether or not a file of that name exists.
+A request for `/templates` or anything under it reaches the application like
+any other path, so a module may declare a route there; a path with no route is
+the application's 404, whether or not a file of that name exists.
 
 ## Configuring templates
 

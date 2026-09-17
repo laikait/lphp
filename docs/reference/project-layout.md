@@ -1,8 +1,12 @@
 # Project layout
 
 ```
-index.php              front controller, three statements
-server                 dev router for php -S (denied by the web server)
+public/                the document root, and nothing else is web-reachable
+  index.php            front controller
+  .htaccess            routes what is not a file to index.php
+  assets/              the application's own stylesheets and scripts
+.htaccess              forwards into public/ where the document root cannot be changed
+server                 dev router: php -S 127.0.0.1:8080 -t public server
 bin/console            CLI entry point
 .env.example           every environment variable, with its assumed value
 config/                this installation's decisions; absent until there is one

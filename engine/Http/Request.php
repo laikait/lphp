@@ -184,14 +184,19 @@ final class Request
      * Work out the prefix of the URI that addresses the front controller rather
      * than the application.
      *
-     * Three deployments have to come out right:
+     * Four deployments have to come out right:
      *
-     *   Apache + rewrite   SCRIPT_NAME=/framework/index.php  URI=/framework/customers  -> "/framework"
-     *   Apache, no rewrite SCRIPT_NAME=/framework/index.php  URI=/framework/index.php/customers
-     *                                                                                 -> "/framework/index.php"
-     *   php -S + server    SCRIPT_NAME=/index.php           URI=/customers            -> ""
-     *                      (the server router sets it; PHP's own guess for /templates or
-     *                      /customers.json is the path itself, which would be swallowed whole)
+     *   DocumentRoot=public/  SCRIPT_NAME=/index.php                 URI=/customers  -> ""
+     *   forwarded to public/  SCRIPT_NAME=/framework/public/index.php
+     *                                                   URI=/framework/customers     -> "/framework"
+     *                         (the project directory is served and its .htaccess rewrites into
+     *                         public/, so the visitor never sees "/public" and neither may a URL)
+     *   no rewrite            SCRIPT_NAME=/framework/public/index.php
+     *                                                   URI=/framework/public/index.php/customers
+     *                                                                                -> "/framework/public/index.php"
+     *   php -S + server       SCRIPT_NAME=/index.php                 URI=/customers  -> ""
+     *                         (the server router sets it; PHP's own guess for /templates or
+     *                         /customers.json is the path itself, which would be swallowed whole)
      *
      * Public because the answer is needed before a Request exists: the asset
      * manager builds URLs whether or not this process is serving a request, and
@@ -225,6 +230,16 @@ final class Request
 
         if ($directory !== '' && ($uri === $directory || \str_starts_with($uri, $directory . '/'))) {
             return $directory;
+        }
+
+        // Forwarded into public/ by the project directory's .htaccess: the script
+        // is in public/, the address the visitor used is its parent.
+        if (\str_ends_with($directory, '/public')) {
+            $parent = \substr($directory, 0, -\strlen('/public'));
+
+            if ($parent !== '' && ($uri === $parent || \str_starts_with($uri, $parent . '/'))) {
+                return $parent;
+            }
         }
 
         return '';

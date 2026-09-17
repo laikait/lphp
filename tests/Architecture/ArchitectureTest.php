@@ -1336,31 +1336,105 @@ final class ArchitectureTest extends TestCase
     // ---- the contract with the web server ---------------------------------
 
     /**
-     * The specified layout puts index.php, vendor/, engine/ and modules/ in the
-     * same web-served directory, which makes .htaccess the only thing standing
-     * between a default Apache and the source. Deleting it is a one-line commit
-     * with a serious consequence, so it gets a test.
+     * The document root holds the front controller and assets, and nothing else.
+     *
+     * Everything in public/ can be requested by URL, whatever routes exist. A
+     * second PHP file here is executed by the web server directly -- outside
+     * routing, authentication, CSRF and rate limits -- and anything else is
+     * handed out as it is. So the directory's contents are a closed list.
      */
-    public function test_the_htaccess_still_denies_access_to_application_internals(): void
+    public function test_the_document_root_holds_only_the_front_controller_and_assets(): void
     {
-        $path = $this->basePath('.htaccess');
+        $public = $this->basePath('public');
 
-        self::assertFileExists($path, 'The front controller alone does not protect files Apache can serve directly.');
+        $entries = \array_values(\array_diff(\scandir($public) ?: [], ['.', '..']));
+        \sort($entries);
 
-        $contents = \file_get_contents($path);
-        self::assertIsString($contents);
+        self::assertSame(['.htaccess', 'assets', 'index.php'], $entries, 'public/ is the document root: only index.php, .htaccess and assets/ belong in it.');
 
-        foreach (['engine', 'modules', 'templates', 'config', 'system', 'vendor', 'tests', 'bin'] as $directory) {
-            self::assertStringContainsString(
-                $directory,
-                $contents,
-                \sprintf('.htaccess no longer mentions %s/; it may be web-readable.', $directory),
+        foreach (new \RecursiveIteratorIterator(new \RecursiveDirectoryIterator($public . \DIRECTORY_SEPARATOR . 'assets', \FilesystemIterator::SKIP_DOTS)) as $file) {
+            self::assertInstanceOf(\SplFileInfo::class, $file);
+            self::assertDoesNotMatchRegularExpression(
+                '/\.(php\d?|phtml|phar|inc)$/i',
+                $file->getFilename(),
+                \sprintf('%s is PHP inside the document root, which the web server would execute directly.', $this->relative($file->getPathname())),
             );
         }
+    }
 
-        self::assertStringContainsString('[F,L]', $contents, '.htaccess has no deny rule.');
-        self::assertStringContainsString('index.php', $contents, '.htaccess no longer routes to the front controller.');
-        self::assertStringContainsString('composer', $contents, '.htaccess no longer denies the project metadata.');
+    /**
+     * Served as a directory -- XAMPP at http://localhost/framework -- the project
+     * forwards every request into public/, and refuses everything without
+     * mod_rewrite rather than serving the source.
+     *
+     * Forwarded without exception: a list of names to deny is a list somebody
+     * forgets to extend. And the redirect Apache adds to a real directory is
+     * switched off everywhere below the project, or /engine answers 301 where
+     * /nope answers 404.
+     */
+    public function test_the_project_directory_forwards_everything_into_public(): void
+    {
+        $htaccess = \file_get_contents($this->basePath('.htaccess'));
+        self::assertIsString($htaccess);
+
+        $rules = \preg_match_all('/^\s*RewriteRule\s+(.+)$/m', $htaccess, $matches);
+
+        self::assertSame(1, $rules, 'the project .htaccess forwards; any other rule belongs in public/.htaccess');
+        self::assertSame('^(.*)$ public/$1 [L]', \trim($matches[1][0]));
+        self::assertMatchesRegularExpression('~<IfModule !mod_rewrite\.c>\s*Require all denied\s*</IfModule>~', $htaccess, 'without mod_rewrite the project directory must refuse everything');
+        self::assertMatchesRegularExpression(
+            "~<If \"! -f '%\\{REQUEST_FILENAME\\}/public/index\\.php'\">\\s*DirectorySlash Off\\s*</If>~",
+            $htaccess,
+            'DirectorySlash must be off below the project directory, and only there',
+        );
+    }
+
+    /** public/.htaccess routes what is not a file to the front controller, and passes Authorization on. */
+    public function test_the_document_root_routes_to_the_front_controller(): void
+    {
+        $htaccess = \file_get_contents($this->basePath('public/.htaccess'));
+        self::assertIsString($htaccess);
+
+        self::assertStringContainsString('RewriteRule ^ index.php [L]', $htaccess);
+        self::assertStringContainsString('[E=HTTP_AUTHORIZATION:%{HTTP:Authorization}]', $htaccess, 'without it a bearer token never reaches PHP under Apache');
+        self::assertStringContainsString('\.(?!well-known/) - [F,L]', $htaccess, 'dotfiles in public/, .htaccess included, must be refused');
+    }
+
+    /**
+     * `composer serve` and nginx:make serve public/ too.
+     *
+     * Three ways to serve one application, and the one that differs is the one
+     * nobody tests by hand: the development router refuses to run with another
+     * document root, and the generated server block roots at public/.
+     */
+    public function test_the_development_server_and_nginx_serve_only_public(): void
+    {
+        $composer = \file_get_contents($this->basePath('composer.json'));
+        $router = \file_get_contents($this->basePath('server'));
+
+        self::assertIsString($composer);
+        self::assertIsString($router);
+
+        self::assertStringContainsString('php -S 127.0.0.1:8080 -t public server', $composer);
+        self::assertStringContainsString("\$_SERVER['DOCUMENT_ROOT']", $router, 'the router must check it was started with -t public');
+        self::assertStringContainsString("require \$public . '/index.php';", $router);
+
+        $nginx = \App\Engine\Cli\Commands\NginxMakeCommand::serverBlock('_', '/srv/app', '80', 'unix:/run/php/php-fpm.sock');
+
+        self::assertStringContainsString('root /srv/app/public;', $nginx);
+        self::assertStringNotContainsString('root /srv/app;', $nginx);
+    }
+
+    /** A file the framework writes, or keeps, must not be inside the document root. */
+    private function assertOutsideTheDocumentRoot(string $path, string $what): void
+    {
+        $public = \rtrim(\str_replace('\\', '/', $this->basePath('public')), '/') . '/';
+
+        self::assertStringStartsNotWith(
+            \strtolower($public),
+            \strtolower(\str_replace('\\', '/', $path)) . '/',
+            \sprintf('%s is inside public/, where any URL can reach it.', $what),
+        );
     }
 
     /**
@@ -1375,8 +1449,7 @@ final class ArchitectureTest extends TestCase
      */
     public function test_the_web_server_does_not_blanket_deny_a_servable_extension(): void
     {
-        $contents = \file_get_contents($this->basePath('.htaccess'));
-        self::assertIsString($contents);
+        $contents = \file_get_contents($this->basePath('.htaccess')) . \file_get_contents($this->basePath('public/.htaccess'));
 
         \preg_match_all('/FilesMatch\s+"([^"]+)"/', $contents, $matches);
 
@@ -1398,132 +1471,6 @@ final class ArchitectureTest extends TestCase
         // blanket extension deny would have caught.
         self::assertTrue(\App\Engine\Asset\MimeTypes::isServable('json'));
         self::assertTrue(\App\Engine\Asset\MimeTypes::isServable('map'));
-    }
-
-    /**
-     * The development server keeps the same directories away from the client as
-     * Apache does.
-     *
-     * Two lists in two languages, and nothing but a habit keeps them in step --
-     * which is how config/ once ended up protected in one of them and not the
-     * other. The consequence is not theoretical: a .env is not a .php file, so
-     * `php -S` hands one over as plain text to anybody on the same network as
-     * the developer.
-     */
-    public function test_the_development_server_protects_what_the_web_server_protects(): void
-    {
-        $htaccess = \file_get_contents($this->basePath('.htaccess'));
-        $router = \file_get_contents($this->basePath('server'));
-
-        self::assertIsString($htaccess);
-        self::assertIsString($router);
-
-        if (\preg_match(self::HTACCESS_ROUTED_DIRECTORIES, $htaccess, $apache) !== 1) {
-            self::fail('.htaccess no longer routes a list of directories in the shape this rule can read.');
-        }
-
-        if (\preg_match('/foreach \(\[([^\]]+)\] as \$private\)/', $router, $builtIn) !== 1) {
-            self::fail('the dev router no longer lists directories in the shape this rule can read.');
-        }
-
-        $routed = \explode('|', $apache[1]);
-        $mirrored = \array_map(
-            static fn(string $entry): string => \trim(\trim($entry), "'"),
-            \explode(',', $builtIn[1]),
-        );
-
-        \sort($routed);
-        \sort($mirrored);
-
-        self::assertSame($routed, $mirrored, 'the two directory lists have drifted apart.');
-
-        // And the metadata, which the built-in server would otherwise serve as
-        // plain text rather than execute.
-        self::assertStringContainsString('.env', $router, 'the dev router no longer refuses a .env file.');
-    }
-
-    /**
-     * nginx keeps away from the client exactly what Apache keeps away.
-     *
-     * The server block nginx:make writes is copied onto real machines, and a
-     * list that is one name short there is a leak nobody tests: every test and
-     * every developer runs Apache or `php -S`. So the directories and the
-     * metadata are read out of both and compared name for name.
-     */
-    public function test_the_nginx_server_block_protects_what_the_web_server_protects(): void
-    {
-        $htaccess = \file_get_contents($this->basePath('.htaccess'));
-        $nginx = \App\Engine\Cli\Commands\NginxMakeCommand::serverBlock('_', '/srv/app', '80', 'unix:/run/php/php-fpm.sock');
-
-        self::assertIsString($htaccess);
-
-        $apacheDirectories = \preg_match(self::HTACCESS_ROUTED_DIRECTORIES, $htaccess, $apache);
-        $apacheMetadata = \preg_match('#<FilesMatch "\^\((.+)\)\$">#', $htaccess, $apacheFiles);
-        $nginxDirectories = \preg_match('#location ~ \^/\(([a-z|]+)\)\(/\|\$\) \{ rewrite \^ /index\.php last; \}#', $nginx, $server);
-        $nginxMetadata = \preg_match('#location ~ \^/\((.+)\)\$ \{ deny all; \}#', $nginx, $serverFiles);
-
-        if ($apacheDirectories !== 1 || $apacheMetadata !== 1 || $nginxDirectories !== 1 || $nginxMetadata !== 1) {
-            self::fail('.htaccess or the nginx:make server block no longer routes directories and denies metadata in the shape this rule can read.');
-        }
-
-        self::assertSame($apache[1], $server[1], 'the nginx directory list has drifted from .htaccess.');
-        self::assertSame($apacheFiles[1], $serverFiles[1], 'the nginx metadata deny list has drifted from .htaccess.');
-
-        // The file is written into the root the web server serves.
-        self::assertMatchesRegularExpression(
-            '#^(' . $apacheFiles[1] . ')$#',
-            \App\Engine\Cli\Commands\NginxMakeCommand::FILE,
-            '.htaccess does not refuse the file nginx:make writes.',
-        );
-    }
-
-    /** The rule in .htaccess that hands application directories to the front controller. */
-    private const HTACCESS_ROUTED_DIRECTORIES = '#RewriteRule \^\(([a-z|]+)\)\(/\|\$\) index\.php \[L\]#';
-
-    /**
-     * Every path under an application directory reaches the front controller,
-     * and none reaches a file.
-     *
-     * Routed rather than refused, so /templates and /config/app may be routes
-     * and a real file answers exactly like a missing one. Apache takes two
-     * pieces to do that, and each fails in a way that looks like something else:
-     *
-     *   - the rule has to match the name alone and anything after "name/",
-     *     whatever characters follow -- a narrower pattern refuses or serves
-     *     paths depending on whether they contain a dot or a hyphen;
-     *   - it has to come before the catch-all, whose !-f would serve the file;
-     *   - without DirectorySlash off for those names and everything under
-     *     them, Apache answers /engine/Core with a 301 to /engine/Core/ -- and a
-     *     missing directory with a 404, which maps the tree -- while switched
-     *     off for everything, http://localhost/framework stops redirecting to
-     *     its own home page.
-     *
-     * Nothing may deny those directories either: a 403 for a file that exists
-     * and a 404 for one that does not is the same map.
-     */
-    public function test_every_path_under_an_application_directory_reaches_the_front_controller(): void
-    {
-        $htaccess = \file_get_contents($this->basePath('.htaccess'));
-        self::assertIsString($htaccess);
-
-        $routed = \preg_match(self::HTACCESS_ROUTED_DIRECTORIES, $htaccess, $route, \PREG_OFFSET_CAPTURE);
-        $unslashed = \preg_match('~<If "%\{REQUEST_URI\} =\~ m\#/\(([a-z|]+)\)\(/\|\$\)\#">\s*DirectorySlash Off\s*</If>~', $htaccess, $slash);
-        $catchAll = \strpos($htaccess, 'RewriteRule ^ index.php [L]');
-
-        if ($routed !== 1 || $unslashed !== 1 || $catchAll === false) {
-            self::fail('.htaccess no longer routes application directories, exempts them from DirectorySlash, and ends in a catch-all in the shape this rule can read.');
-        }
-
-        self::assertLessThan($catchAll, $route[0][1], 'the directory rule must come before the catch-all, which would serve a real file');
-        self::assertSame($route[1][0], $slash[1], 'the DirectorySlash exemption and the routed names have drifted apart');
-
-        foreach (\explode('|', $route[1][0]) as $name) {
-            self::assertDoesNotMatchRegularExpression(
-                '#RewriteRule \^\(?[a-z|]*\b' . $name . '\b[^\n]*\[F#',
-                $htaccess,
-                \sprintf('.htaccess refuses %s/ again, which answers a real file differently from a missing one.', $name),
-            );
-        }
     }
 
     // ---- the console ------------------------------------------------------
@@ -2003,29 +1950,20 @@ final class ArchitectureTest extends TestCase
      * paths, request context. One misconfigured directory and the thing that
      * exists to record an incident becomes one.
      *
-     * The deny already covers system/, so this is a regression guard on both
-     * halves at once -- the directory the writer chooses and the rule that
-     * refuses it.
+     * system/ is outside public/, so this is a regression guard on both halves
+     * at once -- the directory the writer chooses and where the document root
+     * is.
      */
-    public function test_the_log_directory_is_denied_by_the_web_server(): void
+    public function test_the_log_directory_is_outside_the_document_root(): void
     {
         $directory = 'system' . \DIRECTORY_SEPARATOR . 'Logs';
 
         self::assertDirectoryExists(
             $this->basePath($directory),
-            'the default file writer targets this directory, so it has to be the one that is denied',
+            'the default file writer targets this directory, so it has to be the one kept out of public/',
         );
 
-        foreach (['.htaccess', 'server'] as $file) {
-            $contents = \file_get_contents($this->basePath($file));
-            self::assertIsString($contents);
-
-            self::assertStringContainsString(
-                'system',
-                $contents,
-                \sprintf('%s no longer refuses system/, so log files may be readable over HTTP.', $file),
-            );
-        }
+        $this->assertOutsideTheDocumentRoot($this->basePath($directory), 'The log directory');
     }
 
     /**
@@ -2398,18 +2336,9 @@ final class ArchitectureTest extends TestCase
      * directory anybody can write to is a directory that can hand a worker an
      * object of its choosing.
      */
-    public function test_the_queue_directory_is_denied_by_the_web_server(): void
+    public function test_the_queue_directory_is_outside_the_document_root(): void
     {
-        foreach (['.htaccess', 'server'] as $file) {
-            $contents = \file_get_contents($this->basePath($file));
-            self::assertIsString($contents);
-
-            self::assertStringContainsString(
-                'system',
-                $contents,
-                \sprintf('%s no longer refuses system/, so queued payloads may be readable.', $file),
-            );
-        }
+        $this->assertOutsideTheDocumentRoot($this->basePath('system/Queue'), 'The file queue store');
     }
 
     // ---- security -----------------------------------------------------------------
@@ -2676,33 +2605,14 @@ final class ArchitectureTest extends TestCase
     /**
      * The development router is not readable over HTTP.
      *
-     * It sits in the same directory the web server serves, and it is a PHP file
-     * whose name does not end in .php -- so Apache will not execute it and will
-     * hand over the source instead. Both deny lists have to name it, and this
-     * checks both, because the one that gets forgotten is the one that is not
-     * being tested.
+     * It is a PHP file whose name does not end in .php, so a web server that
+     * reached it would not execute it and would hand over the source instead. It
+     * stays outside public/, and this checks that it does.
      */
-    public function test_the_development_router_is_denied_by_the_web_server(): void
+    public function test_the_development_router_is_outside_the_document_root(): void
     {
-        self::assertFileExists(
-            $this->basePath('server'),
-            'the development router has moved; both deny lists name it by filename',
-        );
-
-        foreach (['.htaccess', 'server'] as $file) {
-            $contents = \file_get_contents($this->basePath($file));
-            self::assertIsString($contents);
-
-            self::assertStringContainsString(
-                '|server|',
-                $contents,
-                \sprintf(
-                    '%s no longer refuses the development router, whose source would then be served '
-                    . 'as plain text.',
-                    $file,
-                ),
-            );
-        }
+        self::assertFileExists($this->basePath('server'), 'the development router has moved');
+        $this->assertOutsideTheDocumentRoot($this->basePath('server'), 'The development router');
     }
 
     // ---- the scheduler -----------------------------------------------------------
@@ -2949,18 +2859,9 @@ final class ArchitectureTest extends TestCase
      * a directory where anybody could hold every schedule permanently, which
      * stops the billing run without producing a single error.
      */
-    public function test_the_schedule_directory_is_denied_by_the_web_server(): void
+    public function test_the_schedule_directory_is_outside_the_document_root(): void
     {
-        foreach (['.htaccess', 'server'] as $file) {
-            $contents = \file_get_contents($this->basePath($file));
-            self::assertIsString($contents);
-
-            self::assertStringContainsString(
-                'system',
-                $contents,
-                \sprintf('%s no longer refuses system/, so schedule locks may be writable.', $file),
-            );
-        }
+        $this->assertOutsideTheDocumentRoot($this->basePath('system/Schedule'), 'The schedule lock directory');
     }
 
     // ---- configuration -------------------------------------------------------
@@ -3142,28 +3043,19 @@ final class ArchitectureTest extends TestCase
      * The compiled configuration is not readable over HTTP.
      *
      * It is the one file in the project that holds every setting at once,
-     * database credentials included, and it is written into a directory the web
-     * server can see. Both halves are checked here: where it is written, and
-     * what refuses it.
+     * database credentials included, so it must be written somewhere the web
+     * server never serves. Both halves are checked here: where it is written, and
+     * that it is outside public/.
      */
-    public function test_the_configuration_cache_is_denied_by_the_web_server(): void
+    public function test_the_configuration_cache_is_outside_the_document_root(): void
     {
         self::assertStringContainsString(
             'system',
             ConfigCache::file($this->basePath()),
-            'the cache has moved out of system/, which is the directory the deny rules name',
+            'the cache has moved out of system/',
         );
 
-        foreach (['.htaccess', 'server'] as $file) {
-            $contents = \file_get_contents($this->basePath($file));
-            self::assertIsString($contents);
-
-            self::assertStringContainsString(
-                'system',
-                $contents,
-                \sprintf('%s no longer refuses system/, so the compiled configuration may be readable.', $file),
-            );
-        }
+        $this->assertOutsideTheDocumentRoot(ConfigCache::file($this->basePath()), 'The configuration cache');
     }
     // ---- sessions ---------------------------------------------------------
 

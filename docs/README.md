@@ -63,5 +63,16 @@ How each part works, and why it is built that way.
 - **[API stability and releases](contributing/releases.md)** — what the stability
   levels promise, versioning, and the release checklist.
 
+## Plans
+
+Work that is planned and not yet built, phase by phase. Nothing described here
+exists until its phase is marked done.
+
+- **[System operations](plans/system.md)** — `engine/System`: structured command
+  execution, processes, OS cron, services, system information, with policies
+  and audit logging. Never an unrestricted shell.
+- **[MCP integration](plans/mcp.md)** — Model Context Protocol tools, resources
+  and prompts that modules register explicitly, over STDIO and HTTP.
+
 Also at the project root: [`CHANGELOG.md`](../CHANGELOG.md) and
 [`UPGRADING.md`](../UPGRADING.md).
