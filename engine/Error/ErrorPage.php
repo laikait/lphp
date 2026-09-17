@@ -148,7 +148,7 @@ final class ErrorPage
     private const STYLE = 'body{font:16px/1.5 system-ui,sans-serif;margin:0;padding:3rem 1rem;color:#111;'
         . 'background:#fafafa}main{max-width:44rem;margin:0 auto}h1{font-size:1.5rem;margin:0 0 .5rem}'
         . 'h2{font-size:1rem;margin:2rem 0 .25rem}p{margin:0 0 1rem}.where{color:#666;font-size:.875rem}'
-        . 'pre{overflow-x:auto;background:#fff;border:1px solid #e5e5e5;padding:1rem;font-size:.8125rem}'
+        . 'pre{overflow-x:auto;background:#fff;border:1px solid #e5e5e5;padding:1rem;font-size:.8125rem;white-space:normal;}'
         . '@media(prefers-color-scheme:dark){body{background:#111;color:#eee}'
         . 'pre{background:#1a1a1a;border-color:#333}.where{color:#999}}';
 }

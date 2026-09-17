@@ -13,3 +13,7 @@ body {
     max-width: 46rem;
     padding: 2rem 1rem;
 }
+
+pre {
+    white-space: normal;
+}
