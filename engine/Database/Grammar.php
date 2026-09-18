@@ -287,10 +287,18 @@ class Grammar
      */
     private function aggregate(Aggregate $aggregate): string
     {
-        $written = \strtoupper($aggregate->function) . '('
-            . ($aggregate->column === '*' ? '*' : $this->qualified($aggregate->column)) . ')';
+        $written = $this->aggregateCall(
+            \strtoupper($aggregate->function),
+            $aggregate->column === '*' ? '*' : $this->qualified($aggregate->column),
+        );
 
         return $aggregate->alias === null ? $written : $written . ' AS ' . $this->identifier($aggregate->alias);
+    }
+
+    /** FUNCTION(argument), for a dialect whose function means something else to say so. */
+    protected function aggregateCall(string $function, string $argument): string
+    {
+        return $function . '(' . $argument . ')';
     }
 
     /**

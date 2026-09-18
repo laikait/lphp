@@ -475,6 +475,26 @@ final class QueryBuilderTest extends TestCase
         self::assertSame([2026, 1000, 10], $bindings);
     }
 
+    /**
+     * SQL Server averages an integer column in integers, 3 and 4 to 3, so its
+     * AVG is taken over the column as a decimal -- wherever an average is
+     * written: selected, in HAVING, or asked for by avg().
+     */
+    public function test_an_average_on_sql_server_keeps_its_fraction(): void
+    {
+        $orders = $this->on('sqlsrv', 'orders');
+
+        self::assertSame(
+            'SELECT [status], AVG([total] * 1.0) AS [average] FROM [orders] GROUP BY [status] HAVING AVG([total] * 1.0) > ?',
+            $this->compiled($orders->select('status', Aggregate::avg('total', as: 'average'))->groupBy('status')->having(Aggregate::avg('total'), '>', 3))[0],
+        );
+        self::assertSame(
+            'SELECT AVG([total] * 1.0) FROM [orders]',
+            Grammar::for('sqlsrv')->compileQueryAggregate($orders->state(), Aggregate::avg('total'))['sql'],
+        );
+        self::assertSame('SELECT AVG(`total`) FROM `orders`', $this->compiled($this->on('mysql', 'orders')->select(Aggregate::avg('total')))[0]);
+    }
+
     public function test_a_grouped_count_counts_the_groups(): void
     {
         $compiled = Grammar::for('sqlsrv')->compileQueryCount(

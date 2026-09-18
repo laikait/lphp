@@ -105,6 +105,17 @@ final class SqlServerGrammar extends Grammar
             . ' VALUES ' . $values;
     }
 
+    /**
+     * SQL Server averages an integer column in integers: AVG of 3 and 4 is 3.
+     * Everywhere else it is 3.5, so the column is made a decimal first. Times
+     * 1.0 rather than a cast: exact, and a DECIMAL column keeps every digit it
+     * had, where a cast would have to choose a precision for it.
+     */
+    protected function aggregateCall(string $function, string $argument): string
+    {
+        return $function === 'AVG' ? 'AVG(' . $argument . ' * 1.0)' : parent::aggregateCall($function, $argument);
+    }
+
     public function compileSavepoint(string $name): string
     {
         return 'SAVE TRANSACTION ' . $this->plainName($name);

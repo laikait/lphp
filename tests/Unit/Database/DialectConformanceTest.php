@@ -481,9 +481,13 @@ final class DialectConformanceTest extends TestCase
     {
         $db = $this->connect($config);
 
+        // Refused before anything is written. Asked first, because the insert
+        // below names the key, which an identity column (SQL Server's) refuses.
         if (!$db->supports(Capability::Upsert)) {
             $this->expectException(DatabaseException::class);
             $this->expectExceptionMessage('cannot do "upsert"');
+
+            $db->table(self::TABLE)->upsert([['id' => 1, 'name' => 'new']], uniqueBy: ['id']);
         }
 
         $db->table(self::TABLE)->insert(['id' => 1, 'name' => 'old', 'order' => 1]);

@@ -250,6 +250,10 @@ $db->table('orders')->where('status', 'paid')->sum('total');   // also avg(), mi
 - **Numbers come back as the database returns them.** A SUM of an integer column
   is an int, while a SUM or AVG of a DECIMAL is a string, so no digit of money is
   lost to a float. No matching rows gives `null`, as in SQL, not zero.
+- **An average keeps its fraction on every database.** SQL Server alone averages
+  an integer column in integers (3 and 4 average to 3), so its dialect writes
+  `AVG(column * 1.0)`, which comes back as a decimal string, as on MySQL and
+  PostgreSQL.
 - Joins and groupings are for reads. A write that carries either is refused.
 
 ### Writing through the builder
