@@ -44,6 +44,7 @@ use App\Engine\Core\ExecutionContext;
 use App\Engine\Core\HttpKernel;
 use App\Engine\Database\ConnectionManager;
 use App\Engine\Dispatch\Dispatcher;
+use App\Engine\Error\ErrorContext;
 use App\Engine\Error\ErrorHandler;
 use App\Engine\Error\ErrorPage;
 use App\Engine\Filter\FilterEngine;
@@ -55,10 +56,22 @@ use App\Engine\Logging\Level;
 use App\Engine\Logging\Logger;
 use App\Engine\Logging\LogManager;
 use App\Engine\Logging\LogWriter;
+use App\Engine\Logging\McpLog;
 use App\Engine\Logging\ScheduleLog;
+use App\Engine\Logging\SystemAuditLog;
 use App\Engine\Logging\Writers\FileWriter;
 use App\Engine\Logging\Writers\StreamWriter;
 use App\Engine\Logging\Writers\SyslogWriter;
+use App\Engine\MCP\McpAuthorizer;
+use App\Engine\MCP\McpConfig;
+use App\Engine\MCP\McpRegistry;
+use App\Engine\MCP\McpServer;
+use App\Engine\MCP\Prompt\PromptProvider;
+use App\Engine\MCP\Protocol\MessageParser;
+use App\Engine\MCP\Resource\ResourceReader;
+use App\Engine\MCP\Tool\ToolRunner;
+use App\Engine\MCP\Transport\HttpTransport;
+use App\Engine\MCP\Transport\StdioTransport;
 use App\Engine\Model\ModelManager;
 use App\Engine\Model\RelationManager;
 use App\Engine\Module\ModuleManager;
@@ -98,6 +111,18 @@ use App\Engine\Session\Stores\DatabaseStore as SessionDatabaseStore;
 use App\Engine\Session\Stores\FileStore as SessionFileStore;
 use App\Engine\Support\Extensions;
 use App\Engine\Support\Path;
+use App\Engine\System\Audit\SystemAudit;
+use App\Engine\System\Command\CommandExecutor;
+use App\Engine\System\Command\Invocation;
+use App\Engine\System\Cron\CronManager;
+use App\Engine\System\Cron\UserCrontab;
+use App\Engine\System\Filesystem\SystemFilesystem;
+use App\Engine\System\Permission\PermissionManager;
+use App\Engine\System\Process\ProcessManager;
+use App\Engine\System\Security\SystemAuthorizer;
+use App\Engine\System\Service\ServiceManager;
+use App\Engine\System\SystemConfig;
+use App\Engine\System\SystemDisabledException;
 use App\Engine\Template\Escaper;
 use App\Engine\Template\PhpTemplateEngine;
 use App\Engine\Template\TemplateManager;
@@ -345,6 +370,11 @@ final class Bootstrap
         $access = new AccessRegistry();
         $container->instance(AccessRegistry::class, $access);
 
+        // Filled by modules' $module->mcp(...) during registration. Empty in an
+        // application that declares nothing, and then nothing is offered.
+        $mcp = new McpRegistry();
+        $container->instance(McpRegistry::class, $mcp);
+
         $container->instance(ModuleManager::class, $modules = new ModuleManager(
             $container,
             $settings,
@@ -358,6 +388,7 @@ final class Bootstrap
             $access,
             new ModuleRegistry(),
             $basePath,
+            $mcp,
         ));
 
         // Before anything boots, so module timing is there from the first
@@ -412,6 +443,39 @@ final class Bootstrap
         // a schedule that stopped six weeks ago is indistinguishable from one
         // with nothing to do.
         $hooks->add('schedule.finished', (new ScheduleLog($logs))(...), 10, 'engine');
+
+        // And the third: a system operation that changed the machine, or was
+        // refused, is written down whoever triggered it. system.audit fires
+        // either way -- it is the event stream any listener can follow -- and
+        // this setting decides only whether the audit log is one of them.
+        if ($settings->bool('system.audit.enabled', true)) {
+            $hooks->add(SystemAudit::HOOK, (new SystemAuditLog($logs))(...), 10, 'engine');
+        }
+
+        // And MCP: who called which capability, and what came of it -- never
+        // the arguments or the result. Ten listeners that cost nothing until
+        // an MCP request fires them.
+        if ($settings->bool('mcp.log.enabled', true)) {
+            (new McpLog($logs))->attach($hooks);
+        }
+
+        self::system($container, $settings, $basePath);
+        self::mcp($container, $settings);
+
+        // A web request that waits on a command holds a worker and a visitor
+        // for as long as it runs. Inside HTTP, no command may take longer than
+        // this, whatever it asked for: work that needs longer belongs on the
+        // queue. Through the narrowing-only filter, so it can be made stricter
+        // and never looser.
+        $httpTimeout = $settings->float('system.execution.http_timeout');
+
+        if ($context->isHttp() && $httpTimeout !== null) {
+            if (!\is_finite($httpTimeout) || $httpTimeout <= 0.0) {
+                throw ConfigurationException::unusableValue('system.execution.http_timeout', 'a number of seconds above zero, or null for no cap');
+            }
+
+            $filters->add(Invocation::TIMEOUT_FILTER, static fn(float $timeout): float => \min($timeout, $httpTimeout), 10, 'engine');
+        }
 
         // Security. Built here rather than resolved lazily because its whole
         // job is to be attached to the request before anything else runs; a
@@ -844,6 +908,157 @@ final class Bootstrap
     }
 
     /**
+     * The system managers, built from `system.*` the first time one is asked
+     * for, and not before: an application that never touches engine/System
+     * reads none of that configuration and builds none of this.
+     *
+     * Each manager a module injects has the configured limits, policies, the
+     * filters and the audit hook already applied. A module that needs a
+     * stricter policy -- a CommandPolicy with argument rules, say -- builds its
+     * own manager instead.
+     */
+    private static function system(Container $container, Config $settings, string $basePath): void
+    {
+        $container->singleton(SystemConfig::class, static fn(): SystemConfig => SystemConfig::fromConfig($settings, $basePath));
+
+        $enabled = static function (Container $container): SystemConfig {
+            $system = $container->get(SystemConfig::class);
+            $system->assertEnabled();
+
+            return $system;
+        };
+
+        $container->singleton(SystemAudit::class, static fn(Container $container): SystemAudit => new SystemAudit($container->get(HookEngine::class)));
+
+        $container->singleton(CommandExecutor::class, static function (Container $container) use ($enabled): CommandExecutor {
+            $system = $enabled($container);
+
+            return new CommandExecutor(
+                $system->timeout,
+                $system->maxOutput,
+                $system->commandPolicy,
+                $container->get(SystemAudit::class),
+                $system->shell,
+                $system->shellBinary,
+                $system->concurrency,
+                $container->get(FilterEngine::class),
+            );
+        });
+
+        $container->singleton(ProcessManager::class, static function (Container $container) use ($enabled): ProcessManager {
+            $system = $enabled($container);
+
+            return new ProcessManager(
+                $system->timeout,
+                $system->maxOutput,
+                $system->commandPolicy,
+                $container->get(SystemAudit::class),
+                $system->shell,
+                $system->shellBinary,
+                $system->concurrency,
+                $container->get(FilterEngine::class),
+            );
+        });
+
+        $container->singleton(ServiceManager::class, static function (Container $container) use ($enabled): ServiceManager {
+            $system = $enabled($container);
+
+            return new ServiceManager($container->get(CommandExecutor::class), $system->servicePolicy, audit: $container->get(SystemAudit::class));
+        });
+
+        $container->singleton(CronManager::class, static function (Container $container) use ($enabled): CronManager {
+            $system = $enabled($container);
+
+            if (!$system->cron) {
+                throw SystemDisabledException::cron();
+            }
+
+            return new CronManager(new UserCrontab($container->get(CommandExecutor::class)), $system->cronOwner, $container->get(SystemAudit::class));
+        });
+
+        $container->singleton(SystemFilesystem::class, static function (Container $container) use ($enabled): SystemFilesystem {
+            return new SystemFilesystem($enabled($container)->filesystemPolicy, $container->get(SystemAudit::class));
+        });
+
+        $container->singleton(PermissionManager::class, static function (Container $container) use ($enabled): PermissionManager {
+            $system = $enabled($container);
+
+            return new PermissionManager($system->filesystemPolicy, $system->owners, $system->groups, $container->get(SystemAudit::class));
+        });
+
+        $container->singleton(SystemAuthorizer::class, static function (Container $container) use ($enabled): SystemAuthorizer {
+            $enabled($container);
+
+            return new SystemAuthorizer($container->get(Authorizer::class), $container->get(SystemAudit::class));
+        });
+    }
+
+    /**
+     * The MCP server and what it answers with, built only when a transport
+     * asks for them: an application nobody connects to over MCP builds none of
+     * this. Every unexpected failure is reported through the error handler, as
+     * an API error, which is how it reaches the log.
+     */
+    private static function mcp(Container $container, Config $settings): void
+    {
+        $report = static fn(Container $container): \Closure => static function (\Throwable $e) use ($container): void {
+            $container->get(ErrorHandler::class)->report($e, ErrorContext::Api);
+        };
+
+        $container->singleton(McpConfig::class, static fn(): McpConfig => McpConfig::fromConfig($settings, Application::VERSION));
+
+        $container->singleton(McpAuthorizer::class, static fn(Container $container): McpAuthorizer => new McpAuthorizer(
+            $container->get(Authorizer::class),
+            $container->get(McpConfig::class)->allowGuests,
+        ));
+
+        $container->singleton(McpServer::class, static function (Container $container) use ($report): McpServer {
+            $registry = $container->get(McpRegistry::class);
+            $authorizer = $container->get(McpAuthorizer::class);
+            $hooks = $container->get(HookEngine::class);
+            $filters = $container->get(FilterEngine::class);
+            $mcp = $container->get(McpConfig::class);
+
+            return new McpServer(
+                new MessageParser(),
+                new ToolRunner($registry, $container, $authorizer, $report($container), $hooks, $filters),
+                new ResourceReader($registry, $container, $authorizer, $report($container), $hooks, $filters),
+                new PromptProvider($registry, $container, $authorizer, $report($container), $hooks, $filters),
+                $registry,
+                $mcp->serverName,
+                $mcp->serverVersion,
+                $report($container),
+                $hooks,
+            );
+        });
+
+        $container->singleton(StdioTransport::class, static fn(Container $container): StdioTransport => new StdioTransport(
+            $container->get(McpServer::class),
+            MessageParser::DEFAULT_MAX_BYTES,
+            static function (string $diagnostic): void {
+                \fwrite(\STDERR, $diagnostic . \PHP_EOL);
+            },
+        ));
+
+        // Held by the kernel for every request, so everything behind it is
+        // resolved only when a request is for the MCP path.
+        $container->singleton(HttpTransport::class, static fn(Container $container): HttpTransport => new HttpTransport(
+            $container->get(McpConfig::class)->httpEnabled(),
+            $container->get(McpConfig::class)->path,
+            static fn(): McpServer => $container->get(McpServer::class),
+            static function () use ($container): ?TokenAuthenticator {
+                $provider = $container->get(UserProvider::class);
+
+                return $provider instanceof TokenProvider ? new TokenAuthenticator($provider) : null;
+            },
+            $container->get(McpConfig::class)->allowGuests,
+            static function (string $diagnostic) use ($container): void {
+                $container->get(Logger::class)->warning($diagnostic);
+            },
+        ));
+    }
+
+    /**
      * Where a schedule's lock lives.
      *
      * A file by default, and unlike the cache and the queue there is no
@@ -1164,6 +1379,60 @@ final class Bootstrap
                 // a wall clock repeats an hour every autumn, and a task that
                 // must run exactly once should not be read against one.
                 'timezone' => Env::string('SCHEDULER_TIMEZONE'),
+            ],
+            'system' => [
+                // Operating-system operations: see System\SystemConfig. Every
+                // default is the cautious one, and nothing here costs anything
+                // until a module asks the container for a system manager.
+                'enabled' => true,
+                'execution' => [
+                    'default_timeout' => CommandExecutor::DEFAULT_TIMEOUT,
+                    'max_output' => CommandExecutor::DEFAULT_MAX_OUTPUT,
+                    // Commands running at once, across every PHP process of this
+                    // application, with lock files in system/Commands. Past it a
+                    // command is refused rather than queued. null is no limit.
+                    'max_concurrent' => 16,
+                    // The longest any command may run inside a web request, in
+                    // seconds. null is no cap beyond each command's own timeout.
+                    'http_timeout' => 10.0,
+                ],
+                'shell' => [
+                    // Off: a shell script is code outside every review this
+                    // application has, and runs only where somebody said so.
+                    'enabled' => false,
+                    'binary' => 'bash',
+                ],
+                'commands' => [
+                    // null is no allowlist; a list, even an empty one, is one.
+                    'allowed' => null,
+                    'scripts' => null,
+                ],
+                // service name => actions, e.g. ['nginx' => ['reload']]. None.
+                'services' => [],
+                'filesystem' => ['read' => [], 'write' => []],
+                'permissions' => ['owners' => [], 'groups' => []],
+                'cron' => [
+                    'enabled' => true,
+                    // null derives one from the application's directory.
+                    'owner' => null,
+                ],
+                'audit' => ['enabled' => true],
+            ],
+            'mcp' => [
+                // See MCP\McpConfig. Nothing here exposes anything: STDIO is a
+                // server only while somebody runs mcp:stdio, HTTP is off until
+                // an application turns it on, and guests are refused.
+                'enabled' => true,
+                'server' => [
+                    'name' => McpConfig::DEFAULT_NAME,
+                    // null means the framework's version.
+                    'version' => null,
+                ],
+                'transports' => ['stdio' => true, 'http' => false],
+                'http' => ['path' => McpConfig::DEFAULT_PATH],
+                'allow_guests' => false,
+                // The mcp log channel: see Logging\McpLog.
+                'log' => ['enabled' => true],
             ],
             'logging' => [
                 // Nothing by default. A framework that starts writing files to

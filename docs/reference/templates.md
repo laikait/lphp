@@ -50,7 +50,7 @@ tried in the highest-precedence directory before dropping to the next one. A
 theme's `.php` beats a module's `.twig`, and the other loop order would let the
 module win by virtue of its file extension.
 
-`php bin/console template:list` prints the whole search path in order, which is
+`php laika template:list` prints the whole search path in order, which is
 most of the answer to "which file is actually being rendered".
 
 ## Namespaces

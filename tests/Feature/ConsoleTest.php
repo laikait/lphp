@@ -48,7 +48,7 @@ final class ConsoleTest extends TestCase
             new Output($stream),
         );
 
-        $status = $kernel->handle(ExecutionContext::cli(\array_values(['bin/console', ...$arguments])));
+        $status = $kernel->handle(ExecutionContext::cli(\array_values(['laika', ...$arguments])));
 
         \rewind($stream);
         $output = (string) \stream_get_contents($stream);
@@ -82,7 +82,7 @@ final class ConsoleTest extends TestCase
 
         self::assertSame(ConsoleKernel::SUCCESS, $status);
         self::assertStringContainsString('App Framework', $output);
-        self::assertStringContainsString('php bin/console <command>', $output);
+        self::assertStringContainsString('php laika <command>', $output);
         self::assertStringContainsString('module:list', $output);
     }
 
@@ -248,7 +248,7 @@ final class ConsoleTest extends TestCase
 
         self::assertSame(ConsoleKernel::USAGE, $status);
         self::assertStringContainsString('needs the <id> argument', $output);
-        self::assertStringContainsString('Usage: php bin/console item:touch <id> [options]', $output);
+        self::assertStringContainsString('Usage: php laika item:touch <id> [options]', $output);
     }
 
     public function test_an_unknown_option_names_the_ones_that_exist(): void
@@ -332,7 +332,7 @@ final class ConsoleTest extends TestCase
     /**
      * A result goes to standard output; a complaint about the run does not.
      *
-     * This is what makes `console route:list | grep customers` usable: a
+     * This is what makes `laika route:list | grep customers` usable: a
      * warning must not end up in what the pipe carries.
      */
     public function test_messages_about_the_run_go_to_the_error_stream(): void
@@ -352,7 +352,7 @@ final class ConsoleTest extends TestCase
             new Output($out, $err),
         );
 
-        $status = $kernel->handle(ExecutionContext::cli(['bin/console', 'item:nope']));
+        $status = $kernel->handle(ExecutionContext::cli(['laika', 'item:nope']));
 
         \rewind($out);
         \rewind($err);

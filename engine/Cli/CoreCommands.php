@@ -14,6 +14,8 @@ use App\Engine\Cli\Commands\ConfigCacheCommand;
 use App\Engine\Cli\Commands\ConfigListCommand;
 use App\Engine\Cli\Commands\HelpCommand;
 use App\Engine\Cli\Commands\LogStatusCommand;
+use App\Engine\Cli\Commands\McpListCommand;
+use App\Engine\Cli\Commands\McpStdioCommand;
 use App\Engine\Cli\Commands\ModuleListCommand;
 use App\Engine\Cli\Commands\NginxMakeCommand;
 use App\Engine\Cli\Commands\QueueFailedCommand;
@@ -27,7 +29,14 @@ use App\Engine\Cli\Commands\SecurityCheckCommand;
 use App\Engine\Cli\Commands\SecurityKeyCommand;
 use App\Engine\Cli\Commands\SessionGcCommand;
 use App\Engine\Cli\Commands\SessionTableCommand;
+use App\Engine\Cli\Commands\SystemCronInstallCommand;
+use App\Engine\Cli\Commands\SystemCronListCommand;
+use App\Engine\Cli\Commands\SystemCronRemoveCommand;
+use App\Engine\Cli\Commands\SystemInfoCommand;
+use App\Engine\Cli\Commands\SystemServiceRestartCommand;
+use App\Engine\Cli\Commands\SystemServiceStatusCommand;
 use App\Engine\Cli\Commands\TemplateListCommand;
+use App\Engine\System\Cron\ScheduleRunJob;
 
 /**
  * The commands the framework itself provides.
@@ -59,6 +68,15 @@ final class CoreCommands
         $commands->add('help', HelpCommand::class)
             ->describe('List the available commands, or explain one of them.')
             ->argument('command', 'The command to explain.', required: false);
+
+        $commands->add('mcp:list', McpListCommand::class)
+            ->describe('List every MCP tool, resource and prompt, its module and what a caller needs.')
+            ->option('module', 'Only capabilities belonging to this module, e.g. plugins/Crm.', shortcut: 'm');
+
+        $commands->add('mcp:stdio', McpStdioCommand::class)
+            ->describe('Serve MCP over stdin and stdout, for a local client that starts this command.')
+            ->option('user', 'Act as this user, by login or id. Without one, the client is a guest.')
+            ->note('stdout carries the protocol only. Point the MCP client at: php laika mcp:stdio --user=<login>');
 
         $commands->add('module:list', ModuleListCommand::class)
             ->describe('List discovered modules, in the order they load.')
@@ -132,6 +150,34 @@ final class CoreCommands
             ->option('id', 'Release this schedule\'s lock.')
             ->flag('all', 'Release every held lock.')
             ->note('Locks expire on their own. Releasing one whose task is still running starts a second copy.');
+
+        $commands->add('system:info', SystemInfoCommand::class)
+            ->describe('Show the operating system, kernel, memory, disk and load of this machine.')
+            ->note('Read from PHP and /proc; nothing is run to find out.');
+
+        $commands->add('system:service:status', SystemServiceStatusCommand::class)
+            ->describe('Show whether a systemd service is running.')
+            ->argument('service', 'The service, e.g. nginx or php8.3-fpm.')
+            ->note('Exits 0 when the service is active, 1 otherwise.');
+
+        $commands->add('system:service:restart', SystemServiceRestartCommand::class)
+            ->describe('Restart a systemd service that system.services allows restarting.')
+            ->argument('service', 'The service, e.g. nginx.')
+            ->note('Refused unless config/system.php lists the service with "restart". Audited.');
+
+        $commands->add('system:cron:list', SystemCronListCommand::class)
+            ->describe('List the jobs this application owns in the crontab.');
+
+        $commands->add('system:cron:install', SystemCronInstallCommand::class)
+            ->describe('Install the crontab line that runs schedule:run every minute.')
+            ->option('php', 'Absolute path of the PHP CLI; this one by default.')
+            ->option('log', 'Append the line\'s output to this absolute path instead of discarding it.')
+            ->note('Safe on every deployment: an unchanged line is left alone. Install it on one host only.');
+
+        $commands->add('system:cron:remove', SystemCronRemoveCommand::class)
+            ->describe('Remove one of this application\'s crontab jobs, or all of them.')
+            ->argument('id', 'The job to remove.', required: false, default: ScheduleRunJob::ID)
+            ->flag('all', 'Remove every job this application owns.');
 
         $commands->add('security:check', SecurityCheckCommand::class)
             ->describe('Audit what this deployment actually has switched on.')

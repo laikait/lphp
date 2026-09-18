@@ -165,7 +165,7 @@ final class SecurityCheckCommand
             self::WARN,
             'No APP_KEY, so CSRF tokens are not signed.',
             'They still work. What is lost is protection against a sibling subdomain planting a '
-            . 'matching cookie and field. Generate one: php bin/console security:key',
+            . 'matching cookie and field. Generate one: php laika security:key',
         ]];
     }
 

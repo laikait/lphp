@@ -33,10 +33,18 @@ repository as it stood at that commit, and they become the 0.1.0 notes.
   `nginx.conf`; anything that runs `php -S` by hand; files an application added to
   `assets/`; a custom `.htaccess` rule.
 - **Do:** point `DocumentRoot` (or nginx `root`) at `public/` and regenerate
-  `nginx.conf` with `php bin/console nginx:make --force`. Move your own files from
+  `nginx.conf` with `php laika nginx:make --force`. Move your own files from
   `assets/` to `public/assets/` — `asset()->core()` URLs do not change. Move any
   custom rewrite rule into `public/.htaccess`. Then run the curl checks in
   [Deployment and security](docs/operations/deployment.md).
+
+### The console is `laika`, at the project root
+
+- **Changed:** `bin/console` is now `laika`, next to `composer.json`.
+- **Affected:** every crontab line, systemd unit, supervisor program, deploy
+  script or CI step that runs `php bin/console`.
+- **Do:** replace `php bin/console` with `php laika` in each of them.
+  `composer console` is unchanged.
 
 ### ext-intl is required, and route constraints are UTF-8
 
@@ -113,7 +121,7 @@ repository as it stood at that commit, and they become the 0.1.0 notes.
   discovery cache any more.
 - **Affected:** a deployment that set `modules.cache` to `true`. The setting is
   now ignored, so that deployment scans module directories on every request.
-- **Do:** add `php bin/console cache:warm` after `cache:clear` in the deployment.
+- **Do:** add `php laika cache:warm` after `cache:clear` in the deployment.
   It refuses to run with `APP_DEBUG` on. Delete an old `system/Cache/modules.php`:
   its format changed, and it would be ignored anyway.
 

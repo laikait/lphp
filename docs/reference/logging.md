@@ -60,8 +60,8 @@ that has silently not been logging for three weeks, which is worse than the
 exception was.
 
 ```bash
-php bin/console log:status            # what is attached, and what has stopped
-php bin/console log:status --write    # and does a record actually arrive
+php laika log:status            # what is attached, and what has stopped
+php laika log:status --write    # and does a record actually arrive
 ```
 
 Reentrancy is refused for the same reason — a writer that logs would recurse

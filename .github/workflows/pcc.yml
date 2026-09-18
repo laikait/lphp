@@ -26,7 +26,9 @@ jobs:
       - uses: shivammathur/setup-php@f3e473d116dcccaddc5834248c87452386958240 #v2
         with:
           php-version: ${{ matrix.php }}
-          extensions: intl, json, mbstring, pdo, pdo_sqlite, fileinfo
+          # pcntl and posix: the system tests that send and ignore signals run
+          # only with them, and would otherwise skip without anybody noticing.
+          extensions: intl, json, mbstring, pdo, pdo_sqlite, fileinfo, pcntl, posix
           coverage: none
           tools: composer:v2
 
@@ -92,17 +94,17 @@ jobs:
             | xargs -0 -n1 -P4 php -l > /dev/null
           php -l public/index.php
           php -l server
-          php -l bin/console
+          php -l laika
 
       # Booting exercises what linting cannot: the container, the module
       # discovery walk, and every engine subsystem that Bootstrap wires up.
       - name: Boot the framework
         run: |
-          php bin/console about
-          php bin/console module:list
-          php bin/console route:list
-          php bin/console schedule:list
-          php bin/console config:list
+          php laika about
+          php laika module:list
+          php laika route:list
+          php laika schedule:list
+          php laika config:list
 
       # And real requests through the HTTP kernel, because a console run never
       # touches the router or the dispatcher. Both default pages are Twig, so

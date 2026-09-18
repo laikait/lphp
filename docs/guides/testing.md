@@ -204,7 +204,7 @@ $status = $app->container()->get(AddNote::class)($this->console(), 'Buy milk');
 ```
 
 To test what the command line does — argument parsing, `--help`, exit codes for
-a typo — run it through the console kernel, exactly as `bin/console` does:
+a typo — run it through the console kernel, exactly as `console` does:
 
 ```php
 /** @return array{int, string} the exit code, and stdout and stderr together */
@@ -222,7 +222,7 @@ private function run(Application $app, string ...$arguments): array
         new Output($stream),
     );
 
-    $status = $kernel->handle(ExecutionContext::cli(\array_values(['bin/console', ...$arguments])));
+    $status = $kernel->handle(ExecutionContext::cli(\array_values(['laika', ...$arguments])));
 
     \rewind($stream);
 

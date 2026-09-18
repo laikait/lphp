@@ -41,7 +41,7 @@ note.
   values, one JSON error document, `ApiResponse`, prefix versioning with
   `Deprecation`/`Sunset` headers.
 - **Console** with declared arguments and options, typed binding, meaningful exit
-  codes and generated help; 24 framework commands, none of which writes code.
+  codes and generated help; 32 framework commands, none of which writes code.
 - **Errors** rendered by audience (browser, API, console) with disclosure rules,
   and **logging** as a listener, with redaction, retiring writers and file,
   stream and syslog destinations.
@@ -69,6 +69,25 @@ note.
   `UPGRADING.md` and this file.
 - **`nginx:make`** writes an nginx server block to `nginx.conf`, rooted at
   `public/`.
+- **System operations** (`engine/System`): structured command execution with no
+  shell, explicit bash scripts, background processes, owned crontab blocks,
+  systemd services, a policy-bound server filesystem, permissions, and system
+  information. Deny by default throughout: command allowlists, service and
+  filesystem policies, `system.*` capabilities, a concurrency limit and an HTTP
+  timeout cap. Every change and refusal is audited to the `audit` log channel.
+  Configured under `system.*`; six `system:*` console commands. See
+  [System operations](docs/reference/system.md).
+- **MCP** (`engine/MCP`): Model Context Protocol tools, resources and prompts
+  that modules declare in `module.php` with `$module->mcp()`, served over STDIO
+  (`mcp:stdio --user=`) and, when `mcp.transports.http` is on, over HTTP with
+  bearer tokens only. Permissions are auth capabilities, and a refused
+  capability is indistinguishable from a missing one. Tool input is checked
+  against a strict JSON Schema subset that fails closed. Results are plain data
+  built explicitly. `mcp.*` hooks and filters never run ahead of the security
+  checks. The `mcp` log channel records calls without their payloads.
+  `mcp:list` shows what is exposed. Configured in `config/mcp.php`, where
+  everything is opt-in except STDIO, which opens nothing. See
+  [MCP](docs/reference/mcp.md).
 
 ### Changed
 
@@ -80,6 +99,9 @@ note.
   forwards every request into `public/`, and URLs keep their old form.
   `composer serve` runs `php -S 127.0.0.1:8080 -t public server`, and
   `security:check` fails if `public/` holds PHP besides `index.php`.
+- **The console is `laika` at the project root**, not `bin/console`: run
+  `php laika <command>`. Every message, help screen and generated cron line
+  names the new path.
 - **Paths in any language route reliably.** The request path and every declared
   route path are normalised to NFC, so both spellings of `é` or Bengali `য়`
   reach the same route; route constraints are matched as UTF-8, so `\p{L}` means

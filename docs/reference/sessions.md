@@ -20,8 +20,8 @@ also **holds a lock on the session for the whole request**, which is why one
 slow endpoint blocks every other request from the same browser.
 
 ```bash
-php bin/console session:gc       # delete what is past its lifetime
-php bin/console session:table    # print the CREATE TABLE for the database store
+php laika session:gc       # delete what is past its lifetime
+php laika session:table    # print the CREATE TABLE for the database store
 ```
 
 ## Nothing is read until something asks

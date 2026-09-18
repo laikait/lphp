@@ -100,8 +100,20 @@ they carry.
 | `job.finished`, `job.failed` |  |
 | `schedule.started` |  |
 | `schedule.finished`, `schedule.failed` |  |
-| `session.started` |  |
+| `session.started` | `system.command.max_output` (narrow only) |
 | `session.regenerated` |  |
 | `auth.identified`, `auth.login` |  |
 | `auth.logout`, `auth.failed` |  |
 | `auth.rehash` | `authorization.decision` |
+| `system.audit` | `system.command.timeout` (narrow only) |
+| `mcp.request.received`, `mcp.request.failed` | `mcp.tool.input` (before validation) |
+| `mcp.response.created`, `mcp.access.denied` | `mcp.tool.output` |
+| `mcp.tool.before`, `mcp.tool.after`, `mcp.tool.failed` | `mcp.tool.description` |
+| `mcp.resource.read`, `mcp.resource.failed` | `mcp.resource.output` |
+| `mcp.prompt.loaded`, `mcp.prompt.failed` | `mcp.prompt.output` |
+
+The `mcp.*` extension points never run ahead of MCP's security checks. A
+capability the caller may not use reaches no listener, `mcp.tool.input` runs
+before the arguments are validated against the tool's schema, and an output
+filter must return the same kind of value it was given. A listener can refuse
+by throwing an MCP exception, but no listener can grant access.

@@ -12,7 +12,7 @@ use App\Engine\Scheduler\ScheduleResult;
 /**
  * The command one cron line calls, once a minute, forever.
  *
- *     * * * * *  cd /var/www/app && php bin/console schedule:run >> /dev/null 2>&1
+ *     * * * * *  cd /var/www/app && php laika schedule:run >> /dev/null 2>&1
  *
  * It exits as soon as it has run what is due; it is not a daemon and does not
  * want to be supervised. Discarding its output in the crontab is safe here and
@@ -110,7 +110,7 @@ final class ScheduleRunCommand
         $schedule = $this->scheduler->schedules()->get($id);
 
         if ($schedule === null) {
-            $output->error(\sprintf('No schedule is called "%s". See: php bin/console schedule:list', $id));
+            $output->error(\sprintf('No schedule is called "%s". See: php laika schedule:list', $id));
 
             return 1;
         }

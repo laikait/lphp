@@ -289,7 +289,7 @@ modules/Plugins/Billing/Templates/invoice.twig          the module's own
 templates/default/views/plugin.Billing/invoice.twig     yours, which wins
 ```
 
-The module is never edited. `php bin/console template:list` prints the search
+The module is never edited. `php laika template:list` prints the search
 order. See [Resolution, and how overriding works](../reference/templates.md#resolution-and-how-overriding-works).
 
 **The front page.** Declare `/` in your module under a route name other than

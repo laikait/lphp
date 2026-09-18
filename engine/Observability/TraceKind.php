@@ -10,7 +10,7 @@ enum TraceKind: string
     /** A request through the HTTP kernel, asset requests included. */
     case Http = 'http';
 
-    /** One run of bin/console. A worker is one of these, with a job trace per job inside it. */
+    /** One run of console. A worker is one of these, with a job trace per job inside it. */
     case Console = 'console';
 
     /** One job, run by a worker or synchronously where it was dispatched. */

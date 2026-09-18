@@ -13,8 +13,8 @@ security](deployment.md). Every environment variable, with its default, is in
 | Process | How | Needed when |
 |---|---|---|
 | PHP behind a web server | Apache with `.htaccess`, or nginx + PHP-FPM | always |
-| `php bin/console schedule:run` | cron, every minute, on **one** host | any module declares a schedule (`schedule:list` is not empty) |
-| `php bin/console queue:work` | a supervisor, restarting it when it exits | `QUEUE_STORE=file` |
+| `php laika schedule:run` | cron, every minute, on **one** host | any module declares a schedule (`schedule:list` is not empty) |
+| `php laika queue:work` | a supervisor, restarting it when it exits | `QUEUE_STORE=file` |
 
 Nothing else is resident. There is no daemon to install and no port besides the
 web server's.
@@ -34,7 +34,7 @@ web server's.
    | Variable | |
    |---|---|
    | `APP_ENV=production`, `APP_DEBUG=false` | debug shows stack traces and paths to anyone |
-   | `APP_KEY` | `php bin/console security:key --bare`, stored like a password. Changing it invalidates every CSRF token |
+   | `APP_KEY` | `php laika security:key --bare`, stored like a password. Changing it invalidates every CSRF token |
    | `APP_TIMEZONE` | set it; do not inherit `php.ini` |
    | `DB_DSN`, `DB_USERNAME`, `DB_PASSWORD` | or `config/database.php` for several connections |
    | `SESSION_STORE`, `CACHE_STORE`, `QUEUE_STORE` | see [More than one host](#more-than-one-host) |
@@ -42,7 +42,7 @@ web server's.
 
 4. **Create the tables.** There are no migrations: each module's tables are
    created by whatever that module provides, and the database session store's by
-   `php bin/console session:table`.
+   `php laika session:table`.
 5. **Choose where logs go** — nothing is written by default. For daily files
    under `system/Logs`, create `config/logging.php`:
 
@@ -63,9 +63,9 @@ web server's.
 
 ```bash
 composer install --no-dev --optimize-autoloader
-php bin/console cache:clear
-php bin/console cache:warm
-php bin/console security:check
+php laika cache:clear
+php laika cache:warm
+php laika security:check
 ```
 
 - `cache:warm` writes the compiled configuration and the module list, so a
@@ -90,8 +90,14 @@ the curl checks in [Deployment and security](deployment.md).
 ## Cron
 
 ```cron
-* * * * *  cd /srv/app && php bin/console schedule:run >> /dev/null 2>&1
+* * * * *  cd /srv/app && php laika schedule:run >> /dev/null 2>&1
 ```
+
+`php laika system:cron:install` writes that line into the crontab of the
+user it runs as, inside a block marked with this application's name, and leaves
+every other line alone. Run it on every deployment of that one host: an unchanged
+line is not rewritten. `system:cron:list` shows it and `system:cron:remove` takes
+it out.
 
 One line, whatever modules are installed. **One host only**: its locks are files
 on that host, so a second host would run every task again. `schedule:run` exits 1
@@ -106,7 +112,7 @@ Run workers under something that restarts them — they are meant to exit:
 # /etc/systemd/system/app-worker.service
 [Service]
 WorkingDirectory=/srv/app
-ExecStart=/usr/bin/php bin/console queue:work --queue=default --max-jobs=1000 --max-time=3600
+ExecStart=/usr/bin/php laika queue:work --queue=default --max-jobs=1000 --max-time=3600
 Restart=always
 User=www-data
 ```
@@ -164,9 +170,9 @@ Plus: `schedule:run` on exactly one host, and the `file` queue store on one host
 - **`X-Request-Id`** is on every response. A user who quotes it lets you find
   every log record for that request; `correlation_id` follows the work into the
   queue.
-- **`php bin/console about`** — version, boot path (cached or not), modules,
+- **`php laika about`** — version, boot path (cached or not), modules,
   connections, what is switched on.
-- **`php bin/console log:status --write`** — whether records actually arrive, and
+- **`php laika log:status --write`** — whether records actually arrive, and
   any writer that stopped after an error.
 - **`SLOW_QUERY_MS=250`** logs every statement slower than that, without values.
 - **`APP_PROFILE=true`**, briefly, writes where each request's time went to the
@@ -183,6 +189,6 @@ See [Observability](../reference/observability.md).
 | Jobs failing | `queue:failed` shows why; fix, then `queue:failed --retry-all` |
 | A config change has no effect | `cache:clear`, then `cache:warm` |
 | A new module is missing | `cache:clear`, then `cache:warm`; check its directory's case on Linux |
-| Every request is a 500 after deploying | `APP_DEBUG=1 php bin/console about` on the host shows the boot error — never set debug on the web server |
+| Every request is a 500 after deploying | `APP_DEBUG=1 php laika about` on the host shows the boot error — never set debug on the web server |
 
 More in [Troubleshooting](../troubleshooting.md).

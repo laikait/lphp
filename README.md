@@ -35,7 +35,7 @@ and, separately, installs `--no-dev` on 8.2 to lint, boot and serve a request.
 composer install
 composer check          # coding standard + static analysis + tests
 composer serve          # http://127.0.0.1:8080
-php bin/console         # the command list; or: composer console
+php laika         # the command list; or: composer console
 ```
 
 Under XAMPP the application answers at `http://localhost/framework/` with no
@@ -56,8 +56,8 @@ Replace the home page by declaring a `/` route in a module of your own (see
 [The default pages](docs/reference/templates.md#the-default-pages)), and look at what is wired:
 
 ```bash
-php bin/console module:list
-php bin/console route:list
+php laika module:list
+php laika route:list
 ```
 
 There is no demo application in `modules/`. The plugin and gateway the

@@ -57,7 +57,7 @@ final class ConsoleKernel
         $name = $context->command();
         $tokens = $context->arguments();
 
-        // `console`, `console --help` and `console help` are the same request.
+        // `laika`, `laika --help` and `laika help` are the same request.
         if ($name === null || $name === '--help' || $name === '-h') {
             $name = 'help';
             $tokens = [];
@@ -67,7 +67,7 @@ final class ConsoleKernel
             $command = $this->commands->get($name)
                 ?? throw ConsoleException::unknownCommand($name, $this->commands->suggest($name));
 
-            // `console customer:sync --help` explains rather than runs. Only
+            // `laika customer:sync --help` explains rather than runs. Only
             // the first token counts, so a command is still free to take
             // "--help" as a value after a -- separator.
             if (($tokens[0] ?? null) === '--help' || ($tokens[0] ?? null) === '-h') {
@@ -99,7 +99,7 @@ final class ConsoleKernel
         $this->output->error($e->getMessage());
 
         if ($e->unknown) {
-            $this->output->errorLine('Run "php bin/console help" to see what is available.');
+            $this->output->errorLine('Run "php laika help" to see what is available.');
 
             return self::UNKNOWN;
         }
@@ -112,8 +112,8 @@ final class ConsoleKernel
 
         if ($command !== null) {
             $this->output->errorLine();
-            $this->output->errorLine('Usage: php bin/console ' . $command->synopsis());
-            $this->output->errorLine(\sprintf('       php bin/console help %s', $command->name));
+            $this->output->errorLine('Usage: php laika ' . $command->synopsis());
+            $this->output->errorLine(\sprintf('       php laika help %s', $command->name));
         }
 
         return self::USAGE;
@@ -125,7 +125,7 @@ final class ConsoleKernel
         $help = $this->commands->get('help');
 
         if ($help === null) {
-            $this->output->line('Usage: php bin/console ' . $command->synopsis());
+            $this->output->line('Usage: php laika ' . $command->synopsis());
 
             return self::SUCCESS;
         }

@@ -85,7 +85,7 @@ final class SessionException extends FrameworkException
     {
         return new self(\sprintf(
             'The session table "%s" does not exist. Create it with: '
-            . 'php bin/console session:table --driver=%s',
+            . 'php laika session:table --driver=%s',
             $table,
             $driver,
         ));

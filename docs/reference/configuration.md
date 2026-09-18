@@ -141,10 +141,10 @@ a boot that stops.
 ## Cached configuration
 
 ```bash
-php bin/console config:cache          # compile config/ and the defaults into one file
-php bin/console config:cache --clear  # or cache:clear, which clears every cache
-php bin/console config:list --sources # what resolved, and where it came from
-php bin/console cache:warm            # this cache and the module discovery cache, in one step
+php laika config:cache          # compile config/ and the defaults into one file
+php laika config:cache --clear  # or cache:clear, which clears every cache
+php laika config:list --sources # what resolved, and where it came from
+php laika cache:warm            # this cache and the module discovery cache, in one step
 ```
 
 The cache is one `var_export`ed array in `system/Cache/config.php`, which
@@ -161,8 +161,8 @@ into the file. On load the variables are compared against the environment as it
 is now, and one difference makes the cache stale and it is ignored:
 
 ```bash
-php bin/console config:cache                      # built with APP_DEBUG unset
-APP_DEBUG=1 php bin/console config:list -p app    # app.debug true: the cache noticed
+php laika config:cache                      # built with APP_DEBUG unset
+APP_DEBUG=1 php laika config:list -p app    # app.debug true: the cache noticed
 ```
 
 Editing a config file does **not** invalidate it. Noticing that would mean

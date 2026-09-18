@@ -7,6 +7,7 @@ namespace App\Engine\Module;
 use App\Engine\Auth\AccessCollector;
 use App\Engine\Cli\CommandCollector;
 use App\Engine\Container\ServiceRegistrar;
+use App\Engine\MCP\McpCollector;
 use App\Engine\Routing\RouteCollector;
 use App\Engine\Scheduler\ScheduleCollector;
 
@@ -86,6 +87,9 @@ final class ModuleContext
 
     /** @var list<\Closure(AccessCollector): void> */
     private array $accessRegistrars = [];
+
+    /** @var list<\Closure(McpCollector): void> */
+    private array $mcpRegistrars = [];
 
     /** @var array<string, mixed> */
     private array $config = [];
@@ -270,6 +274,23 @@ final class ModuleContext
     }
 
     /**
+     * Declare the MCP tools, resources and prompts this module offers.
+     *
+     * The same shape as routes and commands, for the same reason: what a module
+     * exposes to an AI client is part of the module, installed and removed with
+     * it, and visible in one file. Nothing is exposed that is not named here --
+     * no directory is scanned, and no model or route becomes a tool on its own.
+     *
+     * @param \Closure(McpCollector): void $registrar
+     */
+    public function mcp(\Closure $registrar): self
+    {
+        return $this->declaring('mcp', function () use ($registrar): void {
+            $this->mcpRegistrars[] = $registrar;
+        });
+    }
+
+    /**
      * Contribute configuration, merged under this module's id.
      *
      * @param array<string, mixed> $values
@@ -422,6 +443,12 @@ final class ModuleContext
     public function declaredAccess(): array
     {
         return $this->accessRegistrars;
+    }
+
+    /** @return list<\Closure(McpCollector): void> */
+    public function declaredMcp(): array
+    {
+        return $this->mcpRegistrars;
     }
 
     /** @return array<string, mixed> */

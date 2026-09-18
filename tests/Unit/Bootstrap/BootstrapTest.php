@@ -162,6 +162,28 @@ final class BootstrapTest extends TestCase
             'session.grace',
             'session.cookie.name',
             'session.cookie.same_site',
+            'system.enabled',
+            'system.execution.default_timeout',
+            'system.execution.max_output',
+            'system.execution.max_concurrent',
+            'system.execution.http_timeout',
+            'system.shell.enabled',
+            'system.shell.binary',
+            'system.services',
+            'system.filesystem.read',
+            'system.filesystem.write',
+            'system.permissions.owners',
+            'system.permissions.groups',
+            'system.cron.enabled',
+            'system.audit.enabled',
+            'mcp.enabled',
+            'mcp.server.name',
+            'mcp.server.version',
+            'mcp.transports.stdio',
+            'mcp.transports.http',
+            'mcp.http.path',
+            'mcp.allow_guests',
+            'mcp.log.enabled',
         ] as $key) {
             self::assertTrue($config->has($key), $key . ' is missing from the defaults');
         }
@@ -172,7 +194,7 @@ final class BootstrapTest extends TestCase
         self::assertSame(
             [
                 'app', 'http', 'database', 'assets', 'cache', 'queue', 'security', 'auth', 'session',
-                'scheduler', 'logging', 'observability', 'templates', 'modules',
+                'scheduler', 'system', 'mcp', 'logging', 'observability', 'templates', 'modules',
             ],
             \array_keys($config->all()),
         );
@@ -284,7 +306,7 @@ final class BootstrapTest extends TestCase
 
     public function test_a_cli_context_exposes_the_command_and_its_arguments(): void
     {
-        $context = ExecutionContext::cli(['bin/console', 'module:list', '--verbose']);
+        $context = ExecutionContext::cli(['laika', 'module:list', '--verbose']);
 
         self::assertTrue($context->isCli());
         self::assertSame('module:list', $context->command());
@@ -293,8 +315,8 @@ final class BootstrapTest extends TestCase
 
     public function test_a_cli_context_with_no_command_reports_null(): void
     {
-        self::assertNull(ExecutionContext::cli(['bin/console'])->command());
-        self::assertSame([], ExecutionContext::cli(['bin/console'])->arguments());
+        self::assertNull(ExecutionContext::cli(['laika'])->command());
+        self::assertSame([], ExecutionContext::cli(['laika'])->arguments());
     }
 
     public function test_the_context_tracks_elapsed_time(): void
@@ -311,7 +333,7 @@ final class BootstrapTest extends TestCase
     public function test_the_same_bootstrap_builds_both_contexts(): void
     {
         $http = Bootstrap::create($this->basePath(), ExecutionContext::http(), ['app' => ['handle_errors' => false]]);
-        $cli = Bootstrap::create($this->basePath(), ExecutionContext::cli(['bin/console']), ['app' => ['handle_errors' => false]]);
+        $cli = Bootstrap::create($this->basePath(), ExecutionContext::cli(['laika']), ['app' => ['handle_errors' => false]]);
 
         self::assertTrue($http->container()->has(HttpKernel::class));
         self::assertTrue($cli->container()->has(HttpKernel::class));
@@ -346,7 +368,7 @@ final class BootstrapTest extends TestCase
 
     public function test_the_console_entry_point_delegates_to_the_same_bootstrap(): void
     {
-        $source = \file_get_contents($this->basePath('bin/console'));
+        $source = \file_get_contents($this->basePath('laika'));
         self::assertIsString($source);
 
         self::assertStringContainsString('engine/bootstrap.php', $source);

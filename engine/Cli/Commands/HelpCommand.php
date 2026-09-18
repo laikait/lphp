@@ -42,7 +42,7 @@ final class HelpCommand
         $output->heading(\sprintf('App Framework %s', Application::VERSION));
         $output->line();
         $output->line('Usage:');
-        $output->line('  php bin/console <command> [arguments] [options]');
+        $output->line('  php laika <command> [arguments] [options]');
         $output->line();
 
         $width = 0;
@@ -61,7 +61,7 @@ final class HelpCommand
             $output->line();
         }
 
-        $output->line('Run "php bin/console help <command>" for a command\'s arguments and options.');
+        $output->line('Run "php laika help <command>" for a command\'s arguments and options.');
     }
 
     private function describe(Output $output, Command $command): void
@@ -73,7 +73,7 @@ final class HelpCommand
         }
 
         $output->line('Usage:');
-        $output->line('  php bin/console ' . $command->synopsis());
+        $output->line('  php laika ' . $command->synopsis());
 
         if ($command->arguments() !== []) {
             $output->line();

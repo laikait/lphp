@@ -132,6 +132,19 @@ namespace beats a shorter one.
 | `App\Engine\Logging\LogWriter` | Experimental | |
 | `App\Engine\Logging\Logger` | Experimental | 1.0 candidate |
 | `App\Engine\Logging\LoggingException` | Experimental | |
+| `App\Engine\MCP\*` | Experimental | what a tool, resource or prompt implements, returns or throws, and what an `mcp.*` hook receives; see [MCP](docs/reference/mcp.md) |
+| `App\Engine\MCP\McpAuthorizer` | Internal | a permission is an auth capability |
+| `App\Engine\MCP\McpConfig` | Internal | built by `Bootstrap` from `mcp.*` |
+| `App\Engine\MCP\McpRegistry` | Internal | declare with `$module->mcp()`, read with `mcp:list` |
+| `App\Engine\MCP\McpServer` | Experimental | `handle()`, for tests |
+| `App\Engine\MCP\PlainData` | Internal | |
+| `App\Engine\MCP\Prompt\PromptProvider` | Internal | |
+| `App\Engine\MCP\Protocol\*` | Internal | |
+| `App\Engine\MCP\Protocol\Response` | Experimental | what `mcp.response.created` passes |
+| `App\Engine\MCP\Resource\ResourceReader` | Internal | |
+| `App\Engine\MCP\Tool\ToolRunner` | Internal | |
+| `App\Engine\MCP\Transport\*` | Internal | selected by `mcp.transports` |
+| `App\Engine\MCP\Validation\*` | Internal | the schema subset is documented; the validator is not |
 | `App\Engine\Model\*` | Experimental | |
 | `App\Engine\Model\Attributes` | Internal | |
 | `App\Engine\Module\*` | Internal | |
@@ -171,6 +184,10 @@ namespace beats a shorter one.
 | `App\Engine\Session\SessionManager` | Internal | |
 | `App\Engine\Session\Stores\*` | Internal | selected by name: `SESSION_STORE=file\|database\|memory` |
 | `App\Engine\Support\*` | Internal | |
+| `App\Engine\System\*` | Experimental | the newest API here; see [System operations](docs/reference/system.md) |
+| `App\Engine\System\Command\CommandSlot` | Internal | held by the executor and a `Process` |
+| `App\Engine\System\Command\Invocation` | Internal | |
+| `App\Engine\System\SystemConfig` | Internal | built by `Bootstrap` from `system.*` |
 | `App\Engine\Template\*` | Experimental | |
 | `App\Engine\Template\PhpTemplateEngine` | Internal | registered by `Bootstrap` |
 | `App\Engine\Template\TemplateRegistry` | Internal | |

@@ -60,7 +60,7 @@ final class ConfigurationSliceTest extends TestCase
             $container->get(HookEngine::class),
             $container->get(ErrorHandler::class),
             new Output($stream),
-        ))->handle(ExecutionContext::cli(\array_values(['bin/console', ...$arguments])));
+        ))->handle(ExecutionContext::cli(\array_values(['laika', ...$arguments])));
 
         \rewind($stream);
         $output = (string) \stream_get_contents($stream);
@@ -264,7 +264,7 @@ final class ConfigurationSliceTest extends TestCase
             $app->container()->get(HookEngine::class),
             $app->container()->get(ErrorHandler::class),
             new Output($stream),
-        ))->handle(ExecutionContext::cli(['bin/console', 'config:list', '-p', 'database']));
+        ))->handle(ExecutionContext::cli(['laika', 'config:list', '-p', 'database']));
 
         \rewind($stream);
         $output = (string) \stream_get_contents($stream);

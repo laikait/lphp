@@ -4,8 +4,8 @@ Symptoms, what causes them, and the fix. Start with the two commands that
 answer most questions:
 
 ```bash
-php bin/console about          # version, boot path, modules, connections
-APP_DEBUG=1 php bin/console …  # the full message and trace, on your terminal only
+php laika about          # version, boot path, modules, connections
+APP_DEBUG=1 php laika …  # the full message and trace, on your terminal only
 ```
 
 Outside debug mode the framework withholds error messages it did not write,
@@ -54,7 +54,7 @@ default.
 Boot checks run before any request: an unknown or circular module dependency, a
 route requiring an undeclared capability, a schedule naming a command that does
 not exist, a malformed `.env` line or environment value. Run
-`APP_DEBUG=1 php bin/console about` to read the message; it names the module,
+`APP_DEBUG=1 php laika about` to read the message; it names the module,
 route or variable.
 
 ## Modules
@@ -62,7 +62,7 @@ route or variable.
 **A new module does not appear in `module:list`.**
 
 - A module cache from `cache:warm` exists and debug is off. Run
-  `php bin/console cache:clear`.
+  `php laika cache:clear`.
 - The file is not `modules/Plugins/<Name>/module.php` exactly, or does not
   `return` a closure.
 - It is listed in `modules.disabled` — `module:list` shows disabled modules
@@ -108,7 +108,7 @@ application/json` and the handler calls `requirePayload()`.
 shipped `.htaccess` rules, or add `CGIPassAuth On` to the virtual host.
 
 **401 or 403?** 401: nobody is logged in. 403: someone is, and lacks the
-capability — `php bin/console auth:access` shows who has what.
+capability — `php laika auth:access` shows who has what.
 
 **429 Too Many Requests in development.** Rate-limit counts are files under
 `system/Security` and outlive the process. Delete that directory.
@@ -123,7 +123,7 @@ capability — `php bin/console auth:access` shows who has what.
 
 **The wrong template renders.** Directories are searched in order — the active
 template, its override of the module, the module — and in each, `.twig` before
-`.php`. `php bin/console template:list` prints the order.
+`.php`. `php laika template:list` prints the order.
 
 **A template "is not found" after switching `APP_TEMPLATE`.** A template does not
 fall back to `default`; copy the pages it needs, including `layout.twig`,
@@ -135,7 +135,7 @@ falls back to the built-in page.
 
 **A module's stylesheet is a 404.** It must be under the module's `assets/`
 directory, with an allowed extension, and be linked through
-`asset()->plugin('<Name>', 'css/x.css')`. `php bin/console asset:list` shows
+`asset()->plugin('<Name>', 'css/x.css')`. `php laika asset:list` shows
 what is published. HTML files are never served as assets.
 
 **The browser keeps an old stylesheet.** The URL must come from `asset()`, which
@@ -161,7 +161,7 @@ names** exactly, including case.
 ## Configuration
 
 **A change in `config/` has no effect.** A configuration cache exists —
-`php bin/console config:list --sources` says where values came from. Run
+`php laika config:list --sources` says where values came from. Run
 `cache:clear`.
 
 **A configuration key is "of the wrong type".** Typed configuration reads do not
@@ -188,7 +188,7 @@ lock is still held: `schedule:list` shows it as running; `schedule:unlock --id=<
 **Every scheduled task runs twice.** `schedule:run` is in cron on two hosts.
 
 **A command's output from a schedule is nowhere.** It goes to the log, and nothing
-is logged until a writer is configured — `php bin/console log:status`.
+is logged until a writer is configured — `php laika log:status`.
 
 ## Sessions and logins
 
@@ -210,7 +210,14 @@ is JSON. Store an id, and load the object.
 [Running in production](operations/running.md#before-the-first-deployment).
 
 **Logging stopped.** A writer that fails — a full disk, a permission — is retired
-for the rest of the process. `php bin/console log:status` says which and why.
+for the rest of the process. `php laika log:status` says which and why.
+
+## MCP
+
+**A client sees no tools, "Unknown tool.", 401 or 404 from `/mcp`.** See the
+table in [MCP](reference/mcp.md#troubleshooting). `php laika mcp:list` shows
+what is exposed and what each capability needs, and the `mcp` log channel
+records every denial.
 
 ## Tests
 

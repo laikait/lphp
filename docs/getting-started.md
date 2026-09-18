@@ -28,8 +28,8 @@ with no configuration.
 A fresh install has one module, `shared`, and nothing else:
 
 ```bash
-php bin/console module:list
-php bin/console route:list
+php laika module:list
+php laika route:list
 ```
 
 Leave `composer serve` running in its own terminal and use a second one for the
@@ -59,7 +59,7 @@ return static function (ModuleContext $module): void {
 ```
 
 ```bash
-php bin/console module:list
+php laika module:list
 ```
 
 ```
@@ -314,11 +314,11 @@ return static function (ModuleContext $module): void {
 ```
 
 ```bash
-php bin/console notes:install
-php bin/console notes:add "Buy milk"
-php bin/console notes:add "Call Ada"
-php bin/console notes:add --help
-php bin/console notes:add ""; echo $?     # 2: the command line was wrong
+php laika notes:install
+php laika notes:add "Buy milk"
+php laika notes:add "Call Ada"
+php laika notes:add --help
+php laika notes:add ""; echo $?     # 2: the command line was wrong
 ```
 
 `singleton()` shares one repository; `bind()` builds a fresh command each time.
@@ -345,7 +345,7 @@ A module's `Templates/` directory becomes a template namespace on its own:
 {% for note in notes %}
     <p>{{ note.body }}</p>
 {% else %}
-    <p>No notes yet. Add one with <code>php bin/console notes:add "Hello"</code>.</p>
+    <p>No notes yet. Add one with <code>php laika notes:add "Hello"</code>.</p>
 {% endfor %}
 {% endblock %}
 ```
@@ -435,7 +435,7 @@ Open `http://127.0.0.1:8080/notes`, then:
 ```bash
 curl http://127.0.0.1:8080/api/notes
 # {"data":[{"id":2,"body":"Call Ada"},{"id":1,"body":"Buy milk"}]}
-php bin/console route:list
+php laika route:list
 ```
 
 The first route uses the class's `__invoke()`; the second names a method. A
@@ -491,7 +491,7 @@ return ['page_size' => 1];
 
 Reload `/notes` and only the newest note is left. The file wins over the module,
 always: whoever runs the application decides, whoever wrote the module suggests.
-`php bin/console config:list` shows what resolved and from where. Delete the file
+`php laika config:list` shows what resolved and from where. Delete the file
 when you are done. See [Configuration](reference/configuration.md).
 
 ## 9. A test

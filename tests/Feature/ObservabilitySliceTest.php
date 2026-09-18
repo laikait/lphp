@@ -222,7 +222,7 @@ final class ObservabilitySliceTest extends TestCase
 
     public function test_a_console_command_is_traced_and_profiled(): void
     {
-        $app = $this->fixtureApplication(['observability' => ['profile' => true]], cli: ['bin/console', 'module:list']);
+        $app = $this->fixtureApplication(['observability' => ['profile' => true]], cli: ['laika', 'module:list']);
         [$app, $log] = $this->logged($app);
 
         $stream = \fopen('php://memory', 'r+');

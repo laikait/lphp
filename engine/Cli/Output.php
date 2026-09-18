@@ -8,8 +8,8 @@ namespace App\Engine\Cli;
  * Where a command writes.
  *
  * Two streams, because the separation is what makes a command usable from a
- * script: `console route:list | grep customers` must not have an error message
- * mixed into what it pipes, and `console customer:sync 2>errors.log` must be
+ * script: `laika route:list | grep customers` must not have an error message
+ * mixed into what it pipes, and `laika customer:sync 2>errors.log` must be
  * able to separate the two. Anything that is a message about the run goes to
  * the error stream; anything that is the result goes to standard output.
  *

@@ -5,7 +5,7 @@ declare(strict_types=1);
 /*
  * One bootstrap, two execution contexts.
  *
- * Both index.php and bin/console require this file, which is the concrete form
+ * Both index.php and laika (the console) require this file, which is the concrete form
  * of "REST and web HTTP use the same kernel, and the CLI uses the same
  * application bootstrap". The only thing that differs is the context object.
  *

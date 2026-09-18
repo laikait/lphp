@@ -22,7 +22,7 @@ return (new PhpCsFixer\Config())
         // makes them always prefixed, wherever the fixer runs (opcache is on in
         // CI and off under XAMPP, for one).
         'native_function_invocation' => [
-            'include' => ['@internal', 'fastcgi_finish_request', 'getallheaders', 'opcache_get_status'],
+            'include' => ['@internal', 'fastcgi_finish_request', 'getallheaders', 'opcache_get_status', 'posix_geteuid', 'posix_getgrnam', 'posix_getpwnam', 'posix_kill'],
             'scope' => 'namespaced',
             'strict' => true,
         ],

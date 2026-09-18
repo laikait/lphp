@@ -53,7 +53,7 @@ $this->connections->connection()->execute(
 ([Getting started](../getting-started.md#4-a-database-and-two-commands) builds
 such a command.) Column names are the **model's constructor parameter names**,
 exactly, so a camelCase parameter means a camelCase column. The session store's
-table comes from `php bin/console session:table`.
+table comes from `php laika session:table`.
 
 ## A model
 

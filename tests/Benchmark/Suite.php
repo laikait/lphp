@@ -6,6 +6,10 @@ namespace App\Tests\Benchmark;
 
 use App\Engine\Asset\AssetManager;
 use App\Engine\Asset\AssetServer;
+use App\Engine\Auth\AccessCollector;
+use App\Engine\Auth\AccessRegistry;
+use App\Engine\Auth\Authorizer;
+use App\Engine\Auth\Identity;
 use App\Engine\Bootstrap\Bootstrap;
 use App\Engine\Config\Config;
 use App\Engine\Config\ConfigCache;
@@ -21,6 +25,15 @@ use App\Engine\Database\SqlSource;
 use App\Engine\Filter\FilterEngine;
 use App\Engine\Hook\HookEngine;
 use App\Engine\Http\Request;
+use App\Engine\MCP\McpAuthorizer;
+use App\Engine\MCP\McpCollector;
+use App\Engine\MCP\McpRegistry;
+use App\Engine\MCP\McpServer;
+use App\Engine\MCP\McpSession;
+use App\Engine\MCP\Prompt\PromptProvider;
+use App\Engine\MCP\Protocol\MessageParser;
+use App\Engine\MCP\Resource\ResourceReader;
+use App\Engine\MCP\Tool\ToolRunner;
 use App\Engine\Model\ModelManager;
 use App\Engine\Module\DependencyResolver;
 use App\Engine\Module\ModuleContext;
@@ -36,6 +49,7 @@ use App\Engine\Observability\Tracer;
 use App\Engine\Routing\Route;
 use App\Engine\Routing\Router;
 use App\Engine\Template\TemplateManager;
+use App\Tests\Fixtures\MCP\GreetTool;
 use App\Tests\Fixtures\Model\Customer;
 use App\Tests\Fixtures\Model\CustomerListRecord;
 
@@ -123,6 +137,39 @@ final class Suite
 
                 return static fn(): ?array => ConfigCache::read($file);
             }),
+
+            // What an MCP manifest would have saved, and the reason there is
+            // none: module.php declares capabilities on every boot, as it does
+            // routes, and registering them is this cheap.
+            new Benchmark('Application boot', 'register 100 MCP capabilities', static fn(): \Closure
+                => static function (): McpRegistry {
+                    $registry = new McpRegistry();
+                    $mcp = new McpCollector($registry, 'plugins/Bench');
+
+                    for ($i = 0; $i < 100; ++$i) {
+                        $mcp->tool("bench.tool{$i}", GreetTool::class, 'A tool.', 'bench.view');
+                    }
+
+                    return $registry;
+                }),
+
+            // Beside "answer /customers.json": an MCP request should cost no
+            // more than an API request does.
+            new Benchmark('Application boot', 'bootstrap, boot and answer an MCP tools/call over HTTP', static fn(): \Closure
+                => static fn(): int => Bootstrap::create(
+                    $basePath,
+                    ExecutionContext::http(['SCRIPT_NAME' => '/index.php', 'REQUEST_METHOD' => 'POST']),
+                    [
+                        'app' => ['handle_errors' => false],
+                        'security' => ['key' => \str_repeat('k', 64)],
+                        'modules' => ['paths' => ['plugins' => 'tests/Fixtures/Modules/Mcp/Plugins'], 'disabled' => ['plugins/Muted']],
+                        'mcp' => ['transports' => ['http' => true]],
+                    ],
+                )->handle(Request::create('POST', '/mcp', [
+                    'server' => ['SCRIPT_NAME' => '/index.php'],
+                    'headers' => ['Authorization' => 'Bearer ada-token-do-not-use', 'Content-Type' => 'application/json'],
+                    'body' => '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"zulu.greet","arguments":{"name":"Ada"}}}',
+                ]))->status()),
         ];
     }
 
@@ -216,7 +263,52 @@ final class Suite
 
                 return static fn(): mixed => $router->match('GET', '/nowhere/at/all');
             }),
+
+            // An MCP tool name is resolved as a route is: a registered name to
+            // a handler, then authorized, validated and called.
+            new Benchmark('Route resolution', 'MCP: authorize, validate and call one tool among 200', static function (): \Closure {
+                [$server, $session] = self::mcpServer(200);
+
+                return static fn(): ?string => $server->handle('{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"bench.tool150","arguments":{"name":"Ada"}}}', $session);
+            }),
+
+            new Benchmark('Route resolution', 'MCP: tools/list, 200 tools visible', static function (): \Closure {
+                [$server, $session] = self::mcpServer(200);
+
+                return static fn(): ?string => $server->handle('{"jsonrpc":"2.0","id":1,"method":"tools/list"}', $session);
+            }),
         ];
+    }
+
+    /** @return array{McpServer, McpSession} a server over $tools tools, and a session allowed all of them */
+    private static function mcpServer(int $tools): array
+    {
+        $access = new AccessRegistry();
+        (new AccessCollector($access, 'plugins/Bench'))->capability('bench.view')->role('agent', ['bench.view']);
+
+        $registry = new McpRegistry();
+        $mcp = new McpCollector($registry, 'plugins/Bench');
+
+        for ($i = 0; $i < $tools; ++$i) {
+            $mcp->tool("bench.tool{$i}", GreetTool::class, 'A tool.', 'bench.view');
+        }
+
+        $authorizer = new McpAuthorizer(new Authorizer($access));
+        $container = new Container();
+        $server = new McpServer(
+            new MessageParser(),
+            new ToolRunner($registry, $container, $authorizer),
+            new ResourceReader($registry, $container, $authorizer),
+            new PromptProvider($registry, $container, $authorizer),
+            $registry,
+            'bench',
+            '1',
+        );
+
+        $session = new McpSession(new Identity('7', 'ada', ['agent']), 'stdio');
+        $session->initialize('2025-06-18', 'bench', '1');
+
+        return [$server, $session];
     }
 
     // ---- dependency resolution --------------------------------------------

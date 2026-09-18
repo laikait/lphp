@@ -31,7 +31,7 @@ final class SecurityKeyCommand
         $key = Signer::generate();
 
         // For a deployment script: one line, nothing else, so that
-        // `APP_KEY=$(php bin/console security:key --bare)` works.
+        // `APP_KEY=$(php laika security:key --bare)` works.
         if ($bare) {
             $output->write($key . "\n");
 
@@ -56,7 +56,7 @@ final class SecurityKeyCommand
         }
 
         $output->line('This application has no key yet, so tokens are currently unsigned. See:');
-        $output->line('    php bin/console security:check');
+        $output->line('    php laika security:check');
 
         return 0;
     }

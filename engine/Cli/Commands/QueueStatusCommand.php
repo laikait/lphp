@@ -59,12 +59,12 @@ final class QueueStatusCommand
         if ($queues === []) {
             $output->line('Nothing is waiting.');
         } else {
-            $output->line('Run a worker with: php bin/console queue:work');
+            $output->line('Run a worker with: php laika queue:work');
         }
 
         if ($failed !== []) {
             $output->warning(\sprintf(
-                '%d job%s gave up. See: php bin/console queue:failed',
+                '%d job%s gave up. See: php laika queue:failed',
                 \count($failed),
                 \count($failed) === 1 ? '' : 's',
             ));

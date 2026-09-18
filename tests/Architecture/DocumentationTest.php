@@ -550,8 +550,16 @@ final class DocumentationTest extends TestCase
         foreach (new \RecursiveIteratorIterator(
             new \RecursiveDirectoryIterator($this->basePath('docs'), \FilesystemIterator::SKIP_DOTS),
         ) as $file) {
-            if ($file instanceof \SplFileInfo && $file->getExtension() === 'md') {
-                $documents[] = $this->relative($file->getPathname());
+            if (!$file instanceof \SplFileInfo || $file->getExtension() !== 'md') {
+                continue;
+            }
+
+            $relative = $this->relative($file->getPathname());
+
+            // Working plans are git-ignored: present on one machine, absent from
+            // every clone, so nothing published may depend on them.
+            if (!\str_starts_with($relative, 'docs/plans/')) {
+                $documents[] = $relative;
             }
         }
 

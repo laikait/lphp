@@ -12,7 +12,7 @@ $module->schedules(static function (ScheduleCollector $schedules): void {
 **The machine gets one cron line, and it never changes:**
 
 ```cron
-* * * * *  cd /var/www/app && php bin/console schedule:run >> /dev/null 2>&1
+* * * * *  cd /var/www/app && php laika schedule:run >> /dev/null 2>&1
 ```
 
 That trade is the whole point. A crontab is edited over ssh by whoever has
@@ -111,10 +111,10 @@ costs a bounded number of skipped runs. Set `->withoutOverlapping($seconds)` a
 little above the task's longest run, not far above.
 
 ```bash
-php bin/console schedule:list                       # what runs, when, and what is running now
-php bin/console schedule:run                        # what cron calls
-php bin/console schedule:run --id=<id> --force      # run one now; still takes the lock
-php bin/console schedule:unlock --id=<id>           # after a machine died mid-run
+php laika schedule:list                       # what runs, when, and what is running now
+php laika schedule:run                        # what cron calls
+php laika schedule:run --id=<id> --force      # run one now; still takes the lock
+php laika schedule:unlock --id=<id>           # after a machine died mid-run
 ```
 
 `--force` ignores the clock and nothing else. "Run this now" is a decision about

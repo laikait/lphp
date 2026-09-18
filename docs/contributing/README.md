@@ -70,6 +70,11 @@ exposes exactly `hooks`, `filters`, `assets` and `templates`.
 - `Error` never mentions a logger, and only `Logging\ErrorLog` mentions errors.
 - Nothing in `Queue` sees a request, and nothing in `Scheduler` sleeps, loops on
   the clock or starts a process.
+- Only `System` starts a process, and nothing in the engine calls `exec()`,
+  `system()`, `passthru()`, `popen()` or backticks, and `proc_open()` is only
+  ever given an argv array. A shell runs only as `ShellCommand::bash()` on a
+  script file. `System` sees no request, console input or session: services
+  call it, interfaces do not.
 - No subsystem references the profiler; `Observability` writes only through the
   log and headers.
 - Only `Env` reads the environment, and nothing calls `putenv()`.

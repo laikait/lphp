@@ -18,7 +18,7 @@ use App\Engine\Queue\Queue;
  *
  * There is **one cron line**, and this is what it calls:
  *
- *     * * * * *  cd /var/www/app && php bin/console schedule:run >> /dev/null 2>&1
+ *     * * * * *  cd /var/www/app && php laika schedule:run >> /dev/null 2>&1
  *
  * Every schedule in the application lives in the module that owns it, and the
  * crontab holds one entry that never changes. That is the entire trade the
@@ -283,7 +283,7 @@ final class Scheduler
         return $until === null
             ? 'Another run holds the lock.'
             : \sprintf(
-                'Another run holds the lock until %s. Clear it with: php bin/console schedule:unlock --id=%s',
+                'Another run holds the lock until %s. Clear it with: php laika schedule:unlock --id=%s',
                 \date('H:i:s', $until),
                 $schedule->id(),
             );

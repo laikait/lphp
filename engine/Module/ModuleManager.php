@@ -18,6 +18,8 @@ use App\Engine\Container\Container;
 use App\Engine\Container\ServiceRegistrar;
 use App\Engine\Filter\FilterEngine;
 use App\Engine\Hook\HookEngine;
+use App\Engine\MCP\McpCollector;
+use App\Engine\MCP\McpRegistry;
 use App\Engine\Routing\RouteCollector;
 use App\Engine\Routing\Router;
 use App\Engine\Scheduler\ScheduleCollector;
@@ -49,8 +51,8 @@ use App\Engine\Template\TemplateSource;
  *
  *   Register   Declarations are replayed across every module, BY CATEGORY:
  *              config, then assets and templates, then services, then
- *              routes, then commands, then schedules, then hooks, then
- *              filters.
+ *              routes, then commands, then schedules, then access, then MCP
+ *              capabilities, then hooks, then filters.
  *              This is the important detail. Replaying per module instead
  *              would mean one module's route registration could run before
  *              another's service bindings, which is precisely the ordering
@@ -96,6 +98,7 @@ final class ModuleManager
         private readonly AccessRegistry $access = new AccessRegistry(),
         private readonly ModuleRegistry $registry = new ModuleRegistry(),
         private readonly string $basePath = '',
+        private readonly McpRegistry $mcp = new McpRegistry(),
     ) {}
 
     public function registry(): ModuleRegistry
@@ -431,6 +434,27 @@ final class ModuleManager
         // for a capability the module that enforces it defines.
         $this->access->assertConsistent();
         $this->assertRoutesAskForDeclaredCapabilities();
+
+        // After access: a capability's permission is checked against the
+        // declared capabilities, so every module's must exist first.
+        foreach ($contexts as $context) {
+            $collector = new McpCollector($this->mcp, $context->id());
+
+            foreach ($context->declaredMcp() as $declare) {
+                $declare($collector);
+            }
+        }
+
+        // The rule a route follows: asking for a capability nobody declared is a
+        // mistake to find at boot, not a refusal to debug from a client.
+        foreach ($this->mcp->everything() as $capability) {
+            if ($capability->permission !== null && !$this->access->hasPermission($capability->permission)) {
+                throw AuthException::undeclaredCapability(
+                    $capability->permission,
+                    \sprintf('MCP %s "%s" in %s', $capability->kind->value, $capability->name, $capability->module),
+                );
+            }
+        }
 
         foreach ($contexts as $context) {
             foreach ($context->declaredHooks() as $hook) {

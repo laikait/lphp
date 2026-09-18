@@ -64,8 +64,8 @@ $commands->add('customer:count', static fn (CustomerQuery $c): string => …);  
 ## Input binds the way route parameters do
 
 ```bash
-php bin/console customer:sync 2026-01-01 --dry-run --limit=5
-php bin/console customer:sync 2026-01-01 -dl5      # the same thing
+php laika customer:sync 2026-01-01 --dry-run --limit=5
+php laika customer:sync 2026-01-01 -dl5      # the same thing
 ```
 
 Declared input arrives as **typed parameters, matched by name**; everything
@@ -120,8 +120,8 @@ shell's says `0` is, and an exit code that gets it backwards turns a failed job
 into a green tick.
 
 Results go to standard output and complaints go to standard error, so
-`console route:list | grep customers` carries no warnings and
-`console customer:sync 2>errors.log` separates the two.
+`laika route:list | grep customers` carries no warnings and
+`laika customer:sync 2>errors.log` separates the two.
 
 ## The framework's own commands are not special
 
@@ -136,6 +136,8 @@ cache:warm       Build the production boot path: the configuration and discovery
 config:cache     Compile config/ and the defaults into one cached file.
 config:list      The configuration this process actually resolved to.
 log:status       Where records go, and whether they are getting there.
+mcp:list         Every MCP tool, resource and prompt, its module and who may use it.
+mcp:stdio        Serve MCP over stdin and stdout, as a user, for a local client.
 module:list      Discovered modules, in the order they load.
 nginx:make       Write the nginx server block for this application to nginx.conf.
 queue:failed     The jobs that gave up; retry or discard them.
@@ -149,6 +151,12 @@ security:check   Audit what this deployment actually has switched on.
 security:key     Print a new APP_KEY.
 session:gc       Delete sessions past their lifetime.
 session:table    Print the CREATE TABLE the database session store needs.
+system:info      The operating system, kernel, memory, disk and load of this machine.
+system:service:status   Whether a systemd service is running.
+system:service:restart  Restart a service that system.services allows restarting.
+system:cron:list        The jobs this application owns in the crontab.
+system:cron:install     Install the crontab line that runs schedule:run every minute.
+system:cron:remove      Remove this application's crontab jobs.
 template:list    The template search path, highest precedence first.
 ```
 
@@ -169,9 +177,9 @@ Help is generated from the declaration, so there is no second description of
 the interface to fall out of date:
 
 ```
-$ php bin/console customer:sync --help
+$ php laika customer:sync --help
 Usage:
-  php bin/console customer:sync [since] [options]
+  php laika customer:sync [since] [options]
 
 Arguments:
   since  Only records changed on or after this date. (default: yesterday)

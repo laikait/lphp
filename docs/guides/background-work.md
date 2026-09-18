@@ -53,7 +53,7 @@ $this->queue->push(new RecalculateBilling(), queue: 'billing');
 | `QUEUE_STORE` | The job runs |
 |---|---|
 | `sync` (default) | immediately, inside `push()`. An exception reaches the caller |
-| `file` | later, in `php bin/console queue:work`, which must be running |
+| `file` | later, in `php laika queue:work`, which must be running |
 | `memory` | never beyond this process; for tests and one-off scripts |
 
 Start with `sync`: everything works, just not in the background. Switch to `file`
@@ -61,8 +61,8 @@ and start a worker when the request should stop waiting:
 
 ```bash
 QUEUE_STORE=file
-php bin/console queue:work --queue=default --max-jobs=500 --max-time=3600
-php bin/console queue:status
+php laika queue:work --queue=default --max-jobs=500 --max-time=3600
+php laika queue:status
 ```
 
 `file` works for one machine and any number of workers on it. For several
@@ -75,10 +75,10 @@ minutes — until `QUEUE_TRIES` attempts are used, then moved to the failed list
 with the exception:
 
 ```bash
-php bin/console queue:failed                 # what gave up, and why
-php bin/console queue:failed --retry=<id>    # try again, attempts reset
-php bin/console queue:failed --retry-all
-php bin/console queue:failed --forget=<id>
+php laika queue:failed                 # what gave up, and why
+php laika queue:failed --retry=<id>    # try again, attempts reset
+php laika queue:failed --retry-all
+php laika queue:failed --forget=<id>
 ```
 
 Design jobs so running one twice is harmless. A worker killed mid-job leaves
@@ -122,7 +122,7 @@ $module->schedules(static function (ScheduleCollector $schedules): void {
 The server needs **one** cron line, once, whatever the modules declare:
 
 ```cron
-* * * * *  cd /var/www/app && php bin/console schedule:run >> /dev/null 2>&1
+* * * * *  cd /var/www/app && php laika schedule:run >> /dev/null 2>&1
 ```
 
 Frequencies are cron expressions underneath: `everyFiveMinutes()`,
@@ -145,8 +145,8 @@ Things worth knowing:
   class that is not a job, a bad expression. You find out on deploy, not at 3am.
 
 ```bash
-php bin/console schedule:list                     # every task, and when it next runs
-php bin/console schedule:run --id=<id> --force    # run one now, lock still honoured
+php laika schedule:list                     # every task, and when it next runs
+php laika schedule:run --id=<id> --force    # run one now, lock still honoured
 ```
 
 ## Test it

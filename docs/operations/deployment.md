@@ -76,7 +76,7 @@ grep -E 'rewrite_module|AllowOverride' /path/to/httpd.conf
 Generate the server block rather than writing one:
 
 ```bash
-php bin/console nginx:make --server-name=app.example.com --root=/srv/app --php=unix:/run/php/php8.3-fpm.sock
+php laika nginx:make --server-name=app.example.com --root=/srv/app --php=unix:/run/php/php8.3-fpm.sock
 sudo cp nginx.conf /etc/nginx/conf.d/app.conf
 sudo nginx -t && sudo systemctl reload nginx
 ```
@@ -115,8 +115,8 @@ task.
 
 ```bash
 composer install --no-dev --optimize-autoloader
-php bin/console cache:clear
-php bin/console cache:warm
+php laika cache:clear
+php laika cache:warm
 ```
 
 `cache:warm` writes two files: `system/Cache/config.php`, the whole resolved
@@ -147,7 +147,7 @@ means stat-ing the very directories the cache exists to avoid, and mtime is
 unreliable on Windows and network shares. That is what `cache:clear` in the
 deployment is for.
 
-`php bin/console about` says which path a process took:
+`php laika about` says which path a process took:
 
 ```
 Boot path    config cached, modules cached

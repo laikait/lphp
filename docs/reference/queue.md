@@ -87,9 +87,9 @@ network filesystem's rename semantics, which is a bet worth not making.
 ## Retry, backoff, failure
 
 ```bash
-php bin/console queue:work --queue=billing --max-jobs=100 --max-time=300
-php bin/console queue:status
-php bin/console queue:failed --retry=<id> | --retry-all | --forget=<id>
+php laika queue:work --queue=billing --max-jobs=100 --max-time=300
+php laika queue:status
+php laika queue:failed --retry=<id> | --retry-all | --forget=<id>
 ```
 
 A job that throws goes back on the queue with a delay; when its attempts are

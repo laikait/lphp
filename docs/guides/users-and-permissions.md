@@ -101,7 +101,7 @@ $module->services(static function (ServiceRegistrar $services): void {
 ```
 
 Plugins register after `shared`, so this binding replaces the demo provider.
-`php bin/console security:check` shows which provider is in use. (Leaving
+`php laika security:check` shows which provider is in use. (Leaving
 `shared`'s own line in place is harmless; deleting it and its demo
 `AccountProvider` is tidier.)
 
@@ -121,7 +121,7 @@ What the pieces mean:
 Hash a password for a first account or a seed script:
 
 ```bash
-php bin/console auth:hash 'correct horse battery staple'
+php laika auth:hash 'correct horse battery staple'
 ```
 
 In code, inject `Password` and call `hash(new Secret($plain))`. Never choose an
@@ -207,7 +207,7 @@ $module->access(static function (AccessCollector $access): void {
   from starting, naming the route — a typo cannot silently lock everyone out.
 
 ```bash
-php bin/console auth:access    # every capability, every role, which routes check what
+php laika auth:access    # every capability, every role, which routes check what
 ```
 
 ## Check in code

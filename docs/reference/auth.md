@@ -6,8 +6,8 @@ $routes->post('/invoices/{id}/void', [Invoices::class, 'void'])
 ```
 
 ```bash
-php bin/console auth:access           # every capability, role and guarded route
-php bin/console auth:hash 'hunter2'   # a hash, for seeding the first account
+php laika auth:access           # every capability, role and guarded route
+php laika auth:hash 'hunter2'   # a hash, for seeding the first account
 ```
 
 **The framework does not know what a user is.** There is no `User` model in

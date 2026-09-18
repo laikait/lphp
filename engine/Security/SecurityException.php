@@ -23,7 +23,7 @@ final class SecurityException extends FrameworkException
     public static function keyTooShort(int $length, int $minimum): self
     {
         return new self(\sprintf(
-            'APP_KEY is %d bytes; at least %d are needed. Generate one with: php bin/console security:key',
+            'APP_KEY is %d bytes; at least %d are needed. Generate one with: php laika security:key',
             $length,
             $minimum,
         ));
@@ -33,7 +33,7 @@ final class SecurityException extends FrameworkException
     {
         return new self(
             'This operation needs APP_KEY and it is not set. Generate one with: '
-            . 'php bin/console security:key, then put it in the environment.',
+            . 'php laika security:key, then put it in the environment.',
         );
     }
 
@@ -41,7 +41,7 @@ final class SecurityException extends FrameworkException
     {
         return new self(
             'APP_KEY is set but is not valid base64. It is a key, not a passphrase: '
-            . 'generate one with php bin/console security:key rather than typing one.',
+            . 'generate one with php laika security:key rather than typing one.',
         );
     }
 

@@ -40,8 +40,11 @@ use App\Engine\Module\ModuleRegistry;
  *   module.php declares -- a cached graph is wrong the first time somebody
  *   edits one.
  *
- * Both are benchmarked (composer bench), so the day either stops being true is
- * a number rather than a feeling.
+ *   MCP capabilities, for the reason routes are not: they are declared in
+ *   module.php, and registering a hundred measures at about 0.15 ms.
+ *
+ * All three are benchmarked (composer bench), so the day one stops being true
+ * is a number rather than a feeling.
  */
 final class CacheWarmCommand
 {
@@ -112,6 +115,7 @@ final class CacheWarmCommand
             'Modules' => \sprintf('%s (%d installed)', $modules, \count($registry->installed())),
             'Routes' => 'not cached -- declared by module.php, which runs on every boot anyway',
             'Dependencies' => 'not cached -- resolved in microseconds from what module.php declares',
+            'MCP' => 'not cached -- capabilities are declared by module.php, like routes (see mcp:list)',
         ]);
 
         $output->line();

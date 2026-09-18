@@ -81,7 +81,7 @@ final class NginxMakeCommand
     public static function serverBlock(string $serverName, string $root, string $listen, string $php): string
     {
         return <<<NGINX
-            # nginx server block, written by `php bin/console nginx:make`.
+            # nginx server block, written by `php laika nginx:make`.
             #
             # The root is public/, which holds only index.php and the application's
             # assets: engine/, modules/, config/, vendor/ and .env are one level up, out

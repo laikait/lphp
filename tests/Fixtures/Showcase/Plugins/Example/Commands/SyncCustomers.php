@@ -18,9 +18,9 @@ use App\Tests\Fixtures\Showcase\Plugins\Example\Model\CustomerListRecord;
  * operator typed arrive as typed parameters, coerced the same way a route
  * parameter is.
  *
- *   php bin/console customer:sync
- *   php bin/console customer:sync 2026-01-01 --dry-run --limit=2
- *   php bin/console customer:sync 2026-01-01 -dl2
+ *   php laika customer:sync
+ *   php laika customer:sync 2026-01-01 --dry-run --limit=2
+ *   php laika customer:sync 2026-01-01 -dl2
  *
  * The exit code is the return value, because a command's result is read by a
  * shell script rather than by a person.

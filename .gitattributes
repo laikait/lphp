@@ -4,6 +4,9 @@
 # it. tests/, the tool configuration and docs/ stay: an application keeps
 # `composer check`, autoload-dev scans tests/Fixtures/ and fails without it, and
 # README.md links into docs/.
-
 /.github        export-ignore
 /.gitattributes export-ignore
+/CHANGELOG.md   export-ignore
+/STABILITY.md   export-ignore
+/UPGRADING.md   export-ignore
+/LICENSE        export-ignore

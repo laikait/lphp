@@ -22,8 +22,8 @@ The cost, stated plainly: a listener cannot wrap the handler, so there is no
 the other half, and nothing here has needed more.
 
 ```bash
-php bin/console security:check      # audit this deployment; exits 1 on a problem
-php bin/console security:key        # print a new APP_KEY
+php laika security:check      # audit this deployment; exits 1 on a problem
+php laika security:key        # print a new APP_KEY
 ```
 
 `security:check` is the command this section is really about. A security setting
@@ -80,7 +80,7 @@ so that one user's token cannot be presented by another, is **not built** — se
 ## APP_KEY, and what an application without one still gets
 
 ```bash
-APP_KEY=$(php bin/console security:key --bare)
+APP_KEY=$(php laika security:key --bare)
 ```
 
 With a key, CSRF tokens are signed, so a sibling subdomain — or anyone able to

@@ -240,7 +240,7 @@ final class PerformanceSliceTest extends TestCase
 
         return Bootstrap::create(
             $base,
-            ExecutionContext::cli(['bin/console']),
+            ExecutionContext::cli(['laika']),
             \array_replace_recursive([
                 'app' => ['handle_errors' => false],
                 'security' => ['counters' => 'memory'],
@@ -265,7 +265,7 @@ final class PerformanceSliceTest extends TestCase
             $container->get(HookEngine::class),
             $container->get(ErrorHandler::class),
             new Output($stream),
-        ))->handle(ExecutionContext::cli(\array_values(['bin/console', ...$arguments])));
+        ))->handle(ExecutionContext::cli(\array_values(['laika', ...$arguments])));
 
         \rewind($stream);
         $output = (string) \stream_get_contents($stream);

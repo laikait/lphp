@@ -32,6 +32,16 @@ final class ConfigurationException extends FrameworkException
         ));
     }
 
+    /** The right type, and still not a usable value; $previous says what is wrong with it. */
+    public static function unusableValue(string $key, string $expected, ?\Throwable $previous = null): self
+    {
+        return new self(\sprintf(
+            'Configuration key "%s" is not usable. It must be %s.',
+            $key,
+            $expected,
+        ), 0, $previous);
+    }
+
     public static function notAListOfStrings(string $key): self
     {
         return new self(\sprintf(

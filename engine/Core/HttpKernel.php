@@ -12,6 +12,7 @@ use App\Engine\Hook\HookEngine;
 use App\Engine\Http\HttpException;
 use App\Engine\Http\Request;
 use App\Engine\Http\Response;
+use App\Engine\MCP\Transport\HttpTransport;
 use App\Engine\Routing\MatchStatus;
 use App\Engine\Routing\Router;
 
@@ -33,6 +34,7 @@ use App\Engine\Routing\Router;
  *   request.received    hook
  *   router.path         filter  the path about to be matched
  *   asset.response      filter  an asset response, when the path was one
+ *   ... the MCP endpoint, when the path is it (MCP\Transport\HttpTransport) ...
  *   route.match         filter  the RouteMatch
  *   ... dispatch (see Dispatcher) ...
  *   request.failed      hook    on any Throwable
@@ -48,6 +50,7 @@ final class HttpKernel
         private readonly HookEngine $hooks,
         private readonly FilterEngine $filters,
         private readonly ErrorHandler $errors,
+        private readonly HttpTransport $mcp,
     ) {}
 
     public function handle(Request $request): Response
@@ -74,17 +77,24 @@ final class HttpKernel
                 return $served;
             }
 
-            $match = $this->filters->apply(
-                'route.match',
-                $this->router->match($request->method(), $path),
-                $request,
-            );
+            // MCP is not a route either: one exact path, answered by the
+            // protocol's own rules rather than by route meta and dispatch.
+            // Off unless configured, and then one string comparison.
+            if ($this->mcp->handles($path)) {
+                $response = $this->mcp->handle($request);
+            } else {
+                $match = $this->filters->apply(
+                    'route.match',
+                    $this->router->match($request->method(), $path),
+                    $request,
+                );
 
-            $response = match ($match->status) {
-                MatchStatus::Matched => $this->dispatcher->dispatch($request, $match),
-                MatchStatus::MethodNotAllowed => throw HttpException::methodNotAllowed($match->allowedMethods),
-                MatchStatus::NotFound => throw HttpException::notFound($path),
-            };
+                $response = match ($match->status) {
+                    MatchStatus::Matched => $this->dispatcher->dispatch($request, $match),
+                    MatchStatus::MethodNotAllowed => throw HttpException::methodNotAllowed($match->allowedMethods),
+                    MatchStatus::NotFound => throw HttpException::notFound($path),
+                };
+            }
         } catch (\Throwable $e) {
             $this->hooks->do('request.failed', $e, $request);
 

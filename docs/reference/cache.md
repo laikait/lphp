@@ -128,9 +128,9 @@ own — and it is declared in `onBoot`, where the dependency can be injected.
 ## Clearing
 
 ```bash
-php bin/console cache:clear             # config, modules, templates and the application cache
-php bin/console cache:clear --expired   # only entries whose TTL has passed; the rest stay warm
-php bin/console cache:warm              # then rebuild the production boot path
+php laika cache:clear             # config, modules, templates and the application cache
+php laika cache:clear --expired   # only entries whose TTL has passed; the rest stay warm
+php laika cache:warm              # then rebuild the production boot path
 ```
 
 `cache:clear` asks the store rather than deleting files, which is the version of

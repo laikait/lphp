@@ -131,10 +131,13 @@ final class CounterConformanceTest extends TestCase
     {
         $store = $make();
 
-        self::assertSame(1, $store->hit('a', 1)->count);
-        self::assertSame(2, $store->hit('a', 1)->count);
+        // Two seconds, not one: time() is whole seconds, and two hits that
+        // straddle a second boundary would see a one-second window expire
+        // between them. That was an intermittent failure, not a store bug.
+        self::assertSame(1, $store->hit('a', 2)->count);
+        self::assertSame(2, $store->hit('a', 2)->count);
 
-        \sleep(2);
+        \sleep(3);
 
         self::assertNull($store->peek('a'), 'an expired counter is not a counter');
         self::assertSame(1, $store->hit('a', 60)->count);

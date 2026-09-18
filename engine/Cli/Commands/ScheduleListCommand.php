@@ -83,7 +83,7 @@ final class ScheduleListCommand
 
         $output->line();
         $output->line('Nothing here runs on its own. One cron line drives all of it:');
-        $output->line('    * * * * *  cd ' . \getcwd() . ' && php bin/console schedule:run');
+        $output->line('    * * * * *  cd ' . \getcwd() . ' && php laika schedule:run');
 
         return 0;
     }

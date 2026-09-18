@@ -83,7 +83,7 @@ final class QueueWorkCommand
         ]);
 
         if ($summary[JobOutcome::Failed->value] > 0) {
-            $output->error('Some jobs were given up on. See: php bin/console queue:failed');
+            $output->error('Some jobs were given up on. See: php laika queue:failed');
 
             return 1;
         }

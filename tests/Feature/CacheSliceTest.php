@@ -300,7 +300,7 @@ final class CacheSliceTest extends TestCase
             $app->container()->get(HookEngine::class),
             $app->container()->get(ErrorHandler::class),
             new Output($stream),
-        ))->handle(ExecutionContext::cli(\array_values(['bin/console', ...$arguments])));
+        ))->handle(ExecutionContext::cli(\array_values(['laika', ...$arguments])));
 
         \rewind($stream);
         $output = (string) \stream_get_contents($stream);

@@ -54,7 +54,7 @@
             "@test"
         ],
         "serve": "php -S 127.0.0.1:8080 -t public server",
-        "console": "php bin/console",
+        "console": "php laika",
         "bench": [
             "Composer\\Config::disableProcessTimeout",
             "php tests/Benchmark/run.php"

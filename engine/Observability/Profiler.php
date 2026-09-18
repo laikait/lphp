@@ -8,6 +8,9 @@ use App\Engine\Filter\FilterEngine;
 use App\Engine\Hook\HookEngine;
 use App\Engine\Module\ModuleManager;
 use App\Engine\Support\Callback;
+use App\Engine\System\Audit\AuditOutcome;
+use App\Engine\System\Audit\AuditRecord;
+use App\Engine\System\Audit\SystemAudit;
 
 /**
  * Where the time went, inside one unit of work.
@@ -98,6 +101,22 @@ final class Profiler
         $modules->observe(function (string $stage, ?string $module, int $nanoseconds): void {
             $this->record('module', $stage, $nanoseconds, $module);
         });
+
+        // System operations announce themselves on system.audit, with their
+        // duration; that stream is their seam. Each finished or refused
+        // operation is one measurement under its event name, so "commands run",
+        // "commands failed", "timeouts" and "service changes" are the counts of
+        // system.command.completed, .failed, .timeout and system.service.changed.
+        // A start is not counted: its end is.
+        $hooks->add(SystemAudit::HOOK, function (AuditRecord $record): void {
+            if ($record->outcome === AuditOutcome::Started) {
+                return;
+            }
+
+            $milliseconds = $record->context['duration_ms'] ?? 0;
+
+            $this->record('system', $record->event, \is_int($milliseconds) ? $milliseconds * 1_000_000 : 0, $record->target);
+        }, 10, 'engine');
     }
 
     /**

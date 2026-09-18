@@ -146,4 +146,4 @@ should have to reproduce to learn about.
 | `observability.slow_query_ms` | `0` (`SLOW_QUERY_MS`) | Warn about statements slower than this. `0` is off. |
 | `observability.trust_incoming_ids` | `false` | Use `X-Request-Id` / `X-Correlation-Id` from the request. Only behind something that sets them. |
 
-`php bin/console about` says which of these is on.
+`php laika about` says which of these is on.

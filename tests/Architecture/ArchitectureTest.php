@@ -154,7 +154,9 @@ final class ArchitectureTest extends TestCase
     private function callsFunction(string $path, string $name): bool
     {
         return \preg_match(
-            '/(?<![A-Za-z0-9_$>])\\\\?' . \preg_quote($name, '/') . '\s*\(/',
+            // Not after "->", "::" or "function ": $x->exec(), self::system()
+            // and a method declared as system() are not the native function.
+            '/(?<![A-Za-z0-9_$>:])(?<!function )\\\\?' . \preg_quote($name, '/') . '\s*\(/',
             $this->codeWithoutComments($path),
         ) === 1;
     }
@@ -1507,6 +1509,8 @@ final class ArchitectureTest extends TestCase
             'engine/Cli/Commands/ConfigListCommand.php',
             'engine/Cli/Commands/HelpCommand.php',
             'engine/Cli/Commands/LogStatusCommand.php',
+            'engine/Cli/Commands/McpListCommand.php',
+            'engine/Cli/Commands/McpStdioCommand.php',
             'engine/Cli/Commands/ModuleListCommand.php',
             'engine/Cli/Commands/NginxMakeCommand.php',
             'engine/Cli/Commands/QueueFailedCommand.php',
@@ -1520,6 +1524,12 @@ final class ArchitectureTest extends TestCase
             'engine/Cli/Commands/SecurityKeyCommand.php',
             'engine/Cli/Commands/SessionGcCommand.php',
             'engine/Cli/Commands/SessionTableCommand.php',
+            'engine/Cli/Commands/SystemCronInstallCommand.php',
+            'engine/Cli/Commands/SystemCronListCommand.php',
+            'engine/Cli/Commands/SystemCronRemoveCommand.php',
+            'engine/Cli/Commands/SystemInfoCommand.php',
+            'engine/Cli/Commands/SystemServiceRestartCommand.php',
+            'engine/Cli/Commands/SystemServiceStatusCommand.php',
             'engine/Cli/Commands/TemplateListCommand.php',
         ];
 
@@ -1657,6 +1667,17 @@ final class ArchitectureTest extends TestCase
             'cache:warm',
             'config:cache',
             'config:list',
+            // Operating-system administration. None of them writes code, and
+            // none runs an arbitrary command: there is deliberately no system:exec.
+            'system:info',
+            'system:service:status',
+            'system:service:restart',
+            'system:cron:list',
+            'system:cron:install',
+            'system:cron:remove',
+            // An interface to capabilities modules register, not a way to run code.
+            'mcp:list',
+            'mcp:stdio',
         ];
 
         $registry = new \App\Engine\Cli\CommandRegistry();
@@ -1827,7 +1848,9 @@ final class ArchitectureTest extends TestCase
             'engine/Logging/LogWriter.php',
             'engine/Logging/Logger.php',
             'engine/Logging/LoggingException.php',
+            'engine/Logging/McpLog.php',
             'engine/Logging/ScheduleLog.php',
+            'engine/Logging/SystemAuditLog.php',
             'engine/Logging/Writers/FileWriter.php',
             'engine/Logging/Writers/StreamWriter.php',
             'engine/Logging/Writers/SyslogWriter.php',
@@ -3824,6 +3847,398 @@ final class ArchitectureTest extends TestCase
                 $wiring,
                 \sprintf('%s offers observe() but nothing in engine/Observability attaches to it.', $seam),
             );
+        }
+    }
+
+    // ---- system operations (docs/plans/system.md) ------------------------------
+
+    /**
+     * The system layer is built phase by phase, and each phase adds what it
+     * uses. A file that appears here without a phase that needs it is the start
+     * of the unrestricted shell the plan exists to prevent.
+     */
+    public function test_the_system_layer_holds_infrastructure_only(): void
+    {
+        $infrastructure = [
+            'engine/System/Audit/AuditOutcome.php',
+            'engine/System/Audit/AuditRecord.php',
+            'engine/System/Audit/SystemAudit.php',
+            'engine/System/Command/Command.php',
+            'engine/System/Command/CommandException.php',
+            'engine/System/Command/CommandExecutor.php',
+            'engine/System/Command/CommandFailedException.php',
+            'engine/System/Command/CommandNotFoundException.php',
+            'engine/System/Command/CommandTimeoutException.php',
+            'engine/System/Command/CommandPolicy.php',
+            'engine/System/Command/CommandPolicyException.php',
+            'engine/System/Command/CommandResult.php',
+            'engine/System/Command/CommandSlot.php',
+            'engine/System/Command/ConcurrencyLimit.php',
+            'engine/System/Command/Invocation.php',
+            'engine/System/Command/ShellCommand.php',
+            'engine/System/Cron/CronChange.php',
+            'engine/System/Cron/CronException.php',
+            'engine/System/Cron/CronJob.php',
+            'engine/System/Cron/CronManager.php',
+            'engine/System/Cron/CronTable.php',
+            'engine/System/Cron/CronValidationException.php',
+            'engine/System/Cron/ScheduleRunJob.php',
+            'engine/System/Cron/UserCrontab.php',
+            'engine/System/Filesystem/FileInfo.php',
+            'engine/System/Filesystem/FilesystemException.php',
+            'engine/System/Filesystem/FilesystemPolicy.php',
+            'engine/System/Filesystem/FilesystemPolicyException.php',
+            'engine/System/Filesystem/PathTraversalException.php',
+            'engine/System/Filesystem/SystemFilesystem.php',
+            'engine/System/Permission/PermissionException.php',
+            'engine/System/Permission/PermissionManager.php',
+            'engine/System/Process/Process.php',
+            'engine/System/Process/ProcessException.php',
+            'engine/System/Process/ProcessManager.php',
+            'engine/System/Security/SystemAuthorizationException.php',
+            'engine/System/Security/SystemAuthorizer.php',
+            'engine/System/Security/SystemCapability.php',
+            'engine/System/Security/SystemOperation.php',
+            'engine/System/Service/ServiceAction.php',
+            'engine/System/Service/ServiceException.php',
+            'engine/System/Service/ServiceManager.php',
+            'engine/System/Service/ServiceNotFoundException.php',
+            'engine/System/Service/ServicePolicy.php',
+            'engine/System/Service/ServiceStatus.php',
+            'engine/System/SystemInfo/Disk.php',
+            'engine/System/SystemInfo/Memory.php',
+            'engine/System/SystemInfo/SystemInfo.php',
+            'engine/System/SystemConfig.php',
+            'engine/System/SystemDisabledException.php',
+            'engine/System/SystemException.php',
+        ];
+
+        $found = [];
+
+        foreach ($this->engineFiles() as $path) {
+            $relative = $this->relative($path);
+
+            if (\str_starts_with($relative, 'engine/System/')) {
+                $found[] = $relative;
+            }
+        }
+
+        \sort($found);
+        \sort($infrastructure);
+
+        self::assertSame($infrastructure, $found);
+    }
+
+    /**
+     * Nothing in the engine hands a string to a shell.
+     *
+     * exec(), system(), passthru(), popen() and backticks all take one string
+     * and give it to /bin/sh, which is where an argument with a semicolon in it
+     * becomes a second command. The plan's first rule is that the executable and
+     * its arguments stay apart all the way down; the only process API that can
+     * do that is proc_open() with an array, and only engine/System may call it.
+     * Shell execution, when it arrives, is an explicit mode of that same path.
+     */
+    public function test_only_the_system_layer_starts_a_process_and_never_through_a_shell_string(): void
+    {
+        $shellStrings = ['exec', 'shell_exec', 'system', 'passthru', 'popen', 'pcntl_exec'];
+
+        foreach ($this->engineFiles() as $path) {
+            $relative = $this->relative($path);
+
+            foreach ($shellStrings as $function) {
+                self::assertFalse(
+                    $this->callsFunction($path, $function),
+                    \sprintf('%s calls %s(), which runs a string through a shell.', $relative, $function),
+                );
+            }
+
+            $tokens = \token_get_all((string) \file_get_contents($path));
+
+            self::assertNotContains('`', $tokens, \sprintf('%s uses the backtick operator, which is shell_exec().', $relative));
+
+            if (!\str_starts_with($relative, 'engine/System/')) {
+                self::assertFalse(
+                    $this->callsFunction($path, 'proc_open'),
+                    \sprintf('%s starts a process. Starting processes belongs to engine/System.', $relative),
+                );
+
+                continue;
+            }
+
+            // Inside the layer, proc_open() is only ever handed the argv array.
+            // Given a string, it runs /bin/sh -c on Linux and cmd.exe on Windows.
+            // "proc_open()" with nothing inside is a name in a message, not a call.
+            \preg_match_all('/\\\\?proc_open\((?!\))\s*([^,]*),/', $this->codeWithoutComments($path), $calls);
+
+            foreach ($calls[1] as $first) {
+                self::assertSame('$argv', \trim($first), \sprintf('%s passes proc_open() something other than $argv.', $relative));
+            }
+        }
+    }
+
+    /**
+     * Cron is the trigger; the Scheduler is the scheduler.
+     *
+     * engine/System borrows exactly one thing from the Scheduler, the grammar of
+     * a cron expression, so that a schedule means the same in a crontab and in a
+     * module. Reaching for anything else -- the registry, the collector, locks,
+     * the runner -- would be the start of a second scheduling engine, and one
+     * that installs its tasks as crontab lines nobody reviews. In the other
+     * direction the Scheduler stays what its own tests say: it decides and runs
+     * what is due, and starting processes or editing crontabs is not in it.
+     */
+    public function test_system_cron_and_the_scheduler_stay_apart(): void
+    {
+        $separator = \preg_quote(\chr(92), '/');
+        $allowed = ['CronExpression', 'SchedulerException'];
+
+        foreach ($this->engineFiles() as $path) {
+            $relative = $this->relative($path);
+            $code = $this->codeWithoutComments($path);
+
+            if (\str_starts_with($relative, 'engine/System/')) {
+                \preg_match_all('/App' . $separator . 'Engine' . $separator . 'Scheduler' . $separator . '(\w+)/', $code, $matches);
+
+                foreach ($matches[1] as $class) {
+                    self::assertContains(
+                        $class,
+                        $allowed,
+                        \sprintf('%s uses Scheduler\\%s. System may use the cron grammar, not the scheduling engine.', $relative, $class),
+                    );
+                }
+            }
+
+            if (\str_starts_with($relative, 'engine/Scheduler/')) {
+                self::assertDoesNotMatchRegularExpression(
+                    '/App' . $separator . 'Engine' . $separator . 'System/',
+                    $code,
+                    \sprintf('%s reaches into engine/System. The scheduler runs what is due; it does not manage the OS.', $relative),
+                );
+            }
+        }
+    }
+
+    // ---- MCP (docs/plans/mcp.md) ---------------------------------------------------
+
+    /** Built phase by phase, like engine/System: a new file is added on purpose. */
+    public function test_the_mcp_layer_holds_infrastructure_only(): void
+    {
+        $infrastructure = [
+            'engine/MCP/Capability.php',
+            'engine/MCP/CapabilityKind.php',
+            'engine/MCP/McpCollector.php',
+            'engine/MCP/McpRegistry.php',
+            'engine/MCP/McpServer.php',
+            'engine/MCP/McpSession.php',
+            'engine/MCP/Transport/HttpTransport.php',
+            'engine/MCP/Transport/StdioTransport.php',
+            'engine/MCP/RegistryException.php',
+            'engine/MCP/McpAuthorizer.php',
+            'engine/MCP/McpConfig.php',
+            'engine/MCP/McpContext.php',
+            'engine/MCP/McpContractException.php',
+            'engine/MCP/McpError.php',
+            'engine/MCP/McpErrorCode.php',
+            'engine/MCP/McpException.php',
+            'engine/MCP/PlainData.php',
+            'engine/MCP/Prompt/Prompt.php',
+            'engine/MCP/Prompt/PromptArgument.php',
+            'engine/MCP/Prompt/PromptException.php',
+            'engine/MCP/Prompt/PromptMessage.php',
+            'engine/MCP/Prompt/PromptProvider.php',
+            'engine/MCP/Prompt/PromptResult.php',
+            'engine/MCP/Resource/Resource.php',
+            'engine/MCP/Resource/ResourceContents.php',
+            'engine/MCP/Resource/ResourceException.php',
+            'engine/MCP/Resource/ResourceReader.php',
+            'engine/MCP/Tool/Tool.php',
+            'engine/MCP/Tool/ToolException.php',
+            'engine/MCP/Tool/ToolResult.php',
+            'engine/MCP/Tool/ToolRunner.php',
+            'engine/MCP/Validation/SchemaValidator.php',
+            'engine/MCP/Validation/ValidationException.php',
+            'engine/MCP/Protocol/MessageParser.php',
+            'engine/MCP/Protocol/Notification.php',
+            'engine/MCP/Protocol/ProtocolException.php',
+            'engine/MCP/Protocol/ProtocolVersion.php',
+            'engine/MCP/Protocol/Request.php',
+            'engine/MCP/Protocol/Response.php',
+        ];
+
+        $found = [];
+
+        foreach ($this->engineFiles() as $path) {
+            $relative = $this->relative($path);
+
+            if (\str_starts_with($relative, 'engine/MCP/')) {
+                $found[] = $relative;
+            }
+        }
+
+        \sort($found);
+        \sort($infrastructure);
+
+        self::assertSame($infrastructure, $found);
+    }
+
+    /**
+     * MCP is an interface, and reaches nothing an interface should not.
+     *
+     * The plan's invariants, as a rule about imports: MCP is not arbitrary SQL,
+     * filesystem, shell or PHP access. A tool calls an application service,
+     * which a module wrote and authorizes; the MCP layer itself never holds a
+     * database connection, a system manager or a console command, so there is no
+     * path by which it could expose one generically. And it does not run the
+     * console to reuse its logic -- both call the same service.
+     */
+    public function test_mcp_is_an_interface_and_reaches_no_infrastructure_directly(): void
+    {
+        $forbidden = [
+            'App\\Engine\\System', 'App\\Engine\\Database', 'App\\Engine\\Data\\', 'App\\Engine\\Cli',
+            'App\\Engine\\Model', 'App\\Modules\\',
+        ];
+
+        foreach ($this->engineFiles() as $path) {
+            $relative = $this->relative($path);
+
+            if (!\str_starts_with($relative, 'engine/MCP/')) {
+                continue;
+            }
+
+            $code = $this->codeWithoutComments($path);
+
+            foreach ($forbidden as $name) {
+                self::assertStringNotContainsString($name, $code, \sprintf('%s refers to %s. MCP reaches application services, not infrastructure.', $relative, $name));
+            }
+
+            foreach (\token_get_all((string) \file_get_contents($path)) as $token) {
+                self::assertFalse(
+                    \is_array($token) && \in_array($token[0], [\T_EVAL, \T_INCLUDE, \T_INCLUDE_ONCE, \T_REQUIRE, \T_REQUIRE_ONCE], true),
+                    \sprintf('%s evaluates or includes code. MCP never runs PHP it was given.', $relative),
+                );
+            }
+
+            foreach (['call_user_func', 'call_user_func_array', 'unserialize'] as $function) {
+                self::assertFalse(
+                    $this->callsFunction($path, $function),
+                    \sprintf('%s calls %s(), a way to reach a callable or object a client named.', $relative, $function),
+                );
+            }
+
+            // Nor the filesystem or a process, even by a function rather than
+            // an import. The STDIO transport reads and writes the two streams
+            // it is handed, and opens nothing.
+            foreach ([
+                'fopen', 'file_get_contents', 'file_put_contents', 'file', 'readfile', 'unlink', 'rename', 'copy',
+                'mkdir', 'rmdir', 'scandir', 'glob', 'opendir', 'exec', 'shell_exec', 'system', 'passthru',
+                'proc_open', 'popen', 'pcntl_exec', 'mail',
+            ] as $function) {
+                self::assertFalse(
+                    $this->callsFunction($path, $function),
+                    \sprintf('%s calls %s(). MCP reaches files and processes only through a module\'s service.', $relative, $function),
+                );
+            }
+
+            self::assertNotContains('`', \token_get_all((string) \file_get_contents($path)), \sprintf('%s uses the backtick operator, which is shell_exec().', $relative));
+        }
+    }
+
+    /**
+     * Each operating-system mechanism is spoken in exactly one place.
+     *
+     * The plan's OS abstraction, as built: Linux-first, with no interface nobody
+     * implements twice, and instead a rule that the Linux-specific parts stay
+     * where they are. systemd is the service manager's, crontab is the cron
+     * layer's, /proc and /sys are system information's, and shell redirection
+     * is the one line a crontab needs. The day a second platform arrives, each
+     * is one class to put behind an interface, not a search through the tree.
+     */
+    public function test_each_operating_system_mechanism_lives_in_one_place(): void
+    {
+        $mechanisms = [
+            "'systemctl'" => ['engine/System/Service/ServiceManager.php'],
+            "'crontab'" => ['engine/System/Cron/UserCrontab.php'],
+            '/proc/' => ['engine/System/SystemInfo/SystemInfo.php'],
+            '/sys/' => ['engine/System/SystemInfo/SystemInfo.php'],
+            '/etc/os-release' => ['engine/System/SystemInfo/SystemInfo.php'],
+            '/dev/null' => ['engine/System/Cron/CronJob.php'],
+            '2>&1' => ['engine/System/Cron/CronJob.php'],
+        ];
+
+        $found = [];
+
+        foreach ($this->engineFiles() as $path) {
+            $code = $this->codeWithoutComments($path);
+
+            foreach (\array_keys($mechanisms) as $needle) {
+                if (\str_contains($code, $needle)) {
+                    $found[$needle][] = $this->relative($path);
+                }
+            }
+        }
+
+        foreach ($mechanisms as $needle => $owners) {
+            self::assertSame($owners, $found[$needle] ?? [], \sprintf('%s is spoken outside the one class that owns it.', $needle));
+        }
+
+        // And the platform is asked about only where behaviour really differs.
+        $asking = [];
+
+        foreach ($this->engineFiles() as $path) {
+            if (\str_contains($this->codeWithoutComments($path), 'PHP_OS_FAMILY')) {
+                $asking[] = $this->relative($path);
+            }
+        }
+
+        \sort($asking);
+
+        self::assertSame(
+            [
+                'engine/System/Command/CommandExecutor.php',
+                'engine/System/Command/Invocation.php',
+                'engine/System/Cron/UserCrontab.php',
+                'engine/System/Filesystem/SystemFilesystem.php',
+                'engine/System/Permission/PermissionManager.php',
+                'engine/System/Process/Process.php',
+                'engine/System/Service/ServiceManager.php',
+                'engine/System/SystemInfo/SystemInfo.php',
+            ],
+            $asking,
+            'a new place asks which operating system this is; add it here only if its behaviour must differ',
+        );
+    }
+
+    /**
+     * The system layer does not know who is asking.
+     *
+     * HTTP, the console and MCP all reach it the same way: through an
+     * application service that has already authenticated, authorised and
+     * validated. A system class that read a request or a console input would
+     * be deciding for one interface what the others are not asked, and would be
+     * the natural place for a route to call it directly.
+     */
+    public function test_the_system_layer_cannot_see_the_interfaces_that_call_it(): void
+    {
+        $forbidden = [
+            'App\\Engine\\Http', 'App\\Engine\\Routing', 'App\\Engine\\Dispatch', 'App\\Engine\\Cli',
+            'App\\Engine\\Session', 'App\\Engine\\MCP', '$_SERVER', '$_GET', '$_POST', '$_REQUEST', 'STDIN',
+        ];
+
+        foreach ($this->engineFiles() as $path) {
+            $relative = $this->relative($path);
+
+            if (!\str_starts_with($relative, 'engine/System/')) {
+                continue;
+            }
+
+            foreach ($forbidden as $name) {
+                self::assertStringNotContainsString(
+                    $name,
+                    $this->codeWithoutComments($path),
+                    \sprintf('%s refers to %s. System operations are called by services, not by an interface.', $relative, $name),
+                );
+            }
         }
     }
 

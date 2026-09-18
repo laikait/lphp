@@ -34,7 +34,7 @@ look.
 asked to be. There is nothing about assets in any `module.php`. That is a
 deliberate asymmetry with everything else a module declares: the URL space is
 `/assets/plugin/<name>/` for every plugin, so a declaration could only ever say
-"yes" or be wrong. `php bin/console asset:list` shows what ended up published.
+"yes" or be wrong. `php laika asset:list` shows what ended up published.
 
 The shared module is excluded. Its id is just `shared`, with no name of its own,
 so no URL could address it; assets belonging to the application as a whole are

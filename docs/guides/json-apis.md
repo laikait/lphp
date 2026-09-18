@@ -216,5 +216,5 @@ curl -i -X POST -H 'Content-Type: application/json' \
      -d '{"name":"Ada","email":"ada@example.test"}' \
      http://127.0.0.1:8080/api/v1/customers
 curl -i -X POST -H 'Content-Type: text/plain' -d 'x' http://127.0.0.1:8080/api/v1/customers   # 415
-php bin/console route:list
+php laika route:list
 ```
