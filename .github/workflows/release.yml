@@ -1,0 +1,109 @@
+name: LPHP Version Release
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+
+  workflow_dispatch:
+
+jobs:
+  ########################################################
+  # BUILD & RELEASE
+  ########################################################
+  release:
+    name: LPHP Build & Release
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/')
+    permissions:
+      contents: write
+    env:
+      CHANNEL: CLI
+      ARTIFACT: lphp-${{ github.ref_name }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+
+      - name: Get Composer cache directory
+        id: composer-cache
+        run: echo "dir=$(composer config cache-files-dir || echo ~/.composer/cache)" >> $GITHUB_OUTPUT
+
+      - name: Cache Composer dependencies
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
+        with:
+          # Only Composer's download cache. Caching "vendor" too would pin the
+          # resolved dependency versions across runs, and this repo ships no
+          # composer.lock, so a restored vendor/ silently overrides resolution.
+          path: ${{ steps.composer-cache.outputs.dir }}
+          # Keyed on composer.json: with no composer.lock in this repo,
+          # hashFiles('**/composer.lock') is an empty string and the key never
+          # changes.
+          key: ${{ runner.os }}-composer-v2-${{ hashFiles('**/composer.json') }}
+          restore-keys: ${{ runner.os }}-composer-v2-
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@f3e473d116dcccaddc5834248c87452386958240
+        with:
+          php-version: 8.2
+          tools: composer
+
+      - name: Install dependencies (no dev)
+        run: composer install --no-dev --prefer-dist --no-progress
+
+      # Detect Release Channel
+      - name: Define Release Channel and Artifact Name
+        id: channel
+        run: |
+          echo "CHANNEL=CLI" >> $GITHUB_ENV
+          echo "ARTIFACT=laika-core-${{ github.ref_name }}" >> $GITHUB_ENV
+
+      # Prepare Build Artifact
+      - name: Prepare release artifact
+        run: |
+          mkdir build
+          cp -r engine modules public tests laika server config templates build/
+          echo "${{ github.run_number }}" > build/VERSION
+          cd build && zip -r ../${{ env.ARTIFACT }}.zip .
+
+      # Generate Checksum
+      - name: Generate artifact checksum
+        run: sha256sum ${{ env.ARTIFACT }}.zip > ${{ env.ARTIFACT }}.zip.sha256
+
+      # Upload Artifact
+      - name: Upload build artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: ${{ env.ARTIFACT }}
+          path: |
+            ${{ env.ARTIFACT }}.zip
+            ${{ env.ARTIFACT }}.zip.sha256
+          retention-days: 30
+
+      # Create GitHub Release
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@3d0d9888cb7fd7b750713d6e236d1fcb99157228
+        with:
+          draft: false
+          overwrite_files: true
+          tag_name: ${{ github.ref_name }}
+          name: ${{ github.ref_name }}
+          body: |
+            🚀 **${{ github.ref_name }} Release**
+
+            **Tag:** ${{ github.ref_name }}
+            **Commit:** ${{ github.sha }}
+            **Build #:** ${{ github.run_number }}
+
+            **Artifacts:**
+            - `${{ env.ARTIFACT }}.zip`
+            - `${{ env.ARTIFACT }}.zip.sha256`
+
+            ---
+            ⚙️ Released via CI Pipeline
+            🧩 Channel: ${{ env.CHANNEL }}
+          files: |
+            ${{ env.ARTIFACT }}.zip
+            ${{ env.ARTIFACT }}.zip.sha256
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
