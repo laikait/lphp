@@ -116,7 +116,13 @@ namespace beats a shorter one.
 | `App\Engine\Data\Order` | Internal | |
 | `App\Engine\Database\*` | Experimental | |
 | `App\Engine\Database\ConnectionConfig` | Internal | |
-| `App\Engine\Database\Grammar` | Internal | the only place SQL is built |
+| `App\Engine\Database\Grammar` | Internal | the only place SQL is built; `Grammar::for()` picks the dialect |
+| `App\Engine\Database\MySqlGrammar` | Internal | |
+| `App\Engine\Database\PostgresGrammar` | Internal | |
+| `App\Engine\Database\Query\Condition` | Internal | what the builder records and the grammar writes |
+| `App\Engine\Database\Query\QueryState` | Internal | |
+| `App\Engine\Database\SqlServerGrammar` | Internal | |
+| `App\Engine\Database\SqliteGrammar` | Internal | |
 | `App\Engine\Dispatch\*` | Internal | |
 | `App\Engine\Dispatch\DispatchException` | Experimental | |
 | `App\Engine\Error\*` | Experimental | |

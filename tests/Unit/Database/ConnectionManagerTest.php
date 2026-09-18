@@ -145,6 +145,85 @@ final class ConnectionManagerTest extends TestCase
         self::assertSame('app', $manager->config('main')->username);
     }
 
+    public function test_a_dsn_is_assembled_from_its_parts(): void
+    {
+        $manager = ConnectionManager::fromArray([
+            'mysql' => ['driver' => 'mysql', 'host' => 'db', 'port' => 3306, 'database' => 'erp', 'charset' => 'utf8mb4'],
+            'pgsql' => ['driver' => 'pgsql', 'host' => 'replica', 'port' => '5432', 'database' => 'warehouse', 'charset' => 'utf8'],
+            'sqlsrv' => ['driver' => 'sqlsrv', 'host' => 'mssql', 'port' => 1433, 'database' => 'ledger'],
+            'sqlsrv_default_port' => ['driver' => 'sqlsrv', 'host' => 'mssql', 'database' => 'ledger'],
+            'sqlite' => ['driver' => 'sqlite', 'database' => ':memory:'],
+            'partial' => ['driver' => 'mysql', 'host' => 'db'],
+        ]);
+
+        self::assertSame('mysql:host=db;port=3306;dbname=erp;charset=utf8mb4', $manager->config('mysql')->dsn);
+        self::assertSame('pgsql:host=replica;port=5432;dbname=warehouse', $manager->config('pgsql')->dsn, 'no charset for PostgreSQL');
+        self::assertSame('sqlsrv:Server=mssql,1433;Database=ledger', $manager->config('sqlsrv')->dsn);
+        self::assertSame('sqlsrv:Server=mssql;Database=ledger', $manager->config('sqlsrv_default_port')->dsn);
+        self::assertSame('sqlite::memory:', $manager->config('sqlite')->dsn);
+        self::assertSame('mysql:host=db', $manager->config('partial')->dsn);
+    }
+
+    public function test_an_assembled_dsn_really_connects(): void
+    {
+        $connection = ConnectionManager::fromArray([
+            'main' => ['driver' => 'sqlite', 'database' => ':memory:'],
+        ])->connection();
+
+        self::assertSame(1, $connection->scalar('SELECT 1'));
+    }
+
+    public function test_a_dsn_wins_over_its_parts(): void
+    {
+        $config = ConnectionManager::fromArray([
+            'main' => ['dsn' => 'sqlite::memory:', 'driver' => 'mysql', 'host' => 'ignored'],
+        ])->config('main');
+
+        self::assertSame('sqlite::memory:', $config->dsn);
+    }
+
+    public function test_parts_for_a_driver_whose_dsn_is_not_written_are_refused(): void
+    {
+        $this->expectException(DatabaseException::class);
+        $this->expectExceptionMessage('The "legacy" connection names the driver "oci" without a dsn.');
+
+        ConnectionManager::fromArray(['legacy' => ['driver' => 'oci', 'host' => 'db']]);
+    }
+
+    /** A semicolon would end the part and start another the configuration never set. */
+    public function test_a_part_that_would_rewrite_the_dsn_is_refused(): void
+    {
+        foreach ([
+            'database' => ['driver' => 'mysql', 'database' => 'erp;unix_socket=/tmp/evil'],
+            'host' => ['driver' => 'sqlsrv', 'host' => 'db,1434'],
+        ] as $key => $values) {
+            try {
+                ConnectionManager::fromArray(['main' => $values]);
+                self::fail(\sprintf('the unsafe %s was accepted', $key));
+            } catch (DatabaseException $e) {
+                self::assertStringContainsString(\sprintf('"main" connection\'s "%s"', $key), $e->getMessage());
+                self::assertStringNotContainsString('evil', $e->getMessage());
+            }
+        }
+    }
+
+    /** Every connection is closed, and the leak is still reported. */
+    public function test_disconnecting_everything_closes_all_and_reports_a_leaked_transaction(): void
+    {
+        $manager = $this->manager();
+        $manager->connection('main')->begin();
+        $manager->connection('reports')->pdo();
+
+        try {
+            $manager->disconnectAll();
+            self::fail('the leaked transaction went unreported');
+        } catch (DatabaseException $e) {
+            self::assertStringContainsString('"main" connection was closed with a transaction still open', $e->getMessage());
+        }
+
+        self::assertSame([], $manager->opened());
+    }
+
     public function test_a_malformed_configuration_entry_is_ignored_rather_than_fatal(): void
     {
         $manager = ConnectionManager::fromArray([
@@ -203,6 +282,28 @@ final class ConnectionManagerTest extends TestCase
 
         $manager->observe(null);
         $main->scalar('SELECT 1');
+
+        self::assertCount(2, $heard);
+    }
+
+    public function test_a_listener_reaches_every_connection_whenever_it_was_opened(): void
+    {
+        $manager = $this->manager();
+        $main = $manager->connection('main');
+
+        $heard = [];
+        $manager->listen(static function (string $event, mixed ...$arguments) use (&$heard): void {
+            self::assertInstanceOf(Connection::class, $arguments[0]);
+            $heard[] = $event . ' on ' . $arguments[0]->name();
+        });
+
+        $main->transaction(static fn(): bool => true);
+        $manager->connection('reports')->transaction(static fn(): bool => true);
+
+        self::assertSame(['transaction.committed on main', 'transaction.committed on reports'], $heard);
+
+        $manager->listen(null);
+        $main->transaction(static fn(): bool => true);
 
         self::assertCount(2, $heard);
     }

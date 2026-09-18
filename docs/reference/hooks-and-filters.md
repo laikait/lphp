@@ -111,6 +111,15 @@ they carry.
 | `mcp.tool.before`, `mcp.tool.after`, `mcp.tool.failed` | `mcp.tool.description` |
 | `mcp.resource.read`, `mcp.resource.failed` | `mcp.resource.output` |
 | `mcp.prompt.loaded`, `mcp.prompt.failed` | `mcp.prompt.output` |
+| `database.query.failed` |  |
+| `database.transaction.committed`, `database.transaction.rolled_back` |  |
+| `database.transaction.retrying` |  |
+
+The `database.*` hooks report what has already happened. A listener cannot undo
+a commit or replace a database failure, and nothing it throws causes a
+transaction to be retried. See
+[Database](database.md#watching-statements-and-transactions) for their
+arguments.
 
 The `mcp.*` extension points never run ahead of MCP's security checks. A
 capability the caller may not use reaches no listener, `mcp.tool.input` runs

@@ -160,3 +160,46 @@ repository as it stood at that commit, and they become the 0.1.0 notes.
   ignored unless `observability.trust_incoming_ids` is on.
 - **Do:** allow the three keys, or turn on `trust_incoming_ids` behind a gateway
   that sets the ids.
+
+### Database behaviour that was wrong, now refused or corrected
+
+- **Changed:**
+  - `Connection::disconnect()` inside a transaction still closes, then throws.
+    `ConnectionManager::disconnectAll()` closes every connection before throwing
+    for the first that had one open.
+  - On PostgreSQL, `Connection::insert()` returns the key only when the
+    statement has a `RETURNING` clause, and null otherwise. It used to return
+    `LASTVAL()`, which could be another table's key.
+  - A float is bound with every digit it needs to read back unchanged: `0.1 + 0.2`
+    is now stored as `0.30000000000000004`, not `0.3`.
+  - Nested transactions on Oracle (`oci`) are refused, as on any driver without
+    a grammar of its own.
+- **Affected:**
+  - a worker or script that called `disconnect()` with a transaction still open,
+    which lost that work without a word;
+  - code on PostgreSQL that calls `Connection::insert()` with hand-written SQL
+    and reads the key it returns. Repositories are not affected: their inserts
+    now write `RETURNING` themselves;
+  - a test that compared a stored float with its fourteen-digit rounding;
+  - an application on Oracle that nested `transaction()` calls.
+- **Do:**
+  - commit or roll back before disconnecting;
+  - add `RETURNING id` to the INSERT, or use `$connection->table('t')->insert($row, 'id')`;
+  - round deliberately where a rounded value is meant, or store money in a
+    DECIMAL column;
+  - on Oracle, flatten the nesting into one transaction.
+
+### Database additions
+
+- **Added:** the SQL query builder (`Connection::table()`), a grammar per
+  dialect, `Capability`, transaction isolation levels and retries,
+  connections configured by parts, and the `database.*` hooks. The statement
+  observer also receives the number of bound values and of rows.
+- **Affected:**
+  - an observer that declares three parameters still works, because PHP drops
+    the extra arguments. One that collects them all (`mixed ...$arguments`) now
+    receives five;
+  - the observer's time now runs until a read's rows have been fetched, so a
+    slow-query threshold may catch a statement it missed before.
+- **Do:** nothing for most applications. Count on five arguments in a variadic
+  observer, and recheck a slow-query threshold that was tuned tightly.

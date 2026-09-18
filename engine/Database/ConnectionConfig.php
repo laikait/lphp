@@ -56,22 +56,97 @@ final class ConnectionConfig
     /**
      * Build from a configuration block.
      *
+     * The block gives either a `dsn`, or the parts of one:
+     *
+     *     ['dsn' => 'mysql:host=db;dbname=erp;charset=utf8mb4', ...]
+     *     ['driver' => 'mysql', 'host' => 'db', 'port' => 3306, 'database' => 'erp', 'charset' => 'utf8mb4', ...]
+     *
+     * A `dsn` wins when both are given. Parts are assembled only for the drivers
+     * whose DSN format is written below; any other driver needs its `dsn`.
+     *
      * @param array<string, mixed> $values
      */
     public static function fromArray(string $name, array $values): self
     {
-        $dsn = $values['dsn'] ?? '';
+        $dsn = $values['dsn'] ?? null;
+        $driver = $values['driver'] ?? null;
         $username = $values['username'] ?? null;
         $password = $values['password'] ?? null;
         $options = $values['options'] ?? [];
 
+        if (!\is_string($dsn) || $dsn === '') {
+            $dsn = \is_string($driver) && $driver !== '' ? self::assemble($name, $driver, $values) : '';
+        }
+
         return new self(
             $name,
-            \is_string($dsn) ? $dsn : '',
+            $dsn,
             \is_string($username) ? $username : null,
             \is_string($password) ? $password : null,
             \is_array($options) ? $options : [],
         );
+    }
+
+    /**
+     * A DSN from host, port, database and charset.
+     *
+     * The charset is MySQL's: PostgreSQL takes the database's encoding, SQLite
+     * has one, and SQL Server's is a PDO attribute rather than a DSN part, so
+     * for those it is not written. A value that could end one DSN part and
+     * start another is refused rather than escaped -- no driver documents an
+     * escape.
+     *
+     * @param array<string, mixed> $values
+     */
+    private static function assemble(string $name, string $driver, array $values): string
+    {
+        $part = static function (string $key) use ($name, $values): ?string {
+            $value = $values[$key] ?? null;
+
+            if (!\is_string($value) && !\is_int($value)) {
+                return null;
+            }
+
+            $value = (string) $value;
+
+            if (\str_contains($value, ';') || ($key === 'host' && \str_contains($value, ','))) {
+                throw DatabaseException::unsafeDsnPart($name, $key);
+            }
+
+            return $value === '' ? null : $value;
+        };
+
+        $host = $part('host');
+        $port = $part('port');
+        $database = $part('database');
+
+        $pairs = static function (array $pairs): string {
+            $written = [];
+
+            foreach ($pairs as $key => $value) {
+                if ($value !== null) {
+                    $written[] = $key . '=' . $value;
+                }
+            }
+
+            return \implode(';', $written);
+        };
+
+        return match ($driver) {
+            'mysql' => 'mysql:' . $pairs([
+                'host' => $host,
+                'port' => $port,
+                'dbname' => $database,
+                'charset' => $part('charset'),
+            ]),
+            'pgsql' => 'pgsql:' . $pairs(['host' => $host, 'port' => $port, 'dbname' => $database]),
+            'sqlsrv' => 'sqlsrv:' . $pairs([
+                'Server' => $host === null ? null : ($port === null ? $host : $host . ',' . $port),
+                'Database' => $database,
+            ]),
+            'sqlite' => 'sqlite:' . ($database ?? ''),
+            default => throw DatabaseException::cannotAssembleDsn($name, $driver),
+        };
     }
 
     /** The part of the DSN before the colon: mysql, pgsql, sqlite. */

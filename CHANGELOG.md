@@ -88,6 +88,63 @@ note.
   `mcp:list` shows what is exposed. Configured in `config/mcp.php`, where
   everything is opt-in except STDIO, which opens nothing. See
   [MCP](docs/reference/mcp.md).
+- **A dialect per database.** `MySqlGrammar`, `PostgresGrammar`,
+  `SqliteGrammar` and `SqlServerGrammar` each override only where their database
+  differs — quoting, paging, savepoints, the placeholder limit — and any other
+  driver gets standard SQL. `Connection::supports(Capability::Savepoints)` says
+  what a database can do. Only the savepoint capability exists so far; each
+  later feature adds its own. The dialect tests run on every database a test run
+  can reach: SQLite always, and MySQL, PostgreSQL or SQL Server when
+  `DB_TEST_*_DSN` names one. CI starts all three.
+- **A SQL query builder.** `$connection->table('invoices')` returns an immutable
+  `QueryBuilder` with `select()`, `where()`/`orWhere()` (including groups in a
+  closure), `whereNull()`, `whereIn()`, `whereBetween()` and their negations,
+  `orderBy()`, `limit()` and `offset()`. It runs nothing until `get()`,
+  `first()`, `cursor()`, `count()` or `exists()`. Values are always bound. Names
+  such as `orders.customer_id` or `total AS amount` are checked part by part.
+  Operators and directions come from a fixed list. `RawExpression` is the one
+  place hand-written SQL goes, with its own bindings. `Data\Query` is
+  unchanged: AND only and no joins, the same on every `DataSource`.
+- **Writes through the query builder.** `insert($row, $key)` returns the
+  generated key; `insertMany()` counts what it wrote; `update()` and `delete()`
+  refuse to run without a condition (`updateAll()` and `deleteAll()` say "every
+  row" explicitly); `upsert()` where the database has one. A write refuses order,
+  limit, offset and aliases, which not every database can honour. Rows of a
+  many-row write must name the same columns. `RawExpression` values are
+  accepted in single-row writes. New capabilities `Returning` and `Upsert`.
+- **Joins, grouping and aggregates in the query builder.** `join()`,
+  `leftJoin()` and `rightJoin()` (where `Capability::RightJoin` allows), with ON
+  conditions in a `JoinClause`. Also `whereColumn()`, `groupBy()`, `having()` and
+  `orHaving()`. `Aggregate` is COUNT, SUM, AVG, MIN or MAX of a checked column:
+  selectable, usable in `having()`, and available as the `sum()`, `avg()`,
+  `min()` and `max()` terminals. `count()` on a grouped query counts the groups.
+- **Transaction isolation levels and retry.** `transaction($callback,
+  isolation: IsolationLevel::Serializable, retries: 3)`. Each dialect sets the
+  level where its database needs it (before `BEGIN` on MySQL and SQL Server,
+  resetting SQL Server's session afterwards; inside the transaction on
+  PostgreSQL). A level the database cannot give is refused, never substituted.
+  Retries fire only on deadlocks and serialization failures (SQLSTATE 40001 or
+  40P01, and MySQL 1213), with a short jittered backoff.
+  `Connection::isRetryable()` makes the same judgement. Both options belong to
+  the outermost transaction only.
+- **`database.*` hooks.** An application now fires
+  `database.query.failed`, `database.transaction.committed`,
+  `database.transaction.rolled_back` (with its cause) and
+  `database.transaction.retrying` (with the attempt about to run). The database
+  layer announces these through `Connection::listen()` and
+  `ConnectionManager::listen()`, and the bootstrap turns them into hooks, so the
+  layer still works without the application. Hooks fire once the event has
+  happened: a listener that throws cannot undo a commit, trigger a retry, or
+  replace a database failure.
+- **The statement observer counts.** `observe()` callbacks also receive how many
+  values were bound and how many rows came back or changed, never the values.
+  Observers written for three arguments still work. The slow-query warning logs
+  both counts.
+- **A database connection may be configured by its parts.** In
+  `config/database.php`, `driver`, `host`, `port`, `database` and `charset` are
+  assembled into the DSN for mysql, pgsql, sqlite and sqlsrv; a `dsn` still wins
+  when given, and is required for any other driver. A part containing `;` (or,
+  for a host, `,`) is refused rather than escaped.
 
 ### Changed
 
@@ -113,12 +170,48 @@ note.
   `modules/Gateways`**, autoloaded through one PSR-4 root, `App\Modules\` →
   `modules/`. Directory names now match their namespace segment, which Linux
   requires.
+- **A statement's observed time includes reading its rows.** For `select()`,
+  `selectOne()` and `scalar()`, the observer and the slow-query warning now
+  time until the rows are fetched, not only until the statement ran. A cursor
+  is still timed until it runs.
 - **Any path may be a route**, including `/templates` or `/config/app`: with the
   document root at `public/`, no path names a file outside it, and a real file
   answers exactly like a missing one.
 
 ### Fixed
 
+- **Inserts on PostgreSQL could report another table's key, or abort the
+  transaction.** PDO's last-insert id there is `LASTVAL()`: the last value of
+  whichever sequence the session used. So it was stale after an insert into a
+  table without a sequence, and inside a transaction that had used none, it
+  raised an error that aborted the whole transaction. Repositories on
+  PostgreSQL were affected. The generated key now comes back from the INSERT
+  itself (`RETURNING`, and `OUTPUT INSERTED` on SQL Server).
+  `Connection::insert()` never asks PostgreSQL for `LASTVAL()`: without
+  `RETURNING` it returns null.
+- **SQL Server queries with a limit or offset failed.** The grammar wrote
+  `LIMIT`, which SQL Server does not have; it now writes `OFFSET … FETCH`, with
+  `ORDER BY (SELECT NULL)` when the query has no order of its own.
+- **Nested transactions failed on SQL Server**, which saves a transaction rather
+  than setting a savepoint and has no release. Savepoint statements are now the
+  grammar's, in each driver's dialect. Oracle is no longer claimed to support
+  them; its savepoints have no release either, and none are written for it.
+- **A failing rollback replaced the exception that caused it.** The callback's
+  exception now always propagates from `transaction()`. A failed rollback closes
+  the connection, so the database discards what was not committed. Any outer
+  level still open is refused every statement and commit until it too has
+  rolled back, where before it could go on writing in autocommit mode.
+- **`transaction()` committed the wrong level after an unbalanced callback.** A
+  callback that called `begin()` without finishing it, or finished a transaction
+  it had not begun, is now rolled back and reported.
+- **`disconnect()` inside a transaction discarded it silently.** It still
+  closes, and then throws, naming the connection and the depth.
+  `disconnectAll()` closes every connection before reporting.
+- **Floats lost digits and dates could not be bound.** A float was written at
+  PHP's `precision`, so `0.1 + 0.2` was stored as `0.3`; it is now bound with the
+  digits it needs to read back unchanged, under any locale. `DateTimeInterface`
+  values bind as `Y-m-d H:i:s[.u]`, stream resources as binary large objects,
+  and anything else unbindable is refused by position and type, never by value.
 - **`composer serve` routed some paths to the home page.** For a path naming a
   real directory (`/templates`) or looking like a file (`/customers.json`), PHP's
   built-in server reported the path as the script name, so the whole path became

@@ -121,3 +121,71 @@ jobs:
           curl -fsS http://127.0.0.1:8080/ | grep -q 'Your application is running'
           test "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8080/no/such/page)" = 404
           curl -s http://127.0.0.1:8080/no/such/page | grep -q 'That page is not here'
+
+  # Every dialect on the database it is written for. The Gate job proves the
+  # SQL each grammar writes as text, and runs it on SQLite; SQLite agreeing
+  # proves nothing about the other three, so here they each run it themselves.
+  # TestDatabases turns a DB_TEST_*_DSN variable into a connection, and a
+  # server named there that cannot be reached fails rather than skips.
+  Databases:
+    runs-on: ubuntu-latest
+
+    services:
+      mysql:
+        image: mysql:8.4
+        env:
+          MYSQL_ROOT_PASSWORD: root
+          MYSQL_DATABASE: laika_test
+        ports: ['3306:3306']
+        options: >-
+          --health-cmd "mysqladmin ping -h 127.0.0.1 -proot"
+          --health-interval 5s --health-timeout 5s --health-retries 20
+
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: laika_test
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s --health-timeout 5s --health-retries 20
+
+      sqlsrv:
+        image: mcr.microsoft.com/mssql/server:2022-latest
+        env:
+          ACCEPT_EULA: 'Y'
+          MSSQL_SA_PASSWORD: Laika-Test-2026
+        ports: ['1433:1433']
+        options: >-
+          --health-cmd "/opt/mssql-tools18/bin/sqlcmd -C -S localhost -U sa -P Laika-Test-2026 -Q 'SELECT 1'"
+          --health-interval 10s --health-timeout 5s --health-retries 20
+
+    env:
+      DB_TEST_MYSQL_DSN: 'mysql:host=127.0.0.1;port=3306;dbname=laika_test'
+      DB_TEST_MYSQL_USERNAME: root
+      DB_TEST_MYSQL_PASSWORD: root
+      DB_TEST_PGSQL_DSN: 'pgsql:host=127.0.0.1;port=5432;dbname=laika_test'
+      DB_TEST_PGSQL_USERNAME: postgres
+      DB_TEST_PGSQL_PASSWORD: postgres
+      # tempdb: a scratch database every SQL Server has. The ODBC 18 driver
+      # encrypts by default, and the container's certificate is self-signed.
+      DB_TEST_SQLSRV_DSN: 'sqlsrv:Server=127.0.0.1,1433;Database=tempdb;TrustServerCertificate=1'
+      DB_TEST_SQLSRV_USERNAME: sa
+      DB_TEST_SQLSRV_PASSWORD: Laika-Test-2026
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 #v7.0.1
+
+      - uses: shivammathur/setup-php@f3e473d116dcccaddc5834248c87452386958240 #v2
+        with:
+          php-version: '8.3'
+          extensions: intl, json, mbstring, pdo, pdo_sqlite, pdo_mysql, pdo_pgsql, sqlsrv, pdo_sqlsrv, fileinfo
+          coverage: none
+          tools: composer:v2
+
+      - name: Install dependencies
+        uses: ramsey/composer-install@65e4f84970763564f46a70b8a54b90d033b3bdda #v4
+
+      - name: Database tests on every server
+        run: vendor/bin/phpunit tests/Unit/Database

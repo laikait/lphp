@@ -35,7 +35,7 @@ final class SqlSource implements DataSource, BulkWrites
         private readonly Connection $connection,
         ?Grammar $grammar = null,
     ) {
-        $this->grammar = $grammar ?? new Grammar($connection->driver());
+        $this->grammar = $grammar ?? $connection->grammar();
     }
 
     public function connection(): Connection
@@ -66,19 +66,25 @@ final class SqlSource implements DataSource, BulkWrites
 
     public function insert(string $collection, string $key, array $row): int|string|null
     {
-        $compiled = $this->grammar->compileInsert($collection, $row);
-        $generated = $this->connection->insert($compiled['sql'], $compiled['bindings']);
-
-        // A key the row already carried wins over whatever the sequence said:
-        // the application supplied it deliberately.
+        // A key the row already carries wins over whatever the database would
+        // say: the application supplied it deliberately, and there is nothing
+        // to ask for.
         /** @var mixed $supplied */
         $supplied = $row[$key] ?? null;
 
         if (\is_int($supplied) || \is_string($supplied)) {
+            $compiled = $this->grammar->compileInsert($collection, $row);
+            $this->connection->execute($compiled['sql'], $compiled['bindings']);
+
             return $supplied;
         }
 
-        return $generated;
+        // Otherwise the statement hands the generated key back where the
+        // dialect can (RETURNING, OUTPUT), which is the only way that is
+        // correct on PostgreSQL.
+        $compiled = $this->grammar->compileInsert($collection, $row, $key);
+
+        return $this->connection->insert($compiled['sql'], $compiled['bindings']);
     }
 
     public function update(string $collection, string $key, int|string $identity, array $changes): int

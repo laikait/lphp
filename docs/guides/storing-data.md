@@ -25,7 +25,8 @@ DB_PASSWORD=secret
 ```
 
 Any PDO driver works: `pgsql:`, `sqlite:/absolute/path/app.sqlite`, `sqlsrv:`.
-For more than one connection, write `config/database.php` — see
+For more than one connection, or to give `host`, `port` and `database` as
+separate keys instead of a DSN, write `config/database.php` — see
 [Configuring a connection](../reference/database.md#configuring-a-connection).
 
 The switch from memory to database is made in one place,
@@ -164,8 +165,9 @@ $this->query()
 | read models | `into()`, `firstInto()`, `pageInto()` |
 | batches | `page()`, `chunk($size, $callback)` |
 
-Criteria combine with AND; there is **no OR and no join**. A read that needs
-either is a repository method over SQL — see [SQL directly](#sql-directly).
+Criteria combine with AND; there is **no OR and no join**, because this query
+runs the same on every `DataSource`, memory included. A read that needs either
+is a repository method over SQL — see [SQL directly](#sql-directly).
 
 ## Read cheaply
 
@@ -250,10 +252,55 @@ An exception rolls everything back and is rethrown. Nested calls become
 savepoints. Get the `Connection` from an injected `ConnectionManager`:
 `$connections->connection()`, or `connection('reports')` for a named one.
 
+Where two requests can collide on the same rows, choose an isolation level and
+let a deadlock run the transaction again:
+
+```php
+$connection->transaction($callback, isolation: IsolationLevel::Serializable, retries: 3);
+```
+
+Only deadlocks and serialization failures are retried, and every attempt starts
+from a clean state. **The callback may then run more than once**, so send the
+email or charge the card after `transaction()` returns, never inside it. A level
+the database cannot give is refused, not approximated — see
+[Isolation levels and retrying](../reference/database.md#isolation-levels-and-retrying).
+
+To act once a transaction has committed, listen for
+`database.transaction.committed`; see
+[Watching statements and transactions](../reference/database.md#watching-statements-and-transactions).
+
 ## SQL directly
 
-Reports, imports and anything the query builder does not express go straight to
-the connection, with bindings always separate from the SQL:
+Reports, imports and anything `Query` does not express go to the connection.
+Its query builder covers OR, joins, grouping and aggregates, with every value
+bound and every name checked:
+
+```php
+final class RevenueReport
+{
+    public function __construct(private readonly ConnectionManager $connections) {}
+
+    /** @return list<array<string, mixed>> revenue per region since a date */
+    public function byRegion(\DateTimeImmutable $since): array
+    {
+        return $this->connections->connection()->table('customers AS c')
+            ->select('c.region', Aggregate::sum('o.total', as: 'revenue'))
+            ->join('orders AS o', 'o.customer_id', '=', 'c.id')
+            ->where('o.issued_at', '>=', $since)
+            ->where(fn (QueryBuilder $q) => $q->where('o.status', 'paid')->orWhere('o.status', 'settled'))
+            ->groupBy('c.region')
+            ->orderByDesc('revenue')
+            ->get();
+    }
+}
+```
+
+It writes too — `insert()`, `update()`, `delete()` and, where the database has
+one, `upsert()` — and refuses an `update()` or `delete()` with no `where()`. See
+[The query builder](../reference/database.md#the-query-builder).
+
+For what the builder does not express, write the SQL, with bindings always
+separate from it:
 
 ```php
 $rows = $connections->connection('reports')->select(

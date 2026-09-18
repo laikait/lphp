@@ -741,12 +741,24 @@ final class ArchitectureTest extends TestCase
     public function test_the_database_layer_holds_infrastructure_only(): void
     {
         $infrastructure = [
+            'Aggregate.php',
+            'Capability.php',
+            'Condition.php',
             'Connection.php',
             'ConnectionConfig.php',
             'ConnectionManager.php',
             'DatabaseException.php',
             'Grammar.php',
+            'IsolationLevel.php',
+            'JoinClause.php',
+            'MySqlGrammar.php',
+            'PostgresGrammar.php',
+            'QueryBuilder.php',
+            'QueryState.php',
+            'RawExpression.php',
+            'SqlServerGrammar.php',
             'SqlSource.php',
+            'SqliteGrammar.php',
         ];
 
         $found = [];
@@ -808,7 +820,7 @@ final class ArchitectureTest extends TestCase
                 continue;
             }
 
-            foreach (['SELECT ', 'INSERT INTO', 'UPDATE ', 'DELETE FROM'] as $statement) {
+            foreach (['SELECT ', 'INSERT INTO', 'UPDATE ', 'DELETE FROM', 'SAVEPOINT', 'SAVE TRANSACTION'] as $statement) {
                 self::assertStringNotContainsString(
                     $statement,
                     $this->codeWithoutComments($path),

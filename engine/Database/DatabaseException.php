@@ -87,6 +87,195 @@ final class DatabaseException extends FrameworkException
         ));
     }
 
+    public static function unknownOperator(string $operator): self
+    {
+        return new self(\sprintf(
+            'The comparison "%s" is not one a where() makes. Use one of =, !=, <>, <, <=, >, >=, like, '
+            . 'not like -- or whereNull(), whereIn() or whereBetween() -- and a RawExpression for anything else.',
+            $operator,
+        ));
+    }
+
+    public static function unknownDirection(string $direction): self
+    {
+        return new self(\sprintf(
+            'An order is "asc" or "desc", not "%s". A direction taken from a request is mapped to one of '
+            . 'the two first, never passed through.',
+            $direction,
+        ));
+    }
+
+    /** `= NULL` is never true in SQL; saying so here beats a query that silently matches nothing. */
+    public static function comparedWithNull(string $column): self
+    {
+        return new self(\sprintf(
+            'where("%s", ...) was given null, and "= NULL" matches nothing in SQL. '
+            . 'Use whereNull("%s") or whereNotNull("%s").',
+            $column,
+            $column,
+            $column,
+        ));
+    }
+
+    public static function groupReturnedNothing(string $type): self
+    {
+        return new self(\sprintf(
+            'A closure given to where() or join() returned %s rather than what it was handed. Builders and '
+            . 'join clauses are immutable, so the closure must return what it built: '
+            . 'fn (QueryBuilder $q) => $q->where(...)->orWhere(...).',
+            $type,
+        ));
+    }
+
+    public static function unknownAggregate(string $function): self
+    {
+        return new self(\sprintf(
+            'The aggregate "%s" is not one of count, sum, avg, min or max. Anything else is a RawExpression.',
+            $function,
+        ));
+    }
+
+    public static function aggregateOfEverything(string $function): self
+    {
+        return new self(\sprintf(
+            '%s(*) means nothing; only count() takes every row. Name the column to %s.',
+            \strtoupper($function),
+            $function,
+        ));
+    }
+
+    /** A join without ON is a cross join, which is almost never what was meant. */
+    public static function joinWithoutConditions(string $table): self
+    {
+        return new self(\sprintf(
+            'The join to "%s" has no ON condition, which would pair every row with every other. '
+            . 'Give it one: join("%s", "a.id", "=", "b.a_id").',
+            $table,
+            $table,
+        ));
+    }
+
+    public static function aggregateOfGroups(string $table, string $function): self
+    {
+        return new self(\sprintf(
+            'The query on "%s" is grouped, so %s() would be one value per group. Select '
+            . 'Aggregate::%s(...) alongside the grouped columns and read them with get().',
+            $table,
+            $function,
+            $function,
+        ));
+    }
+
+    public static function isolationUnsupported(IsolationLevel $level, string $driver): self
+    {
+        return new self(\sprintf(
+            'The %s database cannot run a transaction at %s, and a weaker or stronger level is not '
+            . 'substituted without being asked. Choose a level this database has.',
+            $driver === '' ? 'unnamed' : $driver,
+            $level->value,
+        ));
+    }
+
+    /** Only the outermost transaction chooses: a savepoint has no isolation level of its own. */
+    public static function nestedTransactionOptions(string $connection, string $option): self
+    {
+        return new self(\sprintf(
+            'A transaction nested inside another on the "%s" connection was given %s. Only the outermost '
+            . 'transaction can have one: an isolation level is set as a transaction begins, and a retry has to '
+            . 'start the whole transaction again.',
+            $connection,
+            $option,
+        ));
+    }
+
+    public static function negativeRetries(int $retries): self
+    {
+        return new self(\sprintf('A transaction cannot be retried %d times.', $retries));
+    }
+
+    public static function unsupported(Capability $capability, string $driver): self
+    {
+        return new self(\sprintf(
+            'The %s database cannot do "%s", and the framework does not pretend otherwise. '
+            . 'Check $connection->supports(Capability::%s) first, or write the SQL for this database.',
+            $driver === '' ? 'unnamed' : $driver,
+            $capability->value,
+            $capability->name,
+        ));
+    }
+
+    /** "Every row" has to be said in so many words. */
+    public static function writeWithoutConditions(string $table, string $operation): self
+    {
+        return new self(\sprintf(
+            'A %s of "%s" has no conditions, so it would change every row. '
+            . 'Add a where(), or call %sAll() if every row is really meant.',
+            $operation,
+            $table,
+            $operation,
+        ));
+    }
+
+    public static function writeCarries(string $table, string $operation, string $what): self
+    {
+        return new self(\sprintf(
+            'A %s of "%s" was given %s, which a %s cannot honour on every database. '
+            . 'Narrow it with conditions instead; if the rows are chosen by order and limit, select their keys '
+            . 'first and write whereIn() those.',
+            $operation,
+            $table,
+            $what,
+            $operation,
+        ));
+    }
+
+    public static function aliasInWrite(string $table): self
+    {
+        return new self(\sprintf(
+            'The table "%s" has an alias, and a write cannot use one: the databases disagree about where an '
+            . 'alias goes in an update or a delete. Write to the table by its name.',
+            $table,
+        ));
+    }
+
+    /** By position and column names only; the values stay out of the message. */
+    public static function inconsistentRows(string $table, int $index): self
+    {
+        return new self(\sprintf(
+            'Row %d written to "%s" names different columns from the first row. Every row of one write '
+            . 'names the same columns, so that nothing is filled in silently.',
+            $index,
+            $table,
+        ));
+    }
+
+    public static function rowNeedsColumnNames(string $table): self
+    {
+        return new self(\sprintf(
+            'A row written to "%s" is a list rather than column => value pairs. Name every column.',
+            $table,
+        ));
+    }
+
+    public static function rawInBulk(string $table): self
+    {
+        return new self(\sprintf(
+            'A RawExpression was given as a value in a many-row write to "%s". Those are split to fit each '
+            . 'database\'s placeholder limit, which a hand-written expression would break. Use insert() '
+            . 'or update() for rows that need one.',
+            $table,
+        ));
+    }
+
+    public static function upsertNeedsUniqueBy(string $table): self
+    {
+        return new self(\sprintf(
+            'An upsert into "%s" was given no unique columns. Name the columns of the unique key a '
+            . 'conflict is judged by.',
+            $table,
+        ));
+    }
+
     public static function noRowsToUpdate(string $table): self
     {
         return new self(\sprintf('An update of "%s" was asked to change no columns.', $table));
@@ -110,9 +299,101 @@ final class DatabaseException extends FrameworkException
     public static function driverLacksSavepoints(string $driver): self
     {
         return new self(\sprintf(
-            'The %s driver does not support savepoints, so transactions cannot nest on it. '
+            'Transactions cannot nest on the %s driver: nested transactions use savepoints, and the '
+            . 'framework only writes savepoints for mysql, pgsql, sqlite and sqlsrv. '
             . 'Keep the transaction boundary at one level.',
+            $driver === '' ? 'unnamed' : $driver,
+        ));
+    }
+
+    /** Withheld: the driver's message may quote the server's, which may quote anything. */
+    public static function transactionFailed(string $operation, string $connection, \Throwable $previous): self
+    {
+        return (new self(
+            \sprintf('Could not %s on the "%s" connection: %s', $operation, $connection, $previous->getMessage()),
+            0,
+            $previous,
+        ))->withheld();
+    }
+
+    public static function transactionLost(string $connection, int $depth): self
+    {
+        return new self(\sprintf(
+            'The transaction on the "%s" connection was lost: a rollback failed, so the connection was '
+            . 'closed and the database discarded everything uncommitted. Nothing more runs on it until '
+            . 'the %d level%s still open %s rolled back; transaction() does that for you.',
+            $connection,
+            $depth,
+            $depth === 1 ? '' : 's',
+            $depth === 1 ? 'is' : 'are',
+        ));
+    }
+
+    public static function closedInTransaction(string $connection, int $depth): self
+    {
+        return new self(\sprintf(
+            'The "%s" connection was closed with a transaction still open (%d level%s deep). '
+            . 'Nothing in it was committed, and the database has discarded it. Whatever began that '
+            . 'transaction never finished it; transaction() finishes one for you.',
+            $connection,
+            $depth,
+            $depth === 1 ? '' : 's',
+        ));
+    }
+
+    public static function unbalancedTransaction(string $connection, int $expected, int $actual): self
+    {
+        return new self(\sprintf(
+            'A transaction callback on the "%s" connection returned %d level%s deep, where it began at %d. '
+            . 'Something inside it called begin() without commit() or rollBack(), or finished a transaction '
+            . 'it did not begin. Everything since the callback began has been rolled back.',
+            $connection,
+            $actual,
+            $actual === 1 ? '' : 's',
+            $expected,
+        ));
+    }
+
+    /** By position and type only: the value is exactly what must not be quoted. */
+    public static function unbindableValue(int|string $parameter, string $type): self
+    {
+        return new self(\sprintf(
+            'Parameter %s is of type %s, which cannot be bound. Bind a string, integer, finite float, '
+            . 'boolean, null, date, stream resource or Stringable.',
+            \is_int($parameter) ? '#' . $parameter : '"' . $parameter . '"',
+            $type,
+        ));
+    }
+
+    /**
+     * A connection configured by parts for a driver whose DSN is not written.
+     *
+     * Every PDO driver documents its own DSN; the framework assembles one only
+     * for the drivers it has written the format for.
+     */
+    public static function cannotAssembleDsn(string $connection, string $driver): self
+    {
+        return new self(\sprintf(
+            'The "%s" connection names the driver "%s" without a dsn. A DSN is assembled from host, '
+            . 'port and database only for mysql, pgsql, sqlite and sqlsrv; give this one a "dsn".',
+            $connection,
             $driver,
+        ));
+    }
+
+    /**
+     * A DSN part that would change the meaning of the DSN around it.
+     *
+     * The value is not quoted: a setting that got this far wrong may be one
+     * that should not be in a log.
+     */
+    public static function unsafeDsnPart(string $connection, string $key): self
+    {
+        return new self(\sprintf(
+            'The "%s" connection\'s "%s" contains a character that separates DSN parts (";" or, '
+            . 'for the host, ","). Give the whole DSN as "dsn" if it really needs one.',
+            $connection,
+            $key,
         ));
     }
 }

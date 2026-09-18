@@ -342,7 +342,7 @@ final class Bootstrap
         // Note what is NOT bound: DataSource. Which source an application reads
         // through is an application decision, made in a module, not something
         // the framework decides on its behalf.
-        $container->singleton(ConnectionManager::class, static function () use ($settings, $report): ConnectionManager {
+        $container->singleton(ConnectionManager::class, static function () use ($settings, $report, $hooks): ConnectionManager {
             /** @var mixed $connections */
             $connections = $settings->get('database.connections', []);
             /** @var mixed $default */
@@ -356,6 +356,25 @@ final class Bootstrap
             // Here, inside the lazy factory, so that wanting query timing does
             // not make every request build a connection manager it never uses.
             $report->watchQueries($manager, $settings->int('observability.slow_query_ms', 0) ?? 0);
+
+            // What happens to statements and transactions, as database.* hooks.
+            // The database layer announces; only here does it meet the hook
+            // engine, so it stays usable without the application around it.
+            // Nothing that listens by logging can recurse: the log writers
+            // never use the database.
+            //
+            // Spelled out rather than 'database.' . $event, so that the hooks
+            // the engine fires are a closed list the documentation is checked
+            // against.
+            $manager->listen(static function (string $event, mixed ...$arguments) use ($hooks): void {
+                match ($event) {
+                    'query.failed' => $hooks->do('database.query.failed', ...$arguments),
+                    'transaction.committed' => $hooks->do('database.transaction.committed', ...$arguments),
+                    'transaction.rolled_back' => $hooks->do('database.transaction.rolled_back', ...$arguments),
+                    'transaction.retrying' => $hooks->do('database.transaction.retrying', ...$arguments),
+                    default => throw new \LogicException(\sprintf('The database layer announced "%s", which has no hook.', $event)),
+                };
+            });
 
             return $manager;
         });

@@ -30,6 +30,29 @@ module uses an Internal one, the lifecycle table matches what the engine fires,
 every framework command is mentioned, every link lands somewhere, and the
 version, the changelog and `composer.json` agree.
 
+## Testing against database servers
+
+The database tests run on SQLite in memory everywhere, and on each server the
+environment names. `tests/Unit/Database/DialectConformanceTest.php` runs every
+test on every database it can reach, because SQLite agreeing with a grammar
+proves nothing about MySQL:
+
+| Variables | |
+|---|---|
+| `DB_TEST_MYSQL_DSN` `DB_TEST_MYSQL_USERNAME` `DB_TEST_MYSQL_PASSWORD` | MySQL or MariaDB |
+| `DB_TEST_PGSQL_DSN` `DB_TEST_PGSQL_USERNAME` `DB_TEST_PGSQL_PASSWORD` | PostgreSQL |
+| `DB_TEST_SQLSRV_DSN` `DB_TEST_SQLSRV_USERNAME` `DB_TEST_SQLSRV_PASSWORD` | SQL Server |
+
+```bash
+DB_TEST_MYSQL_DSN='mysql:host=127.0.0.1;dbname=test' DB_TEST_MYSQL_USERNAME=root composer test
+```
+
+The tests create and drop a table called `laika_dialect`, so point them at a
+scratch database. A server that is named but cannot be reached **fails** rather
+than skips: whoever set the variable meant it. CI's `Databases` job starts MySQL
+8.4, PostgreSQL 17 and SQL Server 2022 and runs the database tests on all of
+them.
+
 ## Implementation status
 
 | Phase | Area | State |

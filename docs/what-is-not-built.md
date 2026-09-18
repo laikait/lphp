@@ -25,7 +25,7 @@ oversight — or builds one without reading why it was left out.
 | Facades, service providers, middleware, gates and policies, form requests, route-model binding, an Eloquent, Blade or Artisan clone, `make:*` generators | §54. Each has an architecture test |
 | A debug dashboard | §52: instrumentation first. Observability writes to the log and headers only, and a test holds it there |
 | A catch-all route parameter (`{path:.*}`) | It breaks the trie's determinism, and nothing has needed it |
-| `OR` and joins in `Query` | A boolean tree turns a query builder into a query language; a join cannot be honoured by every `DataSource`. Both belong in a named repository method over SQL |
+| `OR` and joins in `Query` | A boolean tree turns a query builder into a query language; a join cannot be honoured by every `DataSource`. Both belong in a named repository method over SQL, where `Connection::table()` offers them — see [The query builder](reference/database.md#the-query-builder) |
 | `ModelQuery` (the §14 list) | A query object with nothing to query. `Data\Query` is the query API §21 specifies |
 | PSR-3 `LoggerInterface` on `Logger` | `log()` takes a `Level` enum; a twelve-line adapter is in [Logging](reference/logging.md) |
 | RFC 9457 `problem+json` | See [One error shape](reference/rest.md#one-error-shape) |
