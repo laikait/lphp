@@ -2,7 +2,8 @@ name: PHP Compatibility Check
 
 on:
   push:
-    branches: ['**']
+    branches:
+      - beta
   pull_request:
 
 permissions:
