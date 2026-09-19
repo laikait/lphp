@@ -1192,8 +1192,14 @@ class Grammar
             $default === null => 'NULL',
             \is_bool($default) => $this->booleanLiteral($default),
             \is_int($default) => (string) $default,
-            default => $literal($default),
+            default => $this->stringDefault($column, $literal($default)),
         };
+    }
+
+    /** A string default, as the driver quoted it. A dialect that marks its literals says so here. */
+    protected function stringDefault(Column $column, string $quoted): string
+    {
+        return $quoted;
     }
 
     private function foreignKeyClause(Table $table, ForeignKey $key): string

@@ -161,6 +161,24 @@ final class TableBuilderTest extends TestCase
         }, 'people')[1]);
     }
 
+    /**
+     * A plain '...' is VARCHAR to SQL Server, in the server's code page, and
+     * কলকাতা would reach the NVARCHAR column as question marks. CI caught it.
+     */
+    public function test_a_string_default_on_sql_server_is_a_unicode_literal(): void
+    {
+        [$create] = self::compile('sqlsrv', static function (Table $table): void {
+            $table->string('city', 50)->default('কলকাতা');
+            $table->decimal('total', 12, 2)->default('0.00');
+        });
+
+        self::assertStringContainsString("[city] NVARCHAR(50) NOT NULL DEFAULT N'কলকাতা'", $create);
+        self::assertStringContainsString("[total] DECIMAL(12,2) NOT NULL DEFAULT '0.00'", $create);
+        self::assertStringContainsString("DEFAULT 'কলকাতা'", self::compile('pgsql', static function (Table $table): void {
+            $table->string('city', 50)->default('কলকাতা');
+        })[0]);
+    }
+
     public function test_a_name_too_long_for_postgresql_is_shortened_but_stays_distinct(): void
     {
         $table = new Table('a_rather_long_table_name_for_invoice_lines');

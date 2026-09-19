@@ -430,7 +430,9 @@ $connection->tables()->drop('invoices');
   SQL Server alone treats NULLs as equal in a unique index, so its index leaves
   out the rows holding NULL.
 - **A string default is quoted by the driver**, because a DEFAULT is written into
-  the statement and cannot be bound. A float default is refused: write
+  the statement and cannot be bound. On SQL Server it is written `N'...'`, since
+  a plain literal is read in the server's code page and loses what it cannot
+  hold. A float default is refused: write
   `'0.50'`, which every database reads into a decimal exactly.
 - **What some database cannot do is refused, before anything runs:** indexing or
   defaulting `text` and `binary` columns, indexing a string longer than 768

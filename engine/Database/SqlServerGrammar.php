@@ -171,6 +171,16 @@ final class SqlServerGrammar extends Grammar
         return 'BIGINT IDENTITY(1,1) PRIMARY KEY';
     }
 
+    /**
+     * N'...' for a string column's default. PDO::quote() writes a plain '...',
+     * which SQL Server reads as VARCHAR in the server's code page, so anything
+     * outside it arrives in the NVARCHAR column as question marks.
+     */
+    protected function stringDefault(Column $column, string $quoted): string
+    {
+        return $column->type === ColumnType::String && !\str_starts_with($quoted, 'N') ? 'N' . $quoted : $quoted;
+    }
+
     /** ADD, without COLUMN, which T-SQL does not accept. */
     protected function compileAddColumn(Table $table, Column $column, \Closure $literal): string
     {
