@@ -12,13 +12,13 @@ use App\Engine\Model\ModelException;
 use App\Engine\Model\RelationManager;
 use App\Engine\Routing\Router;
 use App\Engine\Support\Extensions;
-use App\Modules\Shared\Model\User;
 use App\Tests\Fixtures\Showcase\Gateways\Example\Hooks\AuditHooks;
 use App\Tests\Fixtures\Showcase\Plugins\Example\Data\CustomerQuery;
 use App\Tests\Fixtures\Showcase\Plugins\Example\Data\CustomerRepository;
 use App\Tests\Fixtures\Showcase\Plugins\Example\Hooks\CustomerHooks;
 use App\Tests\Fixtures\Showcase\Plugins\Example\Model\Customer;
 use App\Tests\Fixtures\Showcase\Plugins\Example\Model\CustomerListRecord;
+use App\Tests\Fixtures\Showcase\Shared\Model\User;
 use App\Tests\Support\TestCase;
 
 /**

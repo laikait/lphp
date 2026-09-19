@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace App\Modules\Shared\Schema;
+namespace App\Tests\Fixtures\Showcase\Shared\Schema;
 
 use App\Engine\Schema\Field;
 use App\Engine\Schema\Schema;

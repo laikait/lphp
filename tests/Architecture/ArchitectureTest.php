@@ -1122,7 +1122,7 @@ final class ArchitectureTest extends TestCase
         }
 
         // And every class under modules/ sits where PSR-4 will look for it.
-        $checked = 0;
+        $read = 0;
         $root = $this->basePath('modules');
 
         foreach (new \RecursiveIteratorIterator(new \RecursiveDirectoryIterator($root, \FilesystemIterator::SKIP_DOTS)) as $file) {
@@ -1132,12 +1132,12 @@ final class ArchitectureTest extends TestCase
 
             $source = \file_get_contents($file->getPathname());
             self::assertIsString($source);
+            ++$read;
 
             if (\preg_match('/^namespace (App\\\\Modules\\\\[^;]+);/m', $source, $namespace) !== 1) {
                 continue;
             }
 
-            ++$checked;
             $directory = \str_replace('\\', '/', \substr($file->getPath(), \strlen($root) + 1));
 
             self::assertSame(
@@ -1147,7 +1147,10 @@ final class ArchitectureTest extends TestCase
             );
         }
 
-        self::assertGreaterThan(0, $checked, 'no namespaced class under modules/, so this rule reads nothing.');
+        // A fresh installation has no classes under modules/, only module.php,
+        // so the rule may have nothing to check. What it must not do is read
+        // nothing, which is what a wrong path looks like.
+        self::assertGreaterThan(0, $read, 'no PHP file under modules/, so this rule reads nothing.');
     }
 
     /**

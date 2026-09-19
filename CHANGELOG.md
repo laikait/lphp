@@ -170,6 +170,14 @@ note.
   `modules/Gateways`**, autoloaded through one PSR-4 root, `App\Modules\` →
   `modules/`. Directory names now match their namespace segment, which Linux
   requires.
+- **The shipped `shared` module is the front page and nothing else.** It
+  answers `/` and binds `DataSource`. The demo accounts (`ada` and `grace`,
+  password `secret`, and a fixed API token that logged in as an administrator),
+  `POST /login`, `POST /logout`, `GET /me`, `GET /users`, the `member` and
+  `administrator` roles, the `X-Engine` and API version headers, and the
+  `money.php` template are gone. A fresh installation has no accounts: nobody
+  can log in until an application binds its own `UserProvider`. The demo lives
+  on in `tests/Fixtures/Showcase/Shared`, where the tests use it.
 - **A statement's observed time includes reading its rows.** For `select()`,
   `selectOne()` and `scalar()`, the observer and the slow-query warning now
   time until the rows are fetched, not only until the statement ran. A cursor

@@ -97,6 +97,27 @@ repository as it stood at that commit, and they become the 0.1.0 notes.
 - **Do:** rename your route. Your `/` still wins: every other module registers
   after `shared`, and the router keeps the last route declared for a path.
 
+### The shared module ships no accounts, login routes or headers
+
+- **Changed:** `modules/Shared` is now one file. It answers `/` and binds
+  `DataSource`, and nothing else. Removed: `AccountProvider` (the `ada` and
+  `grace` accounts and the fixed API token), `SessionEndpoints` with
+  `POST /login`, `POST /logout` and `GET /me`, `GET /users`, the `User` model,
+  `UserRepository`, `PaginationSchema`, the `user.list` and `user.impersonate`
+  capabilities, the `member` and `administrator` roles, the `X-Engine` and API
+  version headers (`ResponseFilters`, `ApiFilters`), the `money.php` template and
+  the `shared.currency` and `shared.locale` settings.
+- **Affected:** an application still logging in with the demo accounts or
+  calling those routes; a module that imports `App\Modules\Shared\…` classes or
+  requires `user.*` capabilities or those roles; a client or monitor that reads
+  `X-Engine`. With no provider bound, nobody can log in and every protected
+  route refuses.
+- **Do:** bind your own `UserProvider` and write your login routes, as in
+  [Users and permissions](docs/guides/users-and-permissions.md). If you kept
+  local changes in `modules/Shared`, merge them into the new `module.php`.
+  To keep anything removed, copy it from `tests/Fixtures/Showcase/Shared` and
+  rename its namespace to match where you put it.
+
 ### Twig is required, and wins over PHP
 
 - **Changed:** `twig/twig` moved from `require-dev` to `require`, and the Twig

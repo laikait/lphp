@@ -126,7 +126,7 @@ public function test_a_sent_message_redirects_and_flashes_once(): void
 ```
 
 A POST without `_token` matching the `XSRF-TOKEN` cookie is a 403 — which is
-itself worth one test per form. Logging in works the same way: POST to `/login`
+itself worth one test per form. Logging in works the same way: POST to your login route
 with the token, keep the `session` cookie, send it with the next request. An API
 client instead sends `'headers' => ['Authorization' => 'Bearer <token>']`.
 

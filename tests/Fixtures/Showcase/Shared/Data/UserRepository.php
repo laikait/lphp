@@ -2,11 +2,11 @@
 
 declare(strict_types=1);
 
-namespace App\Modules\Shared\Data;
+namespace App\Tests\Fixtures\Showcase\Shared\Data;
 
 use App\Engine\Data\Repository;
 use App\Engine\Model\ModelCollection;
-use App\Modules\Shared\Model\User;
+use App\Tests\Fixtures\Showcase\Shared\Model\User;
 
 /**
  * A shared repository.

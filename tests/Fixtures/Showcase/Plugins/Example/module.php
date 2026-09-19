@@ -15,7 +15,6 @@ use App\Engine\Routing\RouteCollector;
 use App\Engine\Routing\Router;
 use App\Engine\Scheduler\ScheduleCollector;
 use App\Engine\Session\Session;
-use App\Modules\Shared\Model\User;
 use App\Tests\Fixtures\Showcase\Plugins\Example\Api\CustomerApi;
 use App\Tests\Fixtures\Showcase\Plugins\Example\Api\CustomerPage;
 use App\Tests\Fixtures\Showcase\Plugins\Example\Api\ListCustomers;
@@ -27,6 +26,7 @@ use App\Tests\Fixtures\Showcase\Plugins\Example\Filters\CustomerFilters;
 use App\Tests\Fixtures\Showcase\Plugins\Example\Hooks\CustomerHooks;
 use App\Tests\Fixtures\Showcase\Plugins\Example\Jobs\ReviewCustomers;
 use App\Tests\Fixtures\Showcase\Plugins\Example\Model\Customer;
+use App\Tests\Fixtures\Showcase\Shared\Model\User;
 
 /**
  * A plugin module.

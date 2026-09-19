@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace App\Modules\Shared\Filters;
+namespace App\Tests\Fixtures\Showcase\Shared\Filters;
 
 use App\Engine\Http\Response;
 use App\Engine\Routing\Route;

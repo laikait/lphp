@@ -621,8 +621,8 @@ final class Suite
      * error handler a few thousand times is measuring set_error_handler().
      */
     /**
-     * The shipped shared module plus the showcase modules from the test
-     * fixtures, so there is a plugin with routes, assets and templates to
+     * The showcase modules from the test fixtures, shared included, so there
+     * is a plugin with routes, assets and templates to
      * measure. A bare installation has almost nothing to boot, and a number
      * taken from nothing says nothing about an application.
      */
@@ -634,7 +634,7 @@ final class Suite
             [
                 'app' => ['handle_errors' => false],
                 'modules' => ['paths' => [
-                    'shared' => 'modules/Shared',
+                    'shared' => 'tests/Fixtures/Showcase/Shared',
                     'plugins' => 'tests/Fixtures/Showcase/Plugins',
                     'gateways' => 'tests/Fixtures/Showcase/Gateways',
                 ]],

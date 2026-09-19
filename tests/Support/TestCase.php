@@ -50,10 +50,15 @@ abstract class TestCase extends PHPUnitTestCase
     protected function application(array $config = []): Application
     {
         $config['modules']['paths'] ??= [
-            'shared' => 'modules/Shared',
+            'shared' => self::SHOWCASE . '/Shared',
             'plugins' => self::SHOWCASE . '/Plugins',
             'gateways' => self::SHOWCASE . '/Gateways',
         ];
+
+        // Separately, because a test that brings its own plugins still wants
+        // the showcase's shared module: its accounts and tokens are the ones
+        // every such test logs in with. The shipped one has none.
+        $config['modules']['paths']['shared'] ??= self::SHOWCASE . '/Shared';
 
         $config['plugins/Example']['page_size'] ??= 10;
 

@@ -24,9 +24,9 @@ web server's.
 1. **PHP 8.2+** with `json`, `mbstring`, `pdo` and your database's PDO driver;
    `fileinfo` if the application accepts uploads. **Turn opcache on** — without
    it a request costs 45–60 ms, almost all of it compiling PHP.
-2. **Replace the demo accounts.** The shipped `modules/Shared` authenticates
-   `ada` / `secret` as an administrator, plus a fixed API token. A real
-   `UserProvider` must be bound before anyone else can reach the site — see
+2. **Connect your accounts, if the site has logins.** A fresh installation has
+   none: no provider is bound, nobody can log in, and every protected route
+   refuses. Bind a `UserProvider` and write a login route — see
    [Users and permissions](../guides/users-and-permissions.md).
 3. **Set the environment**, as real environment variables rather than a `.env`
    file:

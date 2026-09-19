@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace App\Modules\Shared\Auth;
+namespace App\Tests\Fixtures\Showcase\Shared\Auth;
 
 use App\Engine\Auth\AuthManager;
 use App\Engine\Auth\Authorizer;

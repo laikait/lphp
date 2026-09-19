@@ -64,7 +64,7 @@ php laika module:list
 
 ```
   ID             KIND     NAME    VERSION  ROUTES  COMMANDS  HOOKS  FILTERS  REQUIRES
-  shared         shared   Shared  0.1.0    5       0         0      3        -
+  shared         shared   Shared  0.1.0    1       0         0      0        -
   plugins/Notes  plugins  Notes   0.1.0    0       0         0      0        shared ^0.1
 ```
 

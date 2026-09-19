@@ -2,14 +2,14 @@
 
 declare(strict_types=1);
 
-namespace App\Modules\Shared\Auth;
+namespace App\Tests\Fixtures\Showcase\Shared\Auth;
 
 use App\Engine\Auth\Account;
 use App\Engine\Auth\Authenticators\TokenAuthenticator;
 use App\Engine\Auth\Identity;
 use App\Engine\Auth\TokenProvider;
-use App\Modules\Shared\Data\UserRepository;
-use App\Modules\Shared\Model\User;
+use App\Tests\Fixtures\Showcase\Shared\Data\UserRepository;
+use App\Tests\Fixtures\Showcase\Shared\Model\User;
 
 /**
  * This application's answer to "what is a user".
@@ -85,7 +85,7 @@ final class AccountProvider implements TokenProvider
         }
 
         foreach ($this->users->all() as $user) {
-            if ((string) $user->identity() === $id) {
+            if ($user instanceof User && (string) $user->identity() === $id) {
                 return $this->accountFor($user);
             }
         }
@@ -99,7 +99,7 @@ final class AccountProvider implements TokenProvider
             // Usernames are compared exactly. A case-insensitive login is a
             // decision with consequences -- two accounts differing only in case
             // become one -- and it belongs to whoever owns the user store.
-            if ($user->username() === $login) {
+            if ($user instanceof User && $user->username() === $login) {
                 return $this->accountFor($user);
             }
         }

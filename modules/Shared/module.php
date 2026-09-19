@@ -2,8 +2,6 @@
 
 declare(strict_types=1);
 
-use App\Engine\Auth\AccessCollector;
-use App\Engine\Auth\UserProvider;
 use App\Engine\Container\Container;
 use App\Engine\Container\ServiceRegistrar;
 use App\Engine\Data\ArraySource;
@@ -15,12 +13,6 @@ use App\Engine\Http\Response;
 use App\Engine\Module\ModuleContext;
 use App\Engine\Routing\RouteCollector;
 use App\Engine\Template\TemplateManager;
-use App\Modules\Shared\Auth\AccountProvider;
-use App\Modules\Shared\Auth\SessionEndpoints;
-use App\Modules\Shared\Data\UserRepository;
-use App\Modules\Shared\Model\User;
-use App\Modules\Shared\Filters\ApiFilters;
-use App\Modules\Shared\Filters\ResponseFilters;
 
 /**
  * The shared module.
@@ -28,26 +20,24 @@ use App\Modules\Shared\Filters\ResponseFilters;
  * Shared is for things genuinely used across modules. It is not a dumping
  * ground: a model or service belongs here only when more than one module really
  * needs it, and it registers first so that everything else can rely on it.
+ *
+ * A fresh installation ships it with two things: the front page, and the
+ * choice of where repositories store their data.
  */
 return static function (ModuleContext $module): void {
     $module
         ->name('Shared')
         ->version('0.1.0')
-        ->description('Cross-module services, values and response conventions.');
-
-    $module->config([
-        'currency' => 'USD',
-        'locale' => 'en_GB',
-    ]);
+        ->description('The front page, and where repositories store their data.');
 
     $module->services(static function (ServiceRegistrar $services): void {
         // Where every repository in the application reads and writes.
         //
         // This is the only place in the application that knows which kind of
         // storage it has. Configure DB_DSN and every repository, query, read
-        // model, relation and page above this line runs against a database
-        // instead, unchanged -- which is the claim the DataSource interface
-        // makes, and the reason it is worth having.
+        // model, relation and page runs against a database instead of memory,
+        // unchanged -- which is the claim the DataSource interface makes, and
+        // the reason it is worth having.
         //
         // The factory is handed the container rather than reaching for one, and
         // it runs on first use, so an application that never reads never opens
@@ -59,40 +49,6 @@ return static function (ModuleContext $module): void {
                 ? new SqlSource($connections->connection())
                 : new ArraySource();
         });
-
-        // A shared repository, available to every module that asks for it.
-        // Shared registers first, so a plugin can depend on this at boot.
-        $services->singleton(UserRepository::class);
-
-        // What a user IS, for this application. The framework asked for two
-        // methods and has no idea what is behind them -- which is what the
-        // specification means by authentication being modular rather than
-        // embedded in the kernel. Point this at LDAP and nothing in engine/
-        // changes, because nothing in engine/ ever knew.
-        $services->singleton(UserProvider::class, AccountProvider::class);
-        $services->bind(SessionEndpoints::class);
-    });
-
-    // Who may do what. Roles are declared here because the shared module is
-    // the one entitled to say what a job title means across the application;
-    // the capabilities themselves are declared by whichever module enforces
-    // them, which for these two is this one.
-    $module->access(static function (AccessCollector $access): void {
-        $access
-            ->capability('user.list', 'See the list of people with accounts.')
-            ->capability('user.impersonate', 'Act as another account without their password.');
-
-        // "member" grants nothing yet and is not pointless: it is the name
-        // every ordinary account holds, so granting something to everybody
-        // later is one line here rather than a migration over every row.
-        $access->role('member', description: 'Any account that has logged in.');
-
-        $access->role(
-            'administrator',
-            ['user.*'],
-            ['member'],
-            'Everything a member may do, plus the account screens.',
-        );
     });
 
     $module->routes(static function (RouteCollector $routes): void {
@@ -111,61 +67,5 @@ return static function (ModuleContext $module): void {
         $routes->get('/', static fn (Request $request, TemplateManager $templates): Response => (new Response(
             $templates->render('home', ['home' => $request->basePath() . '/']),
         ))->withContentType('text/html'))->name('home');
-
-        // No CSRF exemption and no auth requirement: logging in is the one
-        // unsafe request a guest has to be able to make, and it is exactly the
-        // request a forged form would want to make on somebody's behalf.
-        //
-        // The limit is the security phase meeting this one. A password endpoint
-        // with no limit is an offline attack conducted online.
-        $routes->post('/login', [SessionEndpoints::class, 'login'])
-            ->name('auth.login')
-            ->meta(['rate_limit' => '5/1m']);
-
-        $routes->post('/logout', [SessionEndpoints::class, 'logout'])
-            ->name('auth.logout')
-            ->meta(['auth' => true]);
-
-        // 'auth' => true and nothing else: every logged-in account may ask who
-        // it is, and no capability is needed to answer that.
-        $routes->get('/me', [SessionEndpoints::class, 'me'])
-            ->name('auth.me')
-            ->meta(['auth' => true]);
-
-        // A capability rather than a role. Routes should never name roles:
-        // "administrator" is a decision about people and changes with the
-        // organisation, while "may list users" is a fact about the endpoint.
-        $routes->get('/users', static fn (UserRepository $users): array => [
-            'data' => \array_map(
-                static fn (User $user): array => [
-                    'id' => $user->identity(),
-                    'username' => $user->username(),
-                ],
-                \iterator_to_array($users->all()),
-            ),
-        ])->name('users.index')->meta(['can' => 'user.list']);
     });
-
-    $module->onBoot(static function (DataSource $source): void {
-        // Demo data, and only for the in-memory source. A real database gets
-        // its rows from each module's own migrations -- which this framework
-        // does not have yet, so pointing DB_DSN at a database means creating
-        // the tables yourself for now.
-        if ($source instanceof ArraySource) {
-            $source->seed('users', [
-                ['id' => 10, 'username' => 'ada', 'email' => 'ada@example.test'],
-                ['id' => 11, 'username' => 'grace', 'email' => 'grace@example.test'],
-            ]);
-        }
-    });
-
-    // Priority 100 puts this last, so the header reflects the finished response.
-    $module->filter('response.instance', [ResponseFilters::class, 'stampEngine'], priority: 100);
-
-    // API conventions, applied to every route that declares itself an API
-    // route. This is the framework's answer to middleware: one filter, reading
-    // route metadata, composing with everything else without any route having
-    // to know a pipeline exists.
-    $module->filter('dispatch.response', [ApiFilters::class, 'stampVersion'], priority: 20);
-    $module->filter('dispatch.response', [ApiFilters::class, 'announceDeprecation'], priority: 30);
 };

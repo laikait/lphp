@@ -13,4 +13,4 @@ declare(strict_types=1);
  * @var string $currency
  */
 ?>
-<span class="money"><?= $e(\number_format($amount / 100, 2)) ?> <?= $e($currency) ?></span>
+<span class="money"><?= $e(number_format($amount / 100, 2)) ?> <?= $e($currency) ?></span>
