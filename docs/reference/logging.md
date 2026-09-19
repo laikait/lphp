@@ -115,7 +115,7 @@ asserts `system/Logs` is refused by the web server.
 
 ```php
 'logging' => [
-    'writers' => ['file'],       // file, stderr, syslog
+    'writers' => ['file'],       // file, stderr, syslog, database
     'level'   => 'info',
     'file'    => ['prefix' => 'app', 'retention_days' => 30],
 ],
@@ -137,13 +137,42 @@ when a positive number of days is set. The default is 0, keep everything:
 deleting an audit trail because a default said so is a worse failure than a
 large directory.
 
-**Database and remote writers are not built**, which is the honest reading of
-"database logging should be optional". A database writer could bring its table
-as a migration, but nothing has needed one, and a log kept in the database that
-is failing loses the records about the failure. A remote one needs an HTTP
-client that does not exist yet. `LogWriter` is three methods — `describe()`,
-`accepts()`, `write()` — so either is a small class in an application that
-wants one, and `system/Logs` is not where it has to go.
+### The database writer
+
+`database` writes each record as a row, for machines that share a database and
+people who would rather query a log than grep one:
+
+```php
+'logging' => [
+    'writers'  => ['file', 'database'],
+    'database' => ['connection' => '', 'table' => 'logs', 'retention_days' => 30],
+],
+```
+
+- **Its table comes from `php laika migrate`**, as a framework migration, like
+  the session, cache and queue tables. It is only made while `writers` names
+  `database`. Until it exists, the writer retires on its first record, and
+  `log:status` gives the command to run.
+- **Name another writer alongside it.** A log kept in the database cannot record
+  the database failing: when the database goes, this writer retires, and only
+  the other writer is left to say why.
+- **It writes through a connection of its own** on MySQL, PostgreSQL and SQL
+  Server. A shared connection would put each record inside whatever transaction
+  the application had open, and a rollback would take the record of what went
+  wrong with it. Writing a record is also never itself reported as a slow query.
+  On SQLite, which allows one writer at a time, it shares the application's
+  connection instead: a second one would wait behind the first's transaction.
+- **Rows** hold `logged_at` (UTC, with microseconds), `level` (the RFC 5424
+  code, so "error or worse" is `level <= 3`), `level_name`, `channel`, `message`
+  and `context` (JSON, or null when there is none).
+- **Retention** is `retention_days`, 0 by default, which keeps everything, as for
+  files. When it is set, older rows are deleted once per process, before the
+  first record.
+- `LOG_CONNECTION` names the connection; empty means the default one.
+
+**A remote writer is not built.** It needs an HTTP client that does not exist
+yet. `LogWriter` is three methods — `describe()`, `accepts()`, `write()` — so it
+is a small class in an application that wants one.
 
 ## PSR-3
 

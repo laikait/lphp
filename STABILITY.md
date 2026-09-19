@@ -136,6 +136,7 @@ namespace beats a shorter one.
 | `App\Engine\Logging\*` | Internal | |
 | `App\Engine\Logging\Level` | Experimental | |
 | `App\Engine\Logging\LogRecord` | Experimental | what a `LogWriter` receives |
+| `App\Engine\Logging\LogTableMigration` | Internal | run by `migrate` while `logging.writers` names `database`; its columns are what a query of the log reads |
 | `App\Engine\Logging\LogWriter` | Experimental | |
 | `App\Engine\Logging\Logger` | Experimental | 1.0 candidate |
 | `App\Engine\Logging\LoggingException` | Experimental | |

@@ -14,6 +14,8 @@ use App\Engine\Core\ExecutionContext;
 use App\Engine\Database\ConnectionManager;
 use App\Engine\Error\ErrorHandler;
 use App\Engine\Hook\HookEngine;
+use App\Engine\Logging\Logger;
+use App\Engine\Logging\LogManager;
 use App\Engine\Queue\Queue;
 use App\Tests\Fixtures\Queue\RecordingJob;
 use App\Tests\Support\TestCase;
@@ -146,9 +148,9 @@ final class MigrationSliceTest extends TestCase
     }
 
     /**
-     * Sessions, the cache and the queue all kept in the database: `migrate`
-     * makes their three tables before any module's, and each store works on
-     * what it made -- down to a worker taking a job off the table.
+     * Sessions, the cache, the queue and the log all kept in the database:
+     * `migrate` makes their four tables before any module's, and each works
+     * on what it made -- down to a worker taking a job off the table.
      */
     public function test_the_database_stores_get_their_tables_from_migrate(): void
     {
@@ -157,6 +159,7 @@ final class MigrationSliceTest extends TestCase
             'session' => ['store' => 'database'],
             'cache' => ['store' => 'database'],
             'queue' => ['store' => 'database'],
+            'logging' => ['writers' => ['database']],
             'modules' => ['paths' => ['plugins' => 'tests/Fixtures/Modules/Migrations/Plugins']],
             'database' => ['connections' => ['default' => ['dsn' => 'sqlite::memory:']]],
         ])->boot();
@@ -164,7 +167,7 @@ final class MigrationSliceTest extends TestCase
         [$status, $output] = $this->console($app, 'migrate');
         self::assertSame(0, $status, $output);
         self::assertMatchesRegularExpression(
-            '/framework:2026_09_19_000000_create_sessions.*\n.*framework:2026_09_19_000001_create_cache.*\n.*framework:2026_09_19_000002_create_jobs.*\n.*plugins\/Customers/',
+            '/framework:2026_09_19_000000_create_sessions.*\n.*framework:2026_09_19_000001_create_cache.*\n.*framework:2026_09_19_000002_create_jobs.*\n.*framework:2026_09_19_000003_create_logs.*\n.*plugins\/Customers/',
             $output,
         );
 
@@ -184,6 +187,13 @@ final class MigrationSliceTest extends TestCase
         $db = $app->container()->get(ConnectionManager::class)->connection();
         self::assertSame(1, $db->table('cache')->count());
         self::assertSame(0, $db->table('jobs')->count());
+
+        $app->container()->get(Logger::class)->warning('Invoice {number} was paid twice', ['number' => 7]);
+        self::assertSame([], $app->container()->get(LogManager::class)->failures());
+        self::assertSame(
+            ['Invoice {number} was paid twice'],
+            \array_column($db->table('logs')->where('level_name', 'warning')->get(), 'message'),
+        );
     }
 
     /** Undoing a migration usually drops a table and its data; production has to say so. */

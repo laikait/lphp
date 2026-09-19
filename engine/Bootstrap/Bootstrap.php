@@ -58,10 +58,12 @@ use App\Engine\Logging\ErrorLog;
 use App\Engine\Logging\Level;
 use App\Engine\Logging\Logger;
 use App\Engine\Logging\LogManager;
+use App\Engine\Logging\LogTableMigration;
 use App\Engine\Logging\LogWriter;
 use App\Engine\Logging\McpLog;
 use App\Engine\Logging\ScheduleLog;
 use App\Engine\Logging\SystemAuditLog;
+use App\Engine\Logging\Writers\DatabaseWriter;
 use App\Engine\Logging\Writers\FileWriter;
 use App\Engine\Logging\Writers\StreamWriter;
 use App\Engine\Logging\Writers\SyslogWriter;
@@ -269,7 +271,7 @@ final class Bootstrap
         // being logged without anything else changing, which is what
         // "logging must be independent from error rendering" has to mean if it
         // means anything.
-        $logs = self::logging($settings, $basePath);
+        $logs = self::logging($settings, $basePath, $container);
         $hooks->add('error.reported', (new ErrorLog($logs))(...), 10, 'engine');
 
         // Observability. The tracer is always on: it costs an id and a clock
@@ -369,8 +371,10 @@ final class Bootstrap
             // What happens to statements and transactions, as database.* hooks.
             // The database layer announces; only here does it meet the hook
             // engine, so it stays usable without the application around it.
-            // Nothing that listens by logging can recurse: the log writers
-            // never use the database.
+            // Nothing that listens by logging can recurse. The database log
+            // writer uses a connection of its own, which nothing observes --
+            // except on SQLite, where it shares this one, and a record logged
+            // while a record is being written is dropped by the log manager.
             //
             // Spelled out rather than 'database.' . $event, so that the hooks
             // the engine fires are a closed list the documentation is checked
@@ -912,9 +916,10 @@ final class Bootstrap
     }
 
     /**
-     * The framework's own tables, for the stores configured to keep things in
-     * the database: sessions, the cache and the queue. None while they keep
-     * them elsewhere, so an application on files gets no tables it never uses.
+     * The framework's own tables, for what is configured to keep things in the
+     * database: sessions, the cache, the queue and the log. None while they
+     * keep them elsewhere, so an application on files gets no tables it never
+     * uses.
      *
      * @return list<MigrationFile>
      */
@@ -938,6 +943,12 @@ final class Bootstrap
         if ($settings->string('queue.store', 'sync') === 'database') {
             $migrations[] = MigrationFile::supplied(Migrator::FRAMEWORK, QueueTableMigration::NAME, new QueueTableMigration(
                 $table('queue.table', QueueDatabaseStore::DEFAULT_TABLE),
+            ));
+        }
+
+        if (\in_array('database', self::stringList($settings->get('logging.writers')), true)) {
+            $migrations[] = MigrationFile::supplied(Migrator::FRAMEWORK, LogTableMigration::NAME, new LogTableMigration(
+                $table('logging.database.table', DatabaseWriter::DEFAULT_TABLE),
             ));
         }
 
@@ -1203,14 +1214,17 @@ final class Bootstrap
      *
      * Writers are named in configuration rather than constructed by an
      * application, because where records go is a deployment decision and a
-     * deployment does not get to edit code. The three that exist need nothing
-     * installed: a file under system/Logs, an open stream for a container, and
-     * the machine's own system logger.
+     * deployment does not get to edit code. Three need nothing installed: a
+     * file under system/Logs, an open stream for a container, and the
+     * machine's own system logger. The fourth is a table in a configured
+     * database.
      *
      * Nothing is opened here. FileWriter opens on its first record, so a request
-     * that logs nothing touches no file, and syslog connects on demand.
+     * that logs nothing touches no file, syslog connects on demand, and the
+     * database writer finds its connection when it first writes -- the log is
+     * built before the connections are.
      */
-    private static function logging(Config $settings, string $basePath): LogManager
+    private static function logging(Config $settings, string $basePath, Container $container): LogManager
     {
         $debug = (bool) $settings->get('app.debug', false);
 
@@ -1222,7 +1236,7 @@ final class Bootstrap
         $logs = new LogManager($minimum, new Context(self::stringList($settings->get('logging.redact'))));
 
         foreach (self::stringList($settings->get('logging.writers')) as $name) {
-            $writer = self::writer($name, $minimum, $settings, $basePath);
+            $writer = self::writer($name, $minimum, $settings, $basePath, $container);
 
             if ($writer !== null) {
                 $logs->add($writer);
@@ -1232,7 +1246,7 @@ final class Bootstrap
         return $logs;
     }
 
-    private static function writer(string $name, Level $minimum, Config $settings, string $basePath): ?LogWriter
+    private static function writer(string $name, Level $minimum, Config $settings, string $basePath, Container $container): ?LogWriter
     {
         return match ($name) {
             'file' => new FileWriter(
@@ -1249,6 +1263,15 @@ final class Bootstrap
             'syslog' => new SyslogWriter(
                 \is_string($identity = $settings->get('logging.syslog.identity', 'app')) ? $identity : 'app',
                 $minimum,
+            ),
+            'database' => new DatabaseWriter(
+                static fn(): Connection => DatabaseWriter::ownConnection(
+                    $container->get(ConnectionManager::class),
+                    $settings->string('logging.database.connection') ?: null,
+                ),
+                $settings->string('logging.database.table', DatabaseWriter::DEFAULT_TABLE) ?? DatabaseWriter::DEFAULT_TABLE,
+                $minimum,
+                $settings->int('logging.database.retention_days', 0) ?? 0,
             ),
             // An unknown name is ignored rather than fatal. A typo in a
             // deployment's configuration must not stop the application from
@@ -1554,6 +1577,16 @@ final class Bootstrap
                 ],
                 'syslog' => [
                     'identity' => 'app',
+                ],
+                // The "database" writer's table, made by migrate. Not the
+                // only writer to name: a log in the database cannot record the
+                // database failing.
+                'database' => [
+                    // '' is the default connection.
+                    'connection' => Env::string('LOG_CONNECTION', ''),
+                    'table' => 'logs',
+                    // 0 keeps everything, as for files.
+                    'retention_days' => 0,
                 ],
             ],
             'observability' => [

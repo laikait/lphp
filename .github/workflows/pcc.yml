@@ -200,11 +200,13 @@ jobs:
       - name: Install dependencies
         uses: ramsey/composer-install@65e4f84970763564f46a70b8a54b90d033b3bdda #v4
 
-      # The database stores' conformance suites too: their row locks are
-      # written per dialect, and only a server can say whether they are right.
+      # The database stores' conformance suites and the log writer's tests
+      # too: their row locks and connections behave per server, and only a
+      # server can say whether they are right.
       - name: Database tests on every server
         run: >-
           vendor/bin/phpunit tests/Unit/Database
           tests/Unit/Session/StoreConformanceTest.php
           tests/Unit/Cache/StoreConformanceTest.php
           tests/Unit/Queue/StoreConformanceTest.php
+          tests/Unit/Logging/DatabaseWriterTest.php

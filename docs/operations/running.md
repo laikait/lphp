@@ -59,7 +59,9 @@ web server's.
    ];
    ```
 
-   `stderr` suits containers; `syslog` a host with a log shipper.
+   `stderr` suits containers; `syslog` a host with a log shipper; `database`,
+   next to one of those, several machines that share a database. Its table comes
+   from `php laika migrate`.
 6. **Make `system/` writable** by the PHP user, and nothing else in the tree.
 
 ## Every deployment
@@ -167,6 +169,7 @@ second host serves the same site:
 | `security.counters` `file` | nothing yet — no shared counter store is built | each rate limit applies per host |
 | `CACHE_STORE=file` | `database` | each host caches, and invalidates, on its own |
 | `QUEUE_STORE=file` | `database` | each host's workers see only that host's jobs |
+| `logging.writers` `file` | add `database` (or ship with `syslog`) | each host's log is on that host |
 
 `migrate` creates the tables of whichever of these are `database`. Plus:
 `schedule:run` on exactly one host.

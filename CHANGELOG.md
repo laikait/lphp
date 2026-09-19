@@ -44,7 +44,7 @@ note.
   codes and generated help; 32 framework commands, none of which writes code.
 - **Errors** rendered by audience (browser, API, console) with disclosure rules,
   and **logging** as a listener, with redaction, retiring writers and file,
-  stream and syslog destinations.
+  stream, syslog and database destinations.
 - **Configuration** from defaults, `config/*.php` and the environment, with a
   cache that notices environment changes; a **cache** with array, file,
   database and null stores.
@@ -154,6 +154,14 @@ note.
   recorded. `session:table` and `DatabaseStore::ddl()` are gone. The store now
   writes through the query builder and runs on all four databases, SQL Server
   included; its conformance suite runs on each in CI.
+- **A database log writer.** Naming `database` in `logging.writers` writes each
+  record as a row: `logged_at` in UTC, the level as its RFC 5424 code and its
+  name, the channel, the message and the context as JSON. Its table comes from
+  `migrate` (`logging.database.table`, `logs`, on `LOG_CONNECTION`), and
+  `retention_days` deletes older rows. On MySQL, PostgreSQL and SQL Server it
+  writes through a connection of its own, so an application rolling back does
+  not take the record of why with it; on SQLite, with one writer at a time, it
+  shares the application's. Tested on all four databases, in CI too.
 - **Database cache and queue stores.** `CACHE_STORE=database` keeps entries in a
   table every machine shares, and `QUEUE_STORE=database` keeps jobs in one that
   workers on any number of machines take from. Their tables come from `migrate`,
