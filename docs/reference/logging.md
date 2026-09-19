@@ -138,12 +138,12 @@ deleting an audit trail because a default said so is a worse failure than a
 large directory.
 
 **Database and remote writers are not built**, which is the honest reading of
-"database logging should be optional". A database writer needs a schema and a
-migration runner that do not exist yet; a remote one needs an HTTP client that
-does not exist yet. Building either now would mean inventing both. `LogWriter`
-is three methods — `describe()`, `accepts()`, `write()` — so either is a small
-class in an application that wants one, and `system/Logs` is not where it has to
-go.
+"database logging should be optional". A database writer could bring its table
+as a migration, but nothing has needed one, and a log kept in the database that
+is failing loses the records about the failure. A remote one needs an HTTP
+client that does not exist yet. `LogWriter` is three methods — `describe()`,
+`accepts()`, `write()` — so either is a small class in an application that
+wants one, and `system/Logs` is not where it has to go.
 
 ## PSR-3
 

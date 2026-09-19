@@ -19,17 +19,28 @@ deploying. `php laika security:check` says which provider is in use.
 ## Connect your accounts
 
 Implement `UserProvider` — or `TokenProvider`, which adds API tokens. This one
-reads a `staff` table:
+reads a `staff` table, which the module's migration creates on any database:
 
-```sql
-CREATE TABLE staff (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    email TEXT NOT NULL UNIQUE,
-    password_hash TEXT NOT NULL,
-    roles TEXT NOT NULL DEFAULT '',
-    active INTEGER NOT NULL DEFAULT 1,
-    token_fingerprint TEXT NULL UNIQUE
-);
+```php
+// modules/Shared/Database/Migrations/2026_09_19_120000_create_staff.php
+return new class implements Reversible {
+    public function up(Tables $tables): void
+    {
+        $tables->create('staff', static function (Table $table): void {
+            $table->id();
+            $table->string('email', 190)->unique();
+            $table->string('password_hash');
+            $table->string('roles')->default('');
+            $table->boolean('active')->default(true);
+            $table->string('token_fingerprint', 64)->nullable()->unique();
+        });
+    }
+
+    public function down(Tables $tables): void
+    {
+        $tables->drop('staff');
+    }
+};
 ```
 
 ```php
@@ -113,7 +124,8 @@ What the pieces mean:
 
 ## Passwords
 
-Hash a password for a first account or a seed script:
+Hash a password for a first account, or for a
+[seeder](../reference/database.md#migrations-and-seeders) that creates one:
 
 ```bash
 php laika auth:hash 'correct horse battery staple'

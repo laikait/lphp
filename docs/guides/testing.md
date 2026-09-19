@@ -147,11 +147,11 @@ in-memory SQLite database, which is equally fresh per application:
 $app = $this->app(['database' => ['connections' => ['default' => ['dsn' => 'sqlite::memory:']]]]);
 $db = $app->container()->get(ConnectionManager::class)->connection();
 
-$db->execute('CREATE TABLE staff (id INTEGER PRIMARY KEY AUTOINCREMENT, email TEXT NOT NULL)');
+$this->migrate($app);    // every module's migrations, as `php laika migrate` runs them
 ```
 
-Keep the `CREATE TABLE` statements your module uses in one place, so tests and
-installation run the same ones.
+The test then has the tables production has, made by the same files. See
+[Migrations and seeders](../reference/database.md#migrations-and-seeders).
 
 ## Hooks and filters
 

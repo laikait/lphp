@@ -444,10 +444,10 @@ final class GrammarTest extends TestCase
     public function test_capabilities_are_what_each_database_really_does(): void
     {
         $expected = [
-            'mysql' => ['savepoints' => true, 'returning' => false, 'upsert' => true, 'right_join' => true],
-            'pgsql' => ['savepoints' => true, 'returning' => true, 'upsert' => true, 'right_join' => true],
-            'sqlite' => ['savepoints' => true, 'returning' => false, 'upsert' => true, 'right_join' => false],
-            'sqlsrv' => ['savepoints' => true, 'returning' => true, 'upsert' => false, 'right_join' => true],
+            'mysql' => ['savepoints' => true, 'returning' => false, 'upsert' => true, 'right_join' => true, 'transactional_ddl' => false],
+            'pgsql' => ['savepoints' => true, 'returning' => true, 'upsert' => true, 'right_join' => true, 'transactional_ddl' => true],
+            'sqlite' => ['savepoints' => true, 'returning' => false, 'upsert' => true, 'right_join' => false, 'transactional_ddl' => true],
+            'sqlsrv' => ['savepoints' => true, 'returning' => true, 'upsert' => false, 'right_join' => true, 'transactional_ddl' => true],
         ];
 
         foreach ($expected as $driver => $answers) {

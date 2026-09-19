@@ -72,11 +72,32 @@ final class Csrf
     /** What the signature is bound to, so a CSRF token is not a signed URL. */
     public const CONTEXT = 'csrf';
 
+    /**
+     * The token issued during the current request, when the browser's own
+     * could not be reused.
+     *
+     * Remembered because more than one thing asks for the token in a request:
+     * the handler rendering a form, and the guard setting the cookie on the way
+     * out. On a first visit there is no cookie to reuse, and two calls that
+     * each signed a fresh token would put one in the form and another in the
+     * cookie -- refusing every new visitor's first submission as a mismatch.
+     *
+     * Forgotten by begin() at the start of every request: a token issued to
+     * one browser must never be handed to the next.
+     */
+    private ?string $issued = null;
+
     public function __construct(
         private readonly Signer $signer,
         private readonly bool $checkOrigin = true,
         private readonly int $lifetime = 7200,
     ) {}
+
+    /** A new request: nothing has been issued to it yet. */
+    public function begin(): void
+    {
+        $this->issued = null;
+    }
 
     public function isSigned(): bool
     {
@@ -96,16 +117,23 @@ final class Csrf
      * site: the second tab's form would carry a token the cookie no longer
      * holds, and the user is shown a security error for using a browser
      * normally.
+     *
+     * Otherwise a new one is issued, once per request: every later call in the
+     * same request, and the cookie, get that same token.
      */
     public function token(Request $request): string
     {
+        if ($this->issued !== null) {
+            return $this->issued;
+        }
+
         $existing = $request->cookie(self::COOKIE);
 
         if ($existing !== null && $this->signer->verify($existing, self::CONTEXT) !== null) {
             return $existing;
         }
 
-        return $this->signer->sign(Signer::token(), self::CONTEXT);
+        return $this->issued = $this->signer->sign(Signer::token(), self::CONTEXT);
     }
 
     /**
@@ -120,10 +148,13 @@ final class Csrf
      * the login, will be refused when it is finally submitted. That is the
      * right way round. The alternative is a token that outlives the identity
      * it was issued under.
+     *
+     * From here to the end of the request, token() answers with the new one,
+     * so a page rendered after a login carries the token its cookie will.
      */
     public function rotate(): string
     {
-        return $this->signer->sign(Signer::token(), self::CONTEXT);
+        return $this->issued = $this->signer->sign(Signer::token(), self::CONTEXT);
     }
 
     /** The cookie carrying that token back to the browser. */

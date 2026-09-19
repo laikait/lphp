@@ -127,6 +127,43 @@ note.
   40P01, and MySQL 1213), with a short jittered backoff.
   `Connection::isRetryable()` makes the same judgement. Both options belong to
   the outermost transaction only.
+- **Migrations.** Each module keeps its own in `Database/Migrations/`, one file
+  per change, named `YYYY_MM_DD_HHMMSS_what_it_does.php` and returning a
+  `Migration` (or a `Reversible`, with a `down()`) written with the table
+  builder. `migrate` runs what is pending, in module dependency order and then
+  file order, as one batch; `--pretend` prints each migration's SQL for this
+  database and runs nothing. `migrate:status` lists every migration, and
+  `migrate:rollback` undoes the last batch (or `--batches=N`) newest first,
+  refusing before it starts if anything in range has no `down()` or no file,
+  and asking for `--force` in production. Where the database rolls structure
+  back, a migration and its record commit together; MySQL's partial failures
+  are reported as such. A lock in the database lets only one run migrate at a
+  time, across machines. The tracking table is `database.migrations.table`
+  (`migrations`). In a test, `$this->migrate($app)` runs them. The getting-started
+  tutorial and the storing-data, testing and users guides now create their tables
+  with migrations, and migrations are gone from "What is not built".
+- **Seeders.** A module's `Database/Seeders/*.php` files each return a
+  `Seeder`, whose `run(Connection $db)` writes through the query builder.
+  `db:seed` runs them in module order and then file order, or one module's with
+  `--module=<id>`, and asks for `--force` in production. Every seeder is loaded
+  before any runs, and each runs in its own transaction. Nothing records that a
+  seeder ran, so each should look before it inserts.
+- **A table builder.** `$connection->tables()->create('invoices', fn (Table $t) => ...)`
+  describes a table once with chained methods (`id`, `integer`, `bigInteger`,
+  `decimal`, `string`, `text`, `boolean`, `date`, `dateTime`, `binary`,
+  `timestamps`; `nullable`, `default`, `unique`, `index`; foreign keys with
+  their actions). Each dialect writes its own DDL, and what some database
+  cannot do is refused before anything runs. MySQL tables are InnoDB and
+  utf8mb4, and SQL Server's unique indexes admit many NULLs, as elsewhere.
+  `drop()`, and `raw()` for hand-written SQL scoped to named drivers. New
+  capability: `TransactionalDdl`.
+  `alter()` changes a table that exists: it adds columns, indexes and foreign
+  keys, and drops or renames columns and drops indexes and keys by the names
+  the builder gave them, in a fixed order (drops, then renames, then additions).
+  A column added to a table with rows needs `nullable()` or a default. What
+  SQLite's `ALTER TABLE` cannot do (dropping a foreign key, or adding one to a
+  column that is already there) is refused with nothing run, never done by
+  rebuilding the table. Renaming a column needs MySQL 8.0 or MariaDB 10.5.2.
 - **`database.*` hooks.** An application now fires
   `database.query.failed`, `database.transaction.committed`,
   `database.transaction.rolled_back` (with its cause) and
@@ -178,6 +215,9 @@ note.
   `money.php` template are gone. A fresh installation has no accounts: nobody
   can log in until an application binds its own `UserProvider`. The demo lives
   on in `tests/Fixtures/Showcase/Shared`, where the tests use it.
+- **`composer stan` analyses `modules/`**, at the same level 8 as `engine/` and
+  `tests/`. It never did, so an application's own modules were not
+  type-checked by the gate at all.
 - **A statement's observed time includes reading its rows.** For `select()`,
   `selectOne()` and `scalar()`, the observer and the slow-query warning now
   time until the rows are fetched, not only until the statement ran. A cursor
@@ -188,6 +228,13 @@ note.
 
 ### Fixed
 
+- **A new visitor's first form was refused as a CSRF mismatch.** With no
+  `XSRF-TOKEN` cookie yet, every call to `Csrf::token()` signed a new token, so
+  a handler that put one in its form and the guard that set the cookie handed
+  the browser two different ones. `token()` now issues one token per request,
+  which the form and the cookie share, and forgets it when the next request
+  begins. After a login, a page rendered in the same response carries the
+  rotated token that its cookie does.
 - **Inserts on PostgreSQL could report another table's key, or abort the
   transaction.** PDO's last-insert id there is `LASTVAL()`: the last value of
   whichever sequence the session used. So it was stale after an insert into a

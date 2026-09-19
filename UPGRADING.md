@@ -97,6 +97,15 @@ repository as it stood at that commit, and they become the 0.1.0 notes.
 - **Do:** rename your route. Your `/` still wins: every other module registers
   after `shared`, and the router keeps the last route declared for a path.
 
+### `composer stan` checks your modules
+
+- **Changed:** `phpstan.neon` analyses `modules/` at level 8, alongside
+  `engine/` and `tests/`.
+- **Affected:** an application whose modules have type errors. `composer stan`
+  and `composer check` now report them, and fail, where they passed before.
+- **Do:** fix what is reported. There is no baseline to hide it in, by design.
+  To defer it, remove `modules` from `paths` in `phpstan.neon` until you can.
+
 ### The shared module ships no accounts, login routes or headers
 
 - **Changed:** `modules/Shared` is now one file. It answers `/` and binds
@@ -224,3 +233,24 @@ repository as it stood at that commit, and they become the 0.1.0 notes.
     slow-query threshold may catch a statement it missed before.
 - **Do:** nothing for most applications. Count on five arguments in a variadic
   observer, and recheck a slow-query threshold that was tuned tightly.
+
+### Migrations and seeders
+
+- **Added:** the table builder (`Connection::tables()`, with `create()`,
+  `alter()` and `drop()`), module migrations in `Database/Migrations/`, and
+  seeders in `Database/Seeders/`. The commands are `migrate`, `migrate:status`,
+  `migrate:rollback` and `db:seed`. `TestCase::migrate()` runs the migrations in
+  a test.
+- **Affected:**
+  - an application that created its tables by hand. Its databases already hold
+    tables that no migration recorded, so a migration that creates one of them
+    fails with "already exists";
+  - an application whose own table is called `migrations`. The runner keeps
+    its records in a table of that name.
+- **Do:**
+  - write a migration for each table a module owns. Where a database may
+    already have the table, make it `if (!$tables->exists('notes')) { ... }`,
+    so the migration is recorded without failing. Then retire the install
+    command or script that made the table;
+  - if `migrations` is taken, set `database.migrations.table` in
+    `config/database.php`.

@@ -3,6 +3,10 @@ parameters:
     tmpDir: system/Runtime/phpstan
     paths:
         - engine
+        # An application's own modules, held to the same level as the engine.
+        # Left out until 2026-09-19, which is how the demo module that shipped
+        # here carried three type errors nobody was told about.
+        - modules
         - tests
     treatPhpDocTypesAsCertain: false
 

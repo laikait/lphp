@@ -40,9 +40,12 @@ web server's.
    | `SESSION_STORE`, `CACHE_STORE`, `QUEUE_STORE` | see [More than one host](#more-than-one-host) |
    | `SESSION_ABSOLUTE` | consider a ceiling; the default is none |
 
-4. **Create the tables.** There are no migrations: each module's tables are
-   created by whatever that module provides, and the database session store's by
-   `php laika session:table`.
+4. **Create the tables.** `php laika migrate --connection=<name>` runs every
+   module's pending migrations, on a connection whose account may create tables
+   (the application's own should not). Run it on every deploy; it does nothing
+   when nothing is pending, and only one deploy can run it at a time.
+   `migrate --pretend` shows the SQL first. The database session store's table
+   comes from `php laika session:table`.
 5. **Choose where logs go** — nothing is written by default. For daily files
    under `system/Logs`, create `config/logging.php`:
 

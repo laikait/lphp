@@ -75,6 +75,45 @@ final class CsrfTest extends TestCase
         ])));
     }
 
+    // ---- one token per request ------------------------------------------------
+
+    /**
+     * The form and the cookie ask separately. With no cookie to reuse, both
+     * must be handed the same new token, or the form cannot be submitted.
+     */
+    public function test_a_new_token_is_issued_once_per_request(): void
+    {
+        $this->csrf->begin();
+        $firstVisit = Request::create('GET', '/');
+
+        self::assertSame($this->csrf->token($firstVisit), $this->csrf->token($firstVisit));
+    }
+
+    /** One browser's new token is never handed to the next. */
+    public function test_each_request_is_issued_its_own(): void
+    {
+        $this->csrf->begin();
+        $first = $this->csrf->token(Request::create('GET', '/'));
+
+        $this->csrf->begin();
+        $second = $this->csrf->token(Request::create('GET', '/'));
+
+        self::assertNotSame($first, $second);
+    }
+
+    /** After a login, a page rendered in the same response carries the token its cookie will. */
+    public function test_a_rotated_token_is_what_the_rest_of_the_request_is_given(): void
+    {
+        $this->csrf->begin();
+        $held = $this->csrf->token(Request::create('GET', '/'));
+        $request = Request::create('GET', '/', ['cookies' => [Csrf::COOKIE => $held]]);
+
+        $rotated = $this->csrf->rotate();
+
+        self::assertNotSame($held, $rotated);
+        self::assertSame($rotated, $this->csrf->token($request));
+    }
+
     /** A script sends a header rather than a field, under either spelling. */
     #[DataProvider('tokenHeaders')]
     public function test_a_matching_cookie_and_header_pass(string $header): void
@@ -128,11 +167,18 @@ final class CsrfTest extends TestCase
         self::assertStringContainsString('not signed by this application', $reason);
     }
 
+    /** A form from one request, a cookie from a later one. */
     public function test_a_stale_token_says_the_page_is_older_than_the_cookie(): void
     {
+        $this->csrf->begin();
+        $page = $this->csrf->token(Request::create('GET', '/'));
+
+        $this->csrf->begin();
+        $cookie = $this->csrf->token(Request::create('GET', '/'));
+
         $reason = $this->csrf->check($this->post([
-            'cookies' => [Csrf::COOKIE => $this->csrf->token(Request::create('GET', '/'))],
-            'body' => [Csrf::FIELD => $this->csrf->token(Request::create('GET', '/'))],
+            'cookies' => [Csrf::COOKIE => $cookie],
+            'body' => [Csrf::FIELD => $page],
         ]));
 
         self::assertNotNull($reason);

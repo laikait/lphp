@@ -13,6 +13,11 @@ use App\Engine\Database\Query\Condition;
 use App\Engine\Database\Query\JoinClause;
 use App\Engine\Database\Query\QueryState;
 use App\Engine\Database\Query\RawExpression;
+use App\Engine\Database\Structure\Column;
+use App\Engine\Database\Structure\ColumnType;
+use App\Engine\Database\Structure\ForeignKey;
+use App\Engine\Database\Structure\Index;
+use App\Engine\Database\Structure\Table;
 
 /**
  * Turns a Query into SQL and a list of values to bind.
@@ -934,6 +939,293 @@ class Grammar
             'sql' => \sprintf('DELETE FROM %s%s', $this->identifier($collection), $where['sql']),
             'bindings' => $where['bindings'],
         ];
+    }
+
+    // ---- table structure --------------------------------------------------
+
+    /**
+     * The statements that create $table: the CREATE TABLE, with its foreign
+     * keys inside it, then one CREATE INDEX per index.
+     *
+     * Every name is checked like any other. A string default cannot be bound,
+     * so $literal -- the driver's own quoting, handed in by Structure\Tables --
+     * writes it; this class never escapes a value itself.
+     *
+     * @param \Closure(string): string $literal
+     *
+     * @return list<string>
+     */
+    public function compileCreateTable(Table $table, \Closure $literal): array
+    {
+        $table->check();
+
+        $lines = [];
+
+        foreach ($table->columns() as $column) {
+            $lines[] = $this->columnDefinition($column, $literal);
+        }
+
+        foreach ($table->foreignKeys() as $key) {
+            $lines[] = $this->foreignKeyClause($table, $key);
+        }
+
+        $statements = ['CREATE TABLE ' . $this->structureTable($table->name) . ' (' . \implode(', ', $lines) . ')' . $this->tableOptions()];
+
+        foreach ($table->indexes() as $index) {
+            $statements[] = $this->compileIndex($table, $index);
+        }
+
+        return $statements;
+    }
+
+    /**
+     * The statements that change $table as it describes, one change each:
+     * first what goes -- foreign keys, indexes, columns -- then renames, then
+     * what comes: columns, indexes, foreign keys. So a column can be dropped
+     * once its index is gone, and a new index can name a renamed column.
+     *
+     * Everything is compiled before anything is returned, so a change this
+     * database cannot make is refused with nothing run.
+     *
+     * @param \Closure(string): string $literal
+     *
+     * @return list<string>
+     */
+    public function compileAlterTable(Table $table, \Closure $literal): array
+    {
+        // A drop needs no column types, but nobody has checked this database's
+        // ALTER TABLE either.
+        if ($this->driver() === '') {
+            throw DatabaseException::noStructureDialect('');
+        }
+
+        $table->check();
+
+        $statements = [];
+
+        foreach ($table->droppedForeignKeys() as $column) {
+            $statements[] = $this->compileDropForeignKey($table, $column);
+        }
+
+        foreach ($table->droppedIndexes() as $index) {
+            $statements[] = $this->compileDropIndex($table, $index);
+        }
+
+        foreach ($table->droppedColumns() as $column) {
+            $statements[] = $this->compileDropColumn($table, $column);
+        }
+
+        foreach ($table->renamedColumns() as $from => $to) {
+            $statements[] = $this->compileRenameColumn($table, $from, $to);
+        }
+
+        foreach ($table->columns() as $column) {
+            $statements[] = $this->compileAddColumn($table, $column, $literal);
+        }
+
+        foreach ($table->indexes() as $index) {
+            $statements[] = $this->compileIndex($table, $index);
+        }
+
+        foreach ($table->foreignKeys() as $key) {
+            $statement = $this->compileAddForeignKey($table, $key);
+
+            if ($statement !== null) {
+                $statements[] = $statement;
+            }
+        }
+
+        return $statements;
+    }
+
+    public function compileDropTable(string $table): string
+    {
+        return 'DROP TABLE ' . $this->structureTable($table);
+    }
+
+    /**
+     * A query answering how many tables named $table the connection can see
+     * in its current schema: 1 or 0. Every database keeps its own catalogue.
+     *
+     * @return array{sql: string, bindings: list<mixed>}
+     */
+    public function compileTableExists(string $table): array
+    {
+        throw DatabaseException::noStructureDialect($this->driver());
+    }
+
+    /**
+     * A query that tries, once and without waiting, to take the lock named
+     * $name for this session, answering 1 when it did. Null where the
+     * database needs no lock of its own, as SQLite, with its one writer.
+     *
+     * The lock belongs to the session, not a transaction, so it holds across
+     * the commits in between; compileReleaseLock() gives it back. Whoever
+     * waits for it polls.
+     *
+     * @return array{sql: string, bindings: list<mixed>}|null
+     */
+    public function compileAcquireLock(string $name): ?array
+    {
+        throw DatabaseException::noStructureDialect($this->driver());
+    }
+
+    /** @return array{sql: string, bindings: list<mixed>}|null */
+    public function compileReleaseLock(string $name): ?array
+    {
+        throw DatabaseException::noStructureDialect($this->driver());
+    }
+
+    /**
+     * The generated key's whole definition after its name. Every dialect has
+     * its own way of saying "a 64-bit integer the database counts up".
+     */
+    protected function idColumn(): string
+    {
+        throw DatabaseException::noStructureDialect($this->driver());
+    }
+
+    /** The database's type for a column. Standard SQL has no dialect to answer, so it refuses. */
+    protected function columnType(Column $column): string
+    {
+        throw DatabaseException::noStructureDialect($this->driver());
+    }
+
+    /** Anything the database needs said after the column list. Standard SQL needs nothing. */
+    protected function tableOptions(): string
+    {
+        return '';
+    }
+
+    protected function booleanLiteral(bool $value): string
+    {
+        return $value ? '1' : '0';
+    }
+
+    /** RESTRICT, CASCADE and the rest, as the statement spells them. */
+    protected function foreignKeyAction(string $action): string
+    {
+        return \strtoupper($action);
+    }
+
+    protected function compileIndex(Table $table, Index $index): string
+    {
+        return \sprintf(
+            'CREATE %sINDEX %s ON %s (%s)',
+            $index->unique ? 'UNIQUE ' : '',
+            $this->identifier($this->indexName($table, $index)),
+            $this->structureTable($table->name),
+            \implode(', ', \array_map($this->identifier(...), $index->columns)),
+        );
+    }
+
+    /** @param \Closure(string): string $literal */
+    protected function compileAddColumn(Table $table, Column $column, \Closure $literal): string
+    {
+        return 'ALTER TABLE ' . $this->structureTable($table->name) . ' ADD COLUMN ' . $this->columnDefinition($column, $literal);
+    }
+
+    protected function compileDropColumn(Table $table, string $column): string
+    {
+        return 'ALTER TABLE ' . $this->structureTable($table->name) . ' DROP COLUMN ' . $this->identifier($column);
+    }
+
+    protected function compileRenameColumn(Table $table, string $from, string $to): string
+    {
+        return \sprintf(
+            'ALTER TABLE %s RENAME COLUMN %s TO %s',
+            $this->structureTable($table->name),
+            $this->identifier($from),
+            $this->identifier($to),
+        );
+    }
+
+    /**
+     * An index lives in its table's schema, and is named there: DROP INDEX
+     * takes the schema, not the table.
+     */
+    protected function compileDropIndex(Table $table, Index $index): string
+    {
+        $schema = \strrpos($table->name, '.');
+        $name = $this->indexName($table, $index);
+
+        return 'DROP INDEX ' . $this->structureTable($schema === false ? $name : \substr($table->name, 0, $schema) . '.' . $name);
+    }
+
+    /** Null where the key was already written with its column, as SQLite writes one. */
+    protected function compileAddForeignKey(Table $table, ForeignKey $key): ?string
+    {
+        return 'ALTER TABLE ' . $this->structureTable($table->name) . ' ADD ' . $this->foreignKeyClause($table, $key);
+    }
+
+    protected function compileDropForeignKey(Table $table, string $column): string
+    {
+        return \sprintf(
+            'ALTER TABLE %s DROP CONSTRAINT %s',
+            $this->structureTable($table->name),
+            $this->identifier($table->nameFor([$column], 'foreign')),
+        );
+    }
+
+    protected function indexName(Table $table, Index $index): string
+    {
+        return $table->nameFor($index->columns, $index->unique ? 'unique' : 'index');
+    }
+
+    /** @param \Closure(string): string $literal */
+    protected function columnDefinition(Column $column, \Closure $literal): string
+    {
+        if ($column->type === ColumnType::Id) {
+            return $this->identifier($column->name) . ' ' . $this->idColumn();
+        }
+
+        $sql = $this->identifier($column->name) . ' ' . $this->columnType($column)
+            . ($column->isNullable() ? ' NULL' : ' NOT NULL');
+
+        if (!$column->hasDefault()) {
+            return $sql;
+        }
+
+        $default = $column->defaultValue();
+
+        return $sql . ' DEFAULT ' . match (true) {
+            $default === null => 'NULL',
+            \is_bool($default) => $this->booleanLiteral($default),
+            \is_int($default) => (string) $default,
+            default => $literal($default),
+        };
+    }
+
+    private function foreignKeyClause(Table $table, ForeignKey $key): string
+    {
+        return \sprintf(
+            'CONSTRAINT %s FOREIGN KEY (%s) %s',
+            $this->identifier($table->nameFor([$key->column], 'foreign')),
+            $this->identifier($key->column),
+            $this->foreignKeyReference($key),
+        );
+    }
+
+    /** REFERENCES and the actions: the part of a foreign key a column can carry by itself. */
+    protected function foreignKeyReference(ForeignKey $key): string
+    {
+        return \sprintf(
+            'REFERENCES %s (%s) ON DELETE %s ON UPDATE %s',
+            $this->structureTable((string) $key->table()),
+            $this->identifier($key->referencedColumn()),
+            $this->foreignKeyAction($key->deleteAction()),
+            $this->foreignKeyAction($key->updateAction()),
+        );
+    }
+
+    /** A table to create, alter or drop: a name, or schema.name. Never an alias. */
+    protected function structureTable(string $name): string
+    {
+        if (\substr_count($name, '.') > 1) {
+            throw DatabaseException::unsafeIdentifier($name);
+        }
+
+        return $this->qualified($name);
     }
 
     // ---- isolation and retry ----------------------------------------------

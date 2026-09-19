@@ -72,6 +72,8 @@ use App\Engine\MCP\Resource\ResourceReader;
 use App\Engine\MCP\Tool\ToolRunner;
 use App\Engine\MCP\Transport\HttpTransport;
 use App\Engine\MCP\Transport\StdioTransport;
+use App\Engine\Migration\Migrator;
+use App\Engine\Migration\SeedRunner;
 use App\Engine\Model\ModelManager;
 use App\Engine\Model\RelationManager;
 use App\Engine\Module\ModuleManager;
@@ -378,6 +380,18 @@ final class Bootstrap
 
             return $manager;
         });
+
+        // Lazy: only a migrate or db:seed command builds these, after every
+        // module has registered, so the registry they walk is in load order.
+        $container->singleton(Migrator::class, static fn(Container $container): Migrator => new Migrator(
+            $container->get(ConnectionManager::class),
+            $container->get(ModuleRegistry::class),
+            $settings->string('database.migrations.table', 'migrations') ?? 'migrations',
+        ));
+        $container->singleton(SeedRunner::class, static fn(Container $container): SeedRunner => new SeedRunner(
+            $container->get(ConnectionManager::class),
+            $container->get(ModuleRegistry::class),
+        ));
 
         $container->singleton(Dispatcher::class);
         $container->singleton(HttpKernel::class);

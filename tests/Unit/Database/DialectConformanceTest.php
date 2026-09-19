@@ -11,6 +11,7 @@ use App\Engine\Data\Query;
 use App\Engine\Database\Capability;
 use App\Engine\Database\Connection;
 use App\Engine\Database\ConnectionConfig;
+use App\Engine\Database\ConnectionManager;
 use App\Engine\Database\DatabaseException;
 use App\Engine\Database\IsolationLevel;
 use App\Engine\Database\Query\Aggregate;
@@ -18,7 +19,13 @@ use App\Engine\Database\Query\JoinClause;
 use App\Engine\Database\Query\QueryBuilder;
 use App\Engine\Database\Query\RawExpression;
 use App\Engine\Database\SqlSource;
+use App\Engine\Database\Structure\Table;
+use App\Engine\Migration\MigrationException;
+use App\Engine\Migration\Migrator;
 use App\Engine\Model\ModelManager;
+use App\Engine\Module\ModuleDefinition;
+use App\Engine\Module\ModuleKind;
+use App\Engine\Module\ModuleRegistry;
 use App\Tests\Support\TestCase;
 use App\Tests\Support\TestDatabases;
 use PHPUnit\Framework\Attributes\DataProvider;
@@ -41,6 +48,14 @@ final class DialectConformanceTest extends TestCase
     /** A second table, for joins: tags on the rows of the first. */
     private const TAGS = 'laika_dialect_tags';
 
+    /** Two tables made by the table builder, the second pointing at the first. */
+    private const PARENTS = 'laika_structure_parents';
+
+    private const STRUCTURE = 'laika_structure';
+
+    /** What the migration fixtures make, children first, and the table recording them. */
+    private const MIGRATED = ['laika_mig_invoices', 'laika_mig_customer_notes', 'laika_mig_customers', 'laika_mig_half', 'laika_mig_migrations'];
+
     private ?Connection $connection = null;
 
     /** @return array<string, array{ConnectionConfig}> */
@@ -59,8 +74,9 @@ final class DialectConformanceTest extends TestCase
             } catch (DatabaseException) {
             }
 
-            $this->connection->execute('DROP TABLE IF EXISTS ' . $this->connection->grammar()->identifier(self::TAGS));
-            $this->connection->execute('DROP TABLE IF EXISTS ' . $this->connection->grammar()->identifier(self::TABLE));
+            foreach ([...self::MIGRATED, self::STRUCTURE, self::PARENTS, self::TAGS, self::TABLE] as $table) {
+                $this->connection->execute('DROP TABLE IF EXISTS ' . $this->connection->grammar()->identifier($table));
+            }
             $this->connection->disconnect();
         }
 
@@ -821,5 +837,354 @@ final class DialectConformanceTest extends TestCase
         }
 
         self::assertSame($bytes, $content);
+    }
+
+    // ---- the table builder ------------------------------------------------
+
+    /**
+     * One description, every database: each type holds what it is given, the
+     * defaults and keys are enforced, and the tables drop.
+     */
+    #[DataProvider('databases')]
+    public function test_the_table_builder_makes_tables_every_database_can_use(ConnectionConfig $config): void
+    {
+        $db = $this->connect($config);
+        $grammar = $db->grammar();
+
+        if ($db->driver() === 'sqlite') {
+            // SQLite enforces foreign keys only once asked, per connection.
+            $db->execute('PRAGMA foreign_keys = ON');
+        }
+
+        foreach ([self::STRUCTURE, self::PARENTS] as $table) {
+            $db->execute('DROP TABLE IF EXISTS ' . $grammar->identifier($table));
+        }
+
+        $tables = $db->tables();
+        $tables->create(self::PARENTS, static function (Table $table): void {
+            $table->id();
+            $table->string('code', 20)->unique();
+        });
+        $tables->create(self::STRUCTURE, static function (Table $table): void {
+            $table->id();
+            $table->bigInteger('parent_id');
+            $table->integer('quantity')->default(3);
+            $table->decimal('price', 10, 2)->default('0.00');
+            $table->string('label', 50)->default('কলকাতা');
+            $table->string('email', 100)->nullable()->unique();
+            $table->text('notes')->nullable();
+            $table->boolean('active')->default(true);
+            $table->date('due_on')->nullable();
+            $table->dateTime('happened_at')->nullable();
+            $table->binary('content')->nullable();
+            $table->timestamps();
+            $table->foreign('parent_id')->references(self::PARENTS)->onDelete('cascade');
+        });
+
+        $parent = $db->table(self::PARENTS)->insert(['code' => 'p1'], 'id');
+        $id = $db->table(self::STRUCTURE)->insert([
+            'parent_id' => $parent,
+            'price' => '12.50',
+            'notes' => \str_repeat('long ', 2000),
+            'due_on' => '2026-03-04',
+            'happened_at' => new \DateTimeImmutable('2026-01-02 03:04:05.25'),
+        ], 'id');
+
+        self::assertIsInt($id);
+        $row = $db->table(self::STRUCTURE)->where('id', $id)->first();
+        self::assertNotNull($row);
+
+        // Every value as the application would read it: the driver decides
+        // whether a boolean is true or 1, and SQLite stores 12.50 as 12.5.
+        self::assertSame(3, (int) $row['quantity'], 'the integer default');
+        self::assertSame('12.50', \number_format((float) $row['price'], 2, '.', ''));
+        self::assertSame('কলকাতা', $row['label'], 'a default outside ASCII');
+        self::assertTrue((bool) $row['active'], 'the boolean default');
+        self::assertNull($row['email']);
+        self::assertSame(10000, \strlen((string) $row['notes']));
+        self::assertSame('2026-03-04', \substr((string) $row['due_on'], 0, 10));
+        self::assertSame('2026-01-02 03:04:05.250000', (new \DateTimeImmutable((string) $row['happened_at']))->format('Y-m-d H:i:s.u'));
+        self::assertNull($row['created_at']);
+
+        // Any number of rows may leave a unique column empty, on every database.
+        $db->table(self::STRUCTURE)->insert(['parent_id' => $parent]);
+        $db->table(self::STRUCTURE)->insert(['parent_id' => $parent, 'email' => 'ada@example.test']);
+
+        foreach ([
+            'a second row with the same email' => ['parent_id' => $parent, 'email' => 'ada@example.test'],
+            'a row whose parent does not exist' => ['parent_id' => 999999],
+        ] as $refusal => $values) {
+            try {
+                $db->table(self::STRUCTURE)->insert($values);
+                self::fail(\sprintf('the database accepted %s', $refusal));
+            } catch (DatabaseException) {
+            }
+        }
+
+        self::assertSame(3, $db->table(self::STRUCTURE)->count());
+
+        // ON DELETE CASCADE: the parent goes, and its rows with it.
+        $db->table(self::PARENTS)->where('id', $parent)->delete();
+        self::assertSame(0, $db->table(self::STRUCTURE)->count());
+
+        $tables->drop(self::STRUCTURE);
+        $tables->drop(self::PARENTS);
+
+        $this->expectException(DatabaseException::class);
+        $db->table(self::PARENTS)->count();
+    }
+
+    /** Two builder-made tables to change, the second pointing at the first, one row in each. */
+    private function alterable(ConnectionConfig $config): Connection
+    {
+        $db = $this->connect($config);
+
+        if ($db->driver() === 'sqlite') {
+            $db->execute('PRAGMA foreign_keys = ON');
+        }
+
+        foreach ([self::STRUCTURE, self::PARENTS] as $table) {
+            $db->execute('DROP TABLE IF EXISTS ' . $db->grammar()->identifier($table));
+        }
+
+        $db->tables()->create(self::PARENTS, static function (Table $table): void {
+            $table->id();
+            $table->string('code', 10);
+        });
+        $db->tables()->create(self::STRUCTURE, static function (Table $table): void {
+            $table->id();
+            $table->bigInteger('parent_id');
+            $table->string('number', 30)->unique();
+            $table->text('notes')->nullable();
+            $table->foreign('parent_id')->references(self::PARENTS);
+        });
+
+        // The first key every database hands out, which the changes below name.
+        self::assertSame(1, $db->table(self::PARENTS)->insert(['code' => 'p1'], 'id'));
+        $db->table(self::STRUCTURE)->insert(['parent_id' => 1, 'number' => 'A-1', 'notes' => 'kept']);
+
+        return $db;
+    }
+
+    /**
+     * One change, every database: the row there keeps its values and takes
+     * the new columns' defaults, the new unique index lets many rows be
+     * empty, the new key is enforced, and what was dropped is gone -- columns
+     * with defaults included, which SQL Server holds on to.
+     */
+    #[DataProvider('databases')]
+    public function test_the_table_builder_alters_tables_every_database_can_use(ConnectionConfig $config): void
+    {
+        $db = $this->alterable($config);
+        $tables = $db->tables();
+
+        $tables->alter(self::STRUCTURE, static function (Table $table): void {
+            $table->string('reference', 40)->nullable()->unique();
+            $table->integer('copies')->default(2);
+            $table->boolean('archived')->default(false);
+            $table->bigInteger('other_parent_id')->nullable();
+            $table->foreign('other_parent_id')->references(self::PARENTS);
+            $table->dropUnique('number');
+            $table->dropColumn('notes');
+        });
+
+        $row = $db->table(self::STRUCTURE)->first();
+        self::assertNotNull($row);
+        self::assertSame('A-1', $row['number']);
+        self::assertSame(2, (int) $row['copies'], 'the new column\'s default, on the row already there');
+        self::assertFalse((bool) $row['archived']);
+        self::assertNull($row['reference']);
+        self::assertArrayNotHasKey('notes', $row);
+
+        // The number is no longer unique; the reference is, but not when empty.
+        $db->table(self::STRUCTURE)->insert(['parent_id' => 1, 'number' => 'A-1']);
+        $db->table(self::STRUCTURE)->insert(['parent_id' => 1, 'number' => 'A-2', 'reference' => 'R']);
+
+        foreach ([
+            'a reference used twice' => ['parent_id' => 1, 'number' => 'A-3', 'reference' => 'R'],
+            'a new key pointing nowhere' => ['parent_id' => 1, 'number' => 'A-4', 'other_parent_id' => 999999],
+        ] as $refusal => $values) {
+            try {
+                $db->table(self::STRUCTURE)->insert($values);
+                self::fail(\sprintf('the database accepted %s', $refusal));
+            } catch (DatabaseException) {
+            }
+        }
+
+        $tables->alter(self::STRUCTURE, static function (Table $table): void {
+            $table->dropUnique('reference');
+            $table->dropColumn('reference', 'copies', 'archived');
+        });
+
+        self::assertSame(['id', 'parent_id', 'number', 'other_parent_id'], \array_keys($db->table(self::STRUCTURE)->first() ?? []));
+        self::assertSame(3, $db->table(self::STRUCTURE)->count());
+    }
+
+    /** Dropped and put back by name -- or, on SQLite, refused with nothing run. */
+    #[DataProvider('databases')]
+    public function test_a_foreign_key_is_dropped_and_added_or_refused(ConnectionConfig $config): void
+    {
+        $db = $this->alterable($config);
+        $tables = $db->tables();
+
+        if ($db->driver() === 'sqlite') {
+            try {
+                $tables->alter(self::STRUCTURE, static function (Table $table): void {
+                    $table->string('before', 10)->nullable();
+                    $table->dropForeign('parent_id');
+                });
+                self::fail('SQLite dropped a foreign key');
+            } catch (DatabaseException $e) {
+                self::assertStringContainsString('Nothing was run', $e->getMessage());
+            }
+
+            self::assertArrayNotHasKey('before', $db->table(self::STRUCTURE)->first() ?? []);
+
+            return;
+        }
+
+        $tables->alter(self::STRUCTURE, static fn(Table $t) => $t->dropForeign('parent_id'));
+        $db->table(self::STRUCTURE)->insert(['parent_id' => 999999, 'number' => 'orphan']);
+
+        // Put back, it holds again -- once the row that broke it is gone.
+        $db->table(self::STRUCTURE)->where('number', 'orphan')->delete();
+        $tables->alter(self::STRUCTURE, static function (Table $table): void {
+            $table->foreign('parent_id')->references(self::PARENTS);
+        });
+
+        $this->expectException(DatabaseException::class);
+        $db->table(self::STRUCTURE)->insert(['parent_id' => 999999, 'number' => 'orphan']);
+    }
+
+    #[DataProvider('databases')]
+    public function test_a_renamed_column_keeps_what_it_holds(ConnectionConfig $config): void
+    {
+        $db = $this->alterable($config);
+        $version = (string) $db->pdo()->getAttribute(\PDO::ATTR_SERVER_VERSION);
+
+        // RENAME COLUMN arrived in MySQL 8.0 and MariaDB 10.5.2; the XAMPP
+        // MariaDB on the Windows gate is 10.4. CI runs MySQL 8.4.
+        if ($db->driver() === 'mysql' && \preg_match('/(\d+\.\d+\.\d+)-MariaDB/', $version, $mariadb) === 1
+            ? \version_compare($mariadb[1], '10.5.2', '<')
+            : $db->driver() === 'mysql' && \version_compare($version, '8.0.0', '<')) {
+            self::markTestSkipped(\sprintf('%s has no RENAME COLUMN.', $version));
+        }
+
+        $db->tables()->alter(self::STRUCTURE, static fn(Table $t) => $t->renameColumn('notes', 'remarks'));
+
+        self::assertSame('kept', $db->table(self::STRUCTURE)->first()['remarks'] ?? null);
+    }
+
+    // ---- migrations -------------------------------------------------------
+
+    /**
+     * The fixture modules' migrations, on this database, recorded in their own
+     * table so that nothing else on the server is touched -- and the manager
+     * they run through, whose connection is the one to look at the result on
+     * (an in-memory SQLite is a different database for every connection).
+     *
+     * @return array{Migrator, ConnectionManager}
+     */
+    private function migrator(ConnectionConfig $config, string $fixtures, string ...$order): array
+    {
+        $modules = new ModuleRegistry();
+
+        foreach ($order as $name) {
+            $modules->add(ModuleDefinition::create(ModuleKind::Plugin, $this->basePath($fixtures . '/' . $name), $name));
+        }
+
+        $modules->setOrder(\array_values(\array_map(static fn(string $name): string => 'plugins/' . $name, $order)));
+        $connections = new ConnectionManager([$config]);
+
+        return [new Migrator($connections, $modules, 'laika_mig_migrations', lockWait: 0), $connections];
+    }
+
+    /** Named locks: one session holds it, and another cannot take it until it is given back. */
+    #[DataProvider('databases')]
+    public function test_the_migration_lock_admits_one_session_at_a_time(ConnectionConfig $config): void
+    {
+        $holder = $this->connect($config);
+        $rival = new Connection($config);
+        $grammar = $holder->grammar();
+        $acquire = $grammar->compileAcquireLock(Migrator::LOCK);
+        $release = $grammar->compileReleaseLock(Migrator::LOCK);
+
+        if ($acquire === null || $release === null) {
+            self::assertSame('sqlite', $config->driver(), 'only SQLite needs no lock of its own');
+
+            return;
+        }
+
+        try {
+            self::assertSame(1, (int) $holder->scalar($acquire['sql'], $acquire['bindings']), 'the first session did not get the lock');
+            self::assertSame(0, (int) $rival->scalar($acquire['sql'], $acquire['bindings']), 'a second session took a held lock');
+
+            $holder->execute($release['sql'], $release['bindings']);
+
+            self::assertSame(1, (int) $rival->scalar($acquire['sql'], $acquire['bindings']), 'the lock was not given back');
+            $rival->execute($release['sql'], $release['bindings']);
+        } finally {
+            $rival->disconnect();
+        }
+    }
+
+    #[DataProvider('databases')]
+    public function test_migrations_run_record_and_roll_back_on_every_database(ConnectionConfig $config): void
+    {
+        $this->connect($config);
+        [$migrator, $connections] = $this->migrator($config, 'tests/Fixtures/Modules/Migrations/Plugins', 'Customers', 'Billing');
+
+        self::assertSame(3, $migrator->migrate());
+        self::assertSame([1, 1, 1], \array_column($migrator->status(), 'batch'));
+        self::assertSame(0, $migrator->migrate(), 'a migration ran twice');
+
+        $tables = $connections->connection()->tables();
+
+        foreach (['laika_mig_customers', 'laika_mig_customer_notes', 'laika_mig_invoices'] as $table) {
+            self::assertTrue($tables->exists($table), $table . ' was not created');
+        }
+
+        self::assertSame(3, $migrator->rollback());
+
+        foreach (['laika_mig_customers', 'laika_mig_customer_notes', 'laika_mig_invoices'] as $table) {
+            self::assertFalse($tables->exists($table), $table . ' was not dropped');
+        }
+
+        self::assertSame([null, null, null], \array_column($migrator->status(), 'batch'));
+        $tables->drop('laika_mig_migrations');
+        $connections->disconnectAll();
+    }
+
+    /**
+     * What a migration that fails halfway leaves behind. Where the database
+     * rolls structure back, nothing; on MySQL, the half that ran -- and the
+     * error says which it was.
+     */
+    #[DataProvider('databases')]
+    public function test_a_failed_migration_says_what_it_left_behind(ConnectionConfig $config): void
+    {
+        $db = $this->connect($config);
+        [$migrator, $connections] = $this->migrator($config, 'tests/Fixtures/Modules/MigrationsFailing/Plugins', 'Broken');
+        $message = '';
+
+        try {
+            $migrator->migrate();
+            self::fail('the broken migration succeeded');
+        } catch (MigrationException $e) {
+            $message = $e->getMessage();
+        }
+
+        $left = $connections->connection()->tables()->exists('laika_mig_half');
+
+        if ($db->supports(Capability::TransactionalDdl)) {
+            self::assertStringContainsString('Nothing of it was kept', $message);
+            self::assertFalse($left, 'the half-made table survived a rolled-back migration');
+        } else {
+            self::assertStringContainsString('commits each change of structure as it runs', $message);
+            self::assertTrue($left, 'MySQL was expected to keep the table it created before the failure');
+        }
+
+        self::assertSame([null], \array_column($migrator->status(), 'batch'), 'a failed migration was recorded');
+        $connections->disconnectAll();
     }
 }

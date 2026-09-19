@@ -396,4 +396,52 @@ final class DatabaseException extends FrameworkException
             $key,
         ));
     }
+
+    /** A table described in a way some database could not create. $subject names the table, column or key. */
+    public static function invalidStructure(string $subject, string $reason): self
+    {
+        return new self($subject . ': ' . $reason);
+    }
+
+    /** A driver with no dialect of its own has no column types to write. */
+    public static function noStructureDialect(string $driver): self
+    {
+        return new self(\sprintf(
+            'The %s database has no dialect that writes table structure; tables can be created '
+            . 'on mysql, pgsql, sqlite and sqlsrv. Write this one\'s DDL by hand.',
+            $driver === '' ? 'unnamed' : $driver,
+        ));
+    }
+
+    /** @param list<string> $drivers */
+    public static function rawNotForDriver(string $driver, array $drivers): self
+    {
+        return new self(\sprintf(
+            'This hand-written SQL was written for %s, and this connection is %s. Nothing was run. '
+            . 'Describe the change with the table builder, or write the SQL for this database too.',
+            \implode(', ', $drivers),
+            $driver,
+        ));
+    }
+
+    /**
+     * A change this database's ALTER TABLE has no statement for. It is refused
+     * rather than made by rebuilding the table out of sight: a rebuild copies
+     * every row, and loses whatever the builder does not describe.
+     */
+    public static function cannotAlter(string $driver, string $table, string $what): self
+    {
+        return new self(\sprintf(
+            'The %s database cannot %s on the table "%s": its ALTER TABLE has no way to. Nothing was run. '
+            . 'The way there is a new table: create it as it should be, copy the rows across, and drop the old one.',
+            $driver,
+            $what,
+            $table,
+        ));
+    }
+
+    public static function cannotQuote(string $driver): self
+    {
+        return new self(\sprintf('The %s driver could not quote a default value, so the table was not created.', $driver));
+    }
 }

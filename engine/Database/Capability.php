@@ -40,4 +40,12 @@ enum Capability: string
      * other way round asks the same question.
      */
     case RightJoin = 'right_join';
+
+    /**
+     * Creating and dropping tables inside a transaction that can still be
+     * rolled back. MySQL commits every CREATE, ALTER and DROP as it runs them,
+     * transaction or not, so a change of structure that fails halfway leaves
+     * the half that ran.
+     */
+    case TransactionalDdl = 'transactional_ddl';
 }

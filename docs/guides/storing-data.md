@@ -35,26 +35,75 @@ which they have.
 
 ## Create the tables
 
-**There are no migrations yet.** Nothing creates tables for you, and there is no
-migration runner to register them with. Until there is, keep each module's
-schema as SQL in the module and apply it deliberately — from a deployment
-script, or from a command the module declares:
+Each module owns its tables, as **migrations** in its `Database/Migrations/`
+directory. A migration describes the table with methods, not SQL, so the same
+file creates it on MySQL, PostgreSQL, SQLite and SQL Server.
+`modules/Plugins/Contact/Database/Migrations/2026_09_19_120000_create_messages.php`:
 
 ```php
-$this->connections->connection()->execute(
-    'CREATE TABLE IF NOT EXISTS messages (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        email TEXT NOT NULL,
-        body TEXT NOT NULL,
-        spam INTEGER NOT NULL DEFAULT 0
-    )',
-);
+<?php
+
+declare(strict_types=1);
+
+use App\Engine\Database\Structure\Table;
+use App\Engine\Database\Structure\Tables;
+use App\Engine\Migration\Reversible;
+
+return new class implements Reversible {
+    public function up(Tables $tables): void
+    {
+        $tables->create('messages', static function (Table $table): void {
+            $table->id();
+            $table->string('email', 190)->index();
+            $table->text('body');
+            $table->boolean('spam')->default(false);
+        });
+    }
+
+    public function down(Tables $tables): void
+    {
+        $tables->drop('messages');
+    }
+};
 ```
 
-([Getting started](../getting-started.md#4-a-database-and-two-commands) builds
-such a command.) Column names are the **model's constructor parameter names**,
-exactly, so a camelCase parameter means a camelCase column. The session store's
-table comes from `php laika session:table`.
+```bash
+php laika migrate --pretend   # this database's SQL, run nowhere
+php laika migrate             # everything pending, in module order
+php laika migrate:status
+php laika migrate:rollback    # the last run, undone
+```
+
+- **The file name is the order:** `YYYY_MM_DD_HHMMSS_what_it_does.php`, in
+  lower case, written by hand. There is no generator. A name that breaks the
+  rule stops the run before anything runs.
+- **Modules run in dependency order.** A table whose foreign key names another
+  module's table belongs to a module that `requires()` that module, and so its
+  migrations run after that module's.
+- **A migration runs once.** What ran is recorded in the `migrations` table. A
+  change to a table that exists is a new migration that calls
+  `$tables->alter(...)`; never edit one that has run.
+- **Column names are the model's constructor parameter names**, exactly, so a
+  camelCase parameter means a camelCase column.
+
+Rows a module starts with go in **seeders**, in `Database/Seeders/`. A seeder
+writes through the query builder and runs every time `php laika db:seed` does,
+so it looks before it inserts:
+
+```php
+return new class implements Seeder {
+    public function run(Connection $db): void
+    {
+        if (!$db->table('messages')->where('email', 'welcome@example.test')->exists()) {
+            $db->table('messages')->insert(['email' => 'welcome@example.test', 'body' => 'Hello.']);
+        }
+    }
+};
+```
+
+Every column type, what each database is sent, and what is refused are in
+[Migrations and seeders](../reference/database.md#migrations-and-seeders). The
+session store's table still comes from `php laika session:table`.
 
 ## A model
 
@@ -328,6 +377,7 @@ reads data another job may have changed.
   with nothing to install. Boot the application with no database configured and
   seed through your own repository methods.
 - For SQL, configure `sqlite::memory:` — a fresh, empty database per application:
-  `$this->shippedApplication(['database' => ['connections' => ['default' => ['dsn' => 'sqlite::memory:']]]])`.
+  `$this->shippedApplication(['database' => ['connections' => ['default' => ['dsn' => 'sqlite::memory:']]]])`,
+  then `$this->migrate($app)` to create the same tables production has.
 
 See [Testing](testing.md).

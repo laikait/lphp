@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Engine\Database;
 
 use App\Engine\Database\Query\QueryBuilder;
+use App\Engine\Database\Structure\Tables;
 
 /**
  * One database connection.
@@ -75,6 +76,18 @@ final class Connection
     public function table(string $table): QueryBuilder
     {
         return QueryBuilder::on($this, $table);
+    }
+
+    /**
+     * Creating and dropping tables in this connection's dialect.
+     *
+     *     $connection->tables()->create('invoices', static function (Table $table): void { ... });
+     *
+     * See Structure\Tables.
+     */
+    public function tables(bool $pretend = false): Tables
+    {
+        return new Tables($this, $pretend);
     }
 
     /** Whether this connection's database can do something at all. */

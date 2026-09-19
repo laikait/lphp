@@ -150,6 +150,12 @@ namespace beats a shorter one.
 | `App\Engine\MCP\Resource\ResourceReader` | Internal | |
 | `App\Engine\MCP\Tool\ToolRunner` | Internal | |
 | `App\Engine\MCP\Transport\*` | Internal | selected by `mcp.transports` |
+| `App\Engine\Migration\*` | Experimental | what a migration or seeder file implements (`Migration`, `Reversible`, `Seeder`) and what a failed run throws |
+| `App\Engine\Migration\MigrationFile` | Internal | the name rule is documented; the class is not |
+| `App\Engine\Migration\MigrationRepository` | Internal | the tracking table's layout is the runner's |
+| `App\Engine\Migration\Migrator` | Internal | run through `migrate`, `migrate:status` and `migrate:rollback` |
+| `App\Engine\Migration\SeederFile` | Internal | the name rule is documented; the class is not |
+| `App\Engine\Migration\SeedRunner` | Internal | run through `db:seed` |
 | `App\Engine\MCP\Validation\*` | Internal | the schema subset is documented; the validator is not |
 | `App\Engine\Model\*` | Experimental | |
 | `App\Engine\Model\Attributes` | Internal | |

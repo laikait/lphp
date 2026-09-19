@@ -182,6 +182,36 @@ final class SecuritySliceTest extends TestCase
         self::assertNotSame(403, $response->status());
     }
 
+    /**
+     * What a browser actually does, which the tests above do not: load the
+     * page, keep the cookie it was given, and post the token the page's form
+     * carried. On a first visit there is no cookie to reuse, so the handler
+     * rendering the form and the guard issuing the cookie must be handed the
+     * same new token -- two separate ones would refuse every new visitor's
+     * first submission as a mismatch.
+     */
+    public function test_a_new_visitor_can_submit_the_first_form_they_are_shown(): void
+    {
+        $app = $this->app(['modules' => ['paths' => ['plugins' => 'tests/Fixtures/Modules/Forms/Plugins']]]);
+
+        $page = $app->handle(Request::create('GET', '/guestbook'));
+
+        if (\preg_match('/name="_token" value="([^"]+)"/', $page->body(), $field) !== 1) {
+            self::fail('the page carried no token field');
+        }
+
+        $cookies = $page->cookies();
+        self::assertCount(1, $cookies);
+
+        $submitted = $app->handle(Request::create('POST', '/guestbook', [
+            'cookies' => [Csrf::COOKIE => $cookies[0]->value],
+            'body' => [Csrf::FIELD => $field[1]],
+        ]));
+
+        self::assertSame(200, $submitted->status(), $submitted->body());
+        self::assertSame('signed', $submitted->body());
+    }
+
     /** The whole check can be switched off, and security:check calls that a failure. */
     public function test_csrf_can_be_disabled_entirely(): void
     {

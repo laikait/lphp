@@ -743,12 +743,16 @@ final class ArchitectureTest extends TestCase
         $infrastructure = [
             'Aggregate.php',
             'Capability.php',
+            'Column.php',
+            'ColumnType.php',
             'Condition.php',
             'Connection.php',
             'ConnectionConfig.php',
             'ConnectionManager.php',
             'DatabaseException.php',
+            'ForeignKey.php',
             'Grammar.php',
+            'Index.php',
             'IsolationLevel.php',
             'JoinClause.php',
             'MySqlGrammar.php',
@@ -759,6 +763,8 @@ final class ArchitectureTest extends TestCase
             'SqlServerGrammar.php',
             'SqlSource.php',
             'SqliteGrammar.php',
+            'Table.php',
+            'Tables.php',
         ];
 
         $found = [];
@@ -773,6 +779,34 @@ final class ArchitectureTest extends TestCase
         \sort($infrastructure);
 
         self::assertSame($infrastructure, $found);
+    }
+
+    /**
+     * Migrations sit on the database layer, never the other way round.
+     *
+     * The table builder is usable from a script with no modules at all; the
+     * runner that finds migrations in modules is a separate layer that uses
+     * it. If anything in engine/Database named a module or a migration, that
+     * would stop being true.
+     */
+    public function test_the_database_layer_knows_nothing_of_migrations_or_modules(): void
+    {
+        $checked = 0;
+
+        foreach ($this->engineFiles() as $path) {
+            if (!\str_contains($this->relative($path), 'engine/Database/')) {
+                continue;
+            }
+
+            ++$checked;
+            $code = $this->codeWithoutComments($path);
+
+            foreach (['App\\Engine\\Migration\\', 'App\\Engine\\Module\\'] as $namespace) {
+                self::assertStringNotContainsString($namespace, $code, \sprintf('%s depends on %s.', $this->relative($path), $namespace));
+            }
+        }
+
+        self::assertGreaterThan(0, $checked);
     }
 
     /**
@@ -820,7 +854,11 @@ final class ArchitectureTest extends TestCase
                 continue;
             }
 
-            foreach (['SELECT ', 'INSERT INTO', 'UPDATE ', 'DELETE FROM', 'SAVEPOINT', 'SAVE TRANSACTION'] as $statement) {
+            foreach ([
+                'SELECT ', 'INSERT INTO', 'UPDATE ', 'DELETE FROM', 'SAVEPOINT', 'SAVE TRANSACTION',
+                // Structure too: the table builder describes, the grammar writes.
+                'CREATE TABLE', 'DROP TABLE', 'CREATE INDEX', 'CREATE UNIQUE INDEX', 'FOREIGN KEY',
+            ] as $statement) {
                 self::assertStringNotContainsString(
                     $statement,
                     $this->codeWithoutComments($path),
@@ -1522,10 +1560,14 @@ final class ArchitectureTest extends TestCase
             'engine/Cli/Commands/CacheWarmCommand.php',
             'engine/Cli/Commands/ConfigCacheCommand.php',
             'engine/Cli/Commands/ConfigListCommand.php',
+            'engine/Cli/Commands/DbSeedCommand.php',
             'engine/Cli/Commands/HelpCommand.php',
             'engine/Cli/Commands/LogStatusCommand.php',
             'engine/Cli/Commands/McpListCommand.php',
             'engine/Cli/Commands/McpStdioCommand.php',
+            'engine/Cli/Commands/MigrateCommand.php',
+            'engine/Cli/Commands/MigrateRollbackCommand.php',
+            'engine/Cli/Commands/MigrateStatusCommand.php',
             'engine/Cli/Commands/ModuleListCommand.php',
             'engine/Cli/Commands/NginxMakeCommand.php',
             'engine/Cli/Commands/QueueFailedCommand.php',
@@ -1693,6 +1735,13 @@ final class ArchitectureTest extends TestCase
             // An interface to capabilities modules register, not a way to run code.
             'mcp:list',
             'mcp:stdio',
+            // Run migrations a module wrote by hand. There is no make:migration:
+            // the name rule is documented, and checked when the file is read.
+            'migrate',
+            'migrate:status',
+            'migrate:rollback',
+            // Run seeders a module wrote by hand; there is no make:seeder.
+            'db:seed',
         ];
 
         $registry = new \App\Engine\Cli\CommandRegistry();

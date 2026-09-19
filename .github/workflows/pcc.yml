@@ -165,7 +165,7 @@ jobs:
           --health-interval 10s --health-timeout 5s --health-retries 20
 
     env:
-      DB_TEST_MYSQL_DSN: 'mysql:host=127.0.0.1;port=3306;dbname=laika_test'
+      DB_TEST_MYSQL_DSN: 'mysql:host=127.0.0.1;port=3306;dbname=laika_test;charset=utf8mb4'
       DB_TEST_MYSQL_USERNAME: root
       DB_TEST_MYSQL_PASSWORD: root
       DB_TEST_PGSQL_DSN: 'pgsql:host=127.0.0.1;port=5432;dbname=laika_test'

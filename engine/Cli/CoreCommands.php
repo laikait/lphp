@@ -12,10 +12,14 @@ use App\Engine\Cli\Commands\CacheClearCommand;
 use App\Engine\Cli\Commands\CacheWarmCommand;
 use App\Engine\Cli\Commands\ConfigCacheCommand;
 use App\Engine\Cli\Commands\ConfigListCommand;
+use App\Engine\Cli\Commands\DbSeedCommand;
 use App\Engine\Cli\Commands\HelpCommand;
 use App\Engine\Cli\Commands\LogStatusCommand;
 use App\Engine\Cli\Commands\McpListCommand;
 use App\Engine\Cli\Commands\McpStdioCommand;
+use App\Engine\Cli\Commands\MigrateCommand;
+use App\Engine\Cli\Commands\MigrateRollbackCommand;
+use App\Engine\Cli\Commands\MigrateStatusCommand;
 use App\Engine\Cli\Commands\ModuleListCommand;
 use App\Engine\Cli\Commands\NginxMakeCommand;
 use App\Engine\Cli\Commands\QueueFailedCommand;
@@ -211,6 +215,30 @@ final class CoreCommands
             ->option('table', 'Table name.', default: 'sessions')
             ->flag('bare', 'The statement alone, to pipe somewhere.')
             ->note('It prints and does not run: creating tables is not something an application account should be able to do.');
+
+        $commands->add('migrate', MigrateCommand::class)
+            ->describe('Run every module\'s pending migrations, in module order, as one batch.')
+            ->option('connection', 'Which connection. Defaults to the default one.')
+            ->flag('pretend', 'Print the SQL each pending migration would send, and run nothing.')
+            ->note('A deploy step. Give --connection an account with the right to create tables; the application\'s own should not have it.');
+
+        $commands->add('migrate:status', MigrateStatusCommand::class)
+            ->describe('Every migration, whether it ran and in which batch.')
+            ->option('connection', 'Which connection. Defaults to the default one.');
+
+        $commands->add('migrate:rollback', MigrateRollbackCommand::class)
+            ->describe('Undo the last batch of migrations, newest first.')
+            ->option('connection', 'Which connection. Defaults to the default one.')
+            ->option('batches', 'How many batches to undo.', default: '1')
+            ->flag('force', 'Roll back in production.')
+            ->note('Refused before anything runs if a migration in the range has no down(), or its file is gone.');
+
+        $commands->add('db:seed', DbSeedCommand::class)
+            ->describe('Run every module\'s seeders, in module order, or one module\'s.')
+            ->option('connection', 'Which connection. Defaults to the default one.')
+            ->option('module', 'Only this module\'s seeders, by id: plugins/Billing.')
+            ->flag('force', 'Seed in production.')
+            ->note('Nothing records that a seeder ran; each runs every time, so each looks before it inserts.');
 
         $commands->add('cache:clear', CacheClearCommand::class)
             ->describe('Delete the configuration, module, template and application caches.')

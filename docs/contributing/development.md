@@ -44,7 +44,7 @@ proves nothing about MySQL:
 | `DB_TEST_SQLSRV_DSN` `DB_TEST_SQLSRV_USERNAME` `DB_TEST_SQLSRV_PASSWORD` | SQL Server |
 
 ```bash
-DB_TEST_MYSQL_DSN='mysql:host=127.0.0.1;dbname=test' DB_TEST_MYSQL_USERNAME=root composer test
+DB_TEST_MYSQL_DSN='mysql:host=127.0.0.1;dbname=test;charset=utf8mb4' DB_TEST_MYSQL_USERNAME=root composer test
 ```
 
 The tests create and drop a table called `laika_dialect`, so point them at a

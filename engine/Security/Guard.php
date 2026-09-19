@@ -50,13 +50,6 @@ final class Guard
 
     public const RATE_LIMIT_META = 'rate_limit';
 
-    /**
-     * Set when the session id changed this request, cleared at the start of
-     * the next one. Guard outlives a request in a worker, so anything
-     * per-request has to be reset rather than assumed fresh.
-     */
-    private bool $rotateCsrf = false;
-
     public function __construct(
         private readonly Csrf $csrf,
         private readonly RateLimiter $limiter,
@@ -64,10 +57,16 @@ final class Guard
         private readonly bool $csrfEnabled = true,
     ) {}
 
-    /** request.received: how much a request is allowed to be. */
+    /**
+     * request.received: how much a request is allowed to be.
+     *
+     * And the start of a new request for the CSRF token. Guard and Csrf outlive
+     * a request in a worker, so anything per-request has to be reset rather
+     * than assumed fresh -- here, the token issued to the previous browser.
+     */
     public function onRequest(Request $request): void
     {
-        $this->rotateCsrf = false;
+        $this->csrf->begin();
 
         ($this->limits)($request);
     }
@@ -82,7 +81,7 @@ final class Guard
      */
     public function onSessionRegenerated(): void
     {
-        $this->rotateCsrf = true;
+        $this->csrf->rotate();
     }
 
     /**
@@ -113,9 +112,11 @@ final class Guard
             return $response;
         }
 
-        $token = $this->rotateCsrf ? $this->csrf->rotate() : $this->csrf->token($request);
+        // The token this request already issued or rotated to, if it did --
+        // the one any form on this page carries -- or else the browser's own.
+        $token = $this->csrf->token($request);
 
-        if (!$this->rotateCsrf && $request->cookie(Csrf::COOKIE) === $token) {
+        if ($request->cookie(Csrf::COOKIE) === $token) {
             return $response;
         }
 
