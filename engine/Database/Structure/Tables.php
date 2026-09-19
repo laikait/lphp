@@ -65,6 +65,10 @@ final class Tables
         $definition = new Table($table, altering: true);
         $define($definition);
 
+        if ($definition->renamedColumns() !== [] && !$this->canRenameColumns()) {
+            throw DatabaseException::renameNeedsNewerServer($this->serverVersion(), $table);
+        }
+
         foreach ($this->connection->grammar()->compileAlterTable($definition, $this->literal(...)) as $statement) {
             $this->send($statement, false);
         }
@@ -119,6 +123,35 @@ final class Tables
         if (!$this->pretend) {
             $this->connection->execute($sql);
         }
+    }
+
+    /**
+     * RENAME COLUMN arrived in MySQL 8.0 and MariaDB 10.5.2; every other
+     * dialect has had its rename for longer than the framework supports them.
+     *
+     * A version, not a Capability: the grammar speaks for MySQL and MariaDB
+     * of every release, and only the server knows which one it is. MariaDB
+     * reports itself as "10.4.32-MariaDB", or behind a "5.5.5-" prefix that
+     * older clients needed.
+     */
+    private function canRenameColumns(): bool
+    {
+        if ($this->connection->driver() !== 'mysql') {
+            return true;
+        }
+
+        $version = $this->serverVersion();
+
+        return \preg_match('/(\d+\.\d+\.\d+)-MariaDB/i', $version, $mariadb) === 1
+            ? \version_compare($mariadb[1], '10.5.2', '>=')
+            : \version_compare($version, '8.0.0', '>=');
+    }
+
+    private function serverVersion(): string
+    {
+        $version = $this->connection->pdo()->getAttribute(\PDO::ATTR_SERVER_VERSION);
+
+        return \is_string($version) ? $version : '';
     }
 
     /**

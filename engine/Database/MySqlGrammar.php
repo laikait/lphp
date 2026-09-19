@@ -14,7 +14,8 @@ use App\Engine\Database\Structure\Table;
  *
  * Renaming a column is the standard RENAME COLUMN, which needs MySQL 8.0 or
  * MariaDB 10.5.2. Before those the only way was CHANGE, which restates the
- * whole column, and so needs a definition the change does not have.
+ * whole column, and so needs a definition the change does not have: on an
+ * older server Tables refuses the rename before anything runs.
  */
 final class MySqlGrammar extends Grammar
 {

@@ -185,7 +185,9 @@ note.
   A column added to a table with rows needs `nullable()` or a default. What
   SQLite's `ALTER TABLE` cannot do (dropping a foreign key, or adding one to a
   column that is already there) is refused with nothing run, never done by
-  rebuilding the table. Renaming a column needs MySQL 8.0 or MariaDB 10.5.2.
+  rebuilding the table. Renaming a column needs MySQL 8.0 or MariaDB 10.5.2;
+  on an older server the rename is refused with nothing run, not left to fail
+  as a syntax error.
 - **`database.*` hooks.** An application now fires
   `database.query.failed`, `database.transaction.committed`,
   `database.transaction.rolled_back` (with its cause) and
@@ -250,6 +252,10 @@ note.
 
 ### Fixed
 
+- **Binary data could not be written on SQL Server.** A stream was sent as
+  text, and SQL Server refuses text in a `VARBINARY` column. It is now bound
+  with the driver's binary encoding, and comes back byte for byte, as on the
+  other three databases.
 - **A new visitor's first form was refused as a CSRF mismatch.** With no
   `XSRF-TOKEN` cookie yet, every call to `Csrf::token()` signed a new token, so
   a handler that put one in its form and the guard that set the cookie handed

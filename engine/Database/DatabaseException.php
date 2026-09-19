@@ -485,6 +485,22 @@ final class DatabaseException extends FrameworkException
         ));
     }
 
+    /**
+     * RENAME COLUMN on a server older than MySQL 8.0 or MariaDB 10.5.2. The
+     * only rename those have is CHANGE, which restates the whole column, and
+     * a rename does not know the rest of it.
+     */
+    public static function renameNeedsNewerServer(string $version, string $table): self
+    {
+        return new self(\sprintf(
+            'This server (%s) has no RENAME COLUMN, so a column of "%s" cannot be renamed. Nothing was run. '
+            . 'It needs MySQL 8.0 or MariaDB 10.5.2; before those, restate the column with CHANGE in '
+            . '$tables->raw(..., \'mysql\').',
+            $version,
+            $table,
+        ));
+    }
+
     public static function cannotQuote(string $driver): self
     {
         return new self(\sprintf('The %s driver could not quote a default value, so the table was not created.', $driver));

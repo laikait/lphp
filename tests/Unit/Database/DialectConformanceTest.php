@@ -814,10 +814,6 @@ final class DialectConformanceTest extends TestCase
     #[DataProvider('databases')]
     public function test_binary_data_comes_back_byte_for_byte(ConnectionConfig $config): void
     {
-        if ($config->driver() === 'sqlsrv') {
-            self::markTestSkipped('Binding a stream as binary on SQL Server needs its own encoding attribute, not yet written.');
-        }
-
         $db = $this->connect($config);
         $bytes = "\x00\xFF\x7F binary \x00";
 
@@ -881,6 +877,12 @@ final class DialectConformanceTest extends TestCase
             $table->foreign('parent_id')->references(self::PARENTS)->onDelete('cascade');
         });
 
+        $bytes = "\x00\xFF\x7F binary \x00";
+        $stream = \fopen('php://memory', 'r+b');
+        self::assertIsResource($stream);
+        \fwrite($stream, $bytes);
+        \rewind($stream);
+
         $parent = $db->table(self::PARENTS)->insert(['code' => 'p1'], 'id');
         $id = $db->table(self::STRUCTURE)->insert([
             'parent_id' => $parent,
@@ -888,6 +890,7 @@ final class DialectConformanceTest extends TestCase
             'notes' => \str_repeat('long ', 2000),
             'due_on' => '2026-03-04',
             'happened_at' => new \DateTimeImmutable('2026-01-02 03:04:05.25'),
+            'content' => $stream,
         ], 'id');
 
         self::assertIsInt($id);
@@ -905,6 +908,10 @@ final class DialectConformanceTest extends TestCase
         self::assertSame('2026-03-04', \substr((string) $row['due_on'], 0, 10));
         self::assertSame('2026-01-02 03:04:05.250000', (new \DateTimeImmutable((string) $row['happened_at']))->format('Y-m-d H:i:s.u'));
         self::assertNull($row['created_at']);
+
+        // PostgreSQL hands a bytea back as a stream.
+        $content = \is_resource($row['content']) ? \stream_get_contents($row['content']) : $row['content'];
+        self::assertSame($bytes, $content, 'binary, byte for byte');
 
         // Any number of rows may leave a unique column empty, on every database.
         $db->table(self::STRUCTURE)->insert(['parent_id' => $parent]);
@@ -1060,19 +1067,57 @@ final class DialectConformanceTest extends TestCase
     public function test_a_renamed_column_keeps_what_it_holds(ConnectionConfig $config): void
     {
         $db = $this->alterable($config);
-        $version = (string) $db->pdo()->getAttribute(\PDO::ATTR_SERVER_VERSION);
 
-        // RENAME COLUMN arrived in MySQL 8.0 and MariaDB 10.5.2; the XAMPP
-        // MariaDB on the Windows gate is 10.4. CI runs MySQL 8.4.
-        if ($db->driver() === 'mysql' && \preg_match('/(\d+\.\d+\.\d+)-MariaDB/', $version, $mariadb) === 1
-            ? \version_compare($mariadb[1], '10.5.2', '<')
-            : $db->driver() === 'mysql' && \version_compare($version, '8.0.0', '<')) {
-            self::markTestSkipped(\sprintf('%s has no RENAME COLUMN.', $version));
+        if (self::hasNoRenameColumn($db)) {
+            self::markTestSkipped('This server has no RENAME COLUMN; the next test holds what happens instead.');
         }
 
         $db->tables()->alter(self::STRUCTURE, static fn(Table $t) => $t->renameColumn('notes', 'remarks'));
 
         self::assertSame('kept', $db->table(self::STRUCTURE)->first()['remarks'] ?? null);
+    }
+
+    /**
+     * RENAME COLUMN arrived in MySQL 8.0 and MariaDB 10.5.2 -- the XAMPP
+     * MariaDB on the Windows gate is 10.4, and CI runs MySQL 8.4, so each
+     * side of this pair runs somewhere.
+     */
+    #[DataProvider('databases')]
+    public function test_a_server_without_rename_column_refuses_before_anything_runs(ConnectionConfig $config): void
+    {
+        $db = $this->alterable($config);
+
+        if (!self::hasNoRenameColumn($db)) {
+            self::markTestSkipped('This server renames columns; the previous test holds that.');
+        }
+
+        try {
+            $db->tables()->alter(self::STRUCTURE, static function (Table $t): void {
+                $t->string('added', 10)->nullable();
+                $t->renameColumn('notes', 'remarks');
+            });
+            self::fail('the rename was not refused');
+        } catch (DatabaseException $e) {
+            self::assertStringContainsString('has no RENAME COLUMN', $e->getMessage());
+            self::assertStringContainsString('Nothing was run', $e->getMessage());
+        }
+
+        $row = $db->table(self::STRUCTURE)->first();
+        self::assertSame('kept', $row['notes'] ?? null);
+        self::assertArrayNotHasKey('added', $row ?? [], 'the column added alongside');
+    }
+
+    private static function hasNoRenameColumn(Connection $db): bool
+    {
+        if ($db->driver() !== 'mysql') {
+            return false;
+        }
+
+        $version = (string) $db->pdo()->getAttribute(\PDO::ATTR_SERVER_VERSION);
+
+        return \preg_match('/(\d+\.\d+\.\d+)-MariaDB/i', $version, $mariadb) === 1
+            ? \version_compare($mariadb[1], '10.5.2', '<')
+            : \version_compare($version, '8.0.0', '<');
     }
 
     // ---- migrations -------------------------------------------------------

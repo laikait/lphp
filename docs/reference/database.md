@@ -159,7 +159,7 @@ it.
 | `int`, `bool`, `null`, `string` | their own PDO types |
 | `float` | the shortest decimal that reads back as the same float — PDO alone would write fourteen digits and store `0.1 + 0.2` as `0.3`. Infinity and NaN are refused |
 | `DateTimeInterface` | `Y-m-d H:i:s`, with `.u` when there are microseconds. The wall-clock time as given: **the time zone is not converted**, because which zone a column holds is the application's decision |
-| a stream resource | a large object, for binary data |
+| a stream resource | a large object, for binary data — on SQL Server with the driver's binary encoding, which a `VARBINARY` column needs |
 | `Stringable` | its string |
 
 Anything else is refused by parameter position and type, never by value.
@@ -510,7 +510,9 @@ $connection->tables()->alter('invoices', static function (Table $table): void {
   rebuilds a table behind your back; that would copy every row and lose
   whatever the builder does not describe. `DROP COLUMN` needs SQLite 3.35.
 - **Renaming a column needs MySQL 8.0 or MariaDB 10.5.2.** Before those, MySQL
-  could rename a column only by restating its whole definition.
+  could rename a column only by restating its whole definition, which a rename
+  does not know. On an older server the change is refused with nothing run;
+  write the `CHANGE` yourself with `$tables->raw(..., 'mysql')`.
 - **Everything is written before the first statement is sent**, so a refusal
   runs nothing. Each change is still its own statement, so on MySQL, which has
   no `TransactionalDdl`, one that fails leaves the ones before it made.

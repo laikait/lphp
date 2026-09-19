@@ -31,6 +31,12 @@ use App\Engine\Database\Structure\Tables;
  */
 final class Connection
 {
+    /**
+     * PDO::SQLSRV_ENCODING_BINARY, written out: the constant exists only where
+     * pdo_sqlsrv is loaded, and this file must load everywhere.
+     */
+    private const SQLSRV_ENCODING_BINARY = 2;
+
     private ?\PDO $pdo = null;
 
     /** How deep the current transaction is nested; 0 means none is open. */
@@ -503,7 +509,10 @@ final class Connection
      *     microseconds when it has any. The time zone is not converted: which
      *     zone a column holds is the application's decision, and a conversion
      *     made here would be one nobody could see.
-     *   - A stream resource is sent as a large object, for binary data.
+     *   - A stream resource is sent as a large object, for binary data. SQL
+     *     Server would otherwise send it as text, and refuse to put text in a
+     *     VARBINARY column, so there it is bound with the driver's binary
+     *     encoding -- an option only bindParam() takes.
      *   - Anything else is refused by position, never by value.
      *
      * @param array<array-key, mixed> $bindings
@@ -511,9 +520,17 @@ final class Connection
     private function bind(\PDOStatement $statement, array $bindings): void
     {
         $position = 1;
+        $streams = [];
 
         foreach ($bindings as $key => $value) {
             $parameter = \is_int($key) ? $position++ : $key;
+
+            if (\is_resource($value) && $this->driver() === 'sqlsrv') {
+                $streams[$parameter] = $value;
+                $statement->bindParam($parameter, $streams[$parameter], \PDO::PARAM_LOB, 0, self::SQLSRV_ENCODING_BINARY);
+
+                continue;
+            }
 
             [$bound, $type] = match (true) {
                 \is_int($value) => [$value, \PDO::PARAM_INT],
