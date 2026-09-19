@@ -741,12 +741,30 @@ final class ArchitectureTest extends TestCase
     public function test_the_database_layer_holds_infrastructure_only(): void
     {
         $infrastructure = [
+            'Aggregate.php',
+            'Capability.php',
+            'Column.php',
+            'ColumnType.php',
+            'Condition.php',
             'Connection.php',
             'ConnectionConfig.php',
             'ConnectionManager.php',
             'DatabaseException.php',
+            'ForeignKey.php',
             'Grammar.php',
+            'Index.php',
+            'IsolationLevel.php',
+            'JoinClause.php',
+            'MySqlGrammar.php',
+            'PostgresGrammar.php',
+            'QueryBuilder.php',
+            'QueryState.php',
+            'RawExpression.php',
+            'SqlServerGrammar.php',
             'SqlSource.php',
+            'SqliteGrammar.php',
+            'Table.php',
+            'Tables.php',
         ];
 
         $found = [];
@@ -761,6 +779,34 @@ final class ArchitectureTest extends TestCase
         \sort($infrastructure);
 
         self::assertSame($infrastructure, $found);
+    }
+
+    /**
+     * Migrations sit on the database layer, never the other way round.
+     *
+     * The table builder is usable from a script with no modules at all; the
+     * runner that finds migrations in modules is a separate layer that uses
+     * it. If anything in engine/Database named a module or a migration, that
+     * would stop being true.
+     */
+    public function test_the_database_layer_knows_nothing_of_migrations_or_modules(): void
+    {
+        $checked = 0;
+
+        foreach ($this->engineFiles() as $path) {
+            if (!\str_contains($this->relative($path), 'engine/Database/')) {
+                continue;
+            }
+
+            ++$checked;
+            $code = $this->codeWithoutComments($path);
+
+            foreach (['App\\Engine\\Migration\\', 'App\\Engine\\Module\\'] as $namespace) {
+                self::assertStringNotContainsString($namespace, $code, \sprintf('%s depends on %s.', $this->relative($path), $namespace));
+            }
+        }
+
+        self::assertGreaterThan(0, $checked);
     }
 
     /**
@@ -808,7 +854,11 @@ final class ArchitectureTest extends TestCase
                 continue;
             }
 
-            foreach (['SELECT ', 'INSERT INTO', 'UPDATE ', 'DELETE FROM'] as $statement) {
+            foreach ([
+                'SELECT ', 'INSERT INTO', 'UPDATE ', 'DELETE FROM', 'SAVEPOINT', 'SAVE TRANSACTION',
+                // Structure too: the table builder describes, the grammar writes.
+                'CREATE TABLE', 'DROP TABLE', 'CREATE INDEX', 'CREATE UNIQUE INDEX', 'FOREIGN KEY',
+            ] as $statement) {
                 self::assertStringNotContainsString(
                     $statement,
                     $this->codeWithoutComments($path),
@@ -1110,7 +1160,7 @@ final class ArchitectureTest extends TestCase
         }
 
         // And every class under modules/ sits where PSR-4 will look for it.
-        $checked = 0;
+        $read = 0;
         $root = $this->basePath('modules');
 
         foreach (new \RecursiveIteratorIterator(new \RecursiveDirectoryIterator($root, \FilesystemIterator::SKIP_DOTS)) as $file) {
@@ -1120,12 +1170,12 @@ final class ArchitectureTest extends TestCase
 
             $source = \file_get_contents($file->getPathname());
             self::assertIsString($source);
+            ++$read;
 
             if (\preg_match('/^namespace (App\\\\Modules\\\\[^;]+);/m', $source, $namespace) !== 1) {
                 continue;
             }
 
-            ++$checked;
             $directory = \str_replace('\\', '/', \substr($file->getPath(), \strlen($root) + 1));
 
             self::assertSame(
@@ -1135,7 +1185,10 @@ final class ArchitectureTest extends TestCase
             );
         }
 
-        self::assertGreaterThan(0, $checked, 'no namespaced class under modules/, so this rule reads nothing.');
+        // A fresh installation has no classes under modules/, only module.php,
+        // so the rule may have nothing to check. What it must not do is read
+        // nothing, which is what a wrong path looks like.
+        self::assertGreaterThan(0, $read, 'no PHP file under modules/, so this rule reads nothing.');
     }
 
     /**
@@ -1507,10 +1560,14 @@ final class ArchitectureTest extends TestCase
             'engine/Cli/Commands/CacheWarmCommand.php',
             'engine/Cli/Commands/ConfigCacheCommand.php',
             'engine/Cli/Commands/ConfigListCommand.php',
+            'engine/Cli/Commands/DbSeedCommand.php',
             'engine/Cli/Commands/HelpCommand.php',
             'engine/Cli/Commands/LogStatusCommand.php',
             'engine/Cli/Commands/McpListCommand.php',
             'engine/Cli/Commands/McpStdioCommand.php',
+            'engine/Cli/Commands/MigrateCommand.php',
+            'engine/Cli/Commands/MigrateRollbackCommand.php',
+            'engine/Cli/Commands/MigrateStatusCommand.php',
             'engine/Cli/Commands/ModuleListCommand.php',
             'engine/Cli/Commands/NginxMakeCommand.php',
             'engine/Cli/Commands/QueueFailedCommand.php',
@@ -1523,7 +1580,6 @@ final class ArchitectureTest extends TestCase
             'engine/Cli/Commands/SecurityCheckCommand.php',
             'engine/Cli/Commands/SecurityKeyCommand.php',
             'engine/Cli/Commands/SessionGcCommand.php',
-            'engine/Cli/Commands/SessionTableCommand.php',
             'engine/Cli/Commands/SystemCronInstallCommand.php',
             'engine/Cli/Commands/SystemCronListCommand.php',
             'engine/Cli/Commands/SystemCronRemoveCommand.php',
@@ -1659,7 +1715,6 @@ final class ArchitectureTest extends TestCase
             'auth:access',
             'auth:hash',
             'session:gc',
-            'session:table',
             'asset:list',
             'template:list',
             'log:status',
@@ -1678,6 +1733,13 @@ final class ArchitectureTest extends TestCase
             // An interface to capabilities modules register, not a way to run code.
             'mcp:list',
             'mcp:stdio',
+            // Run migrations a module wrote by hand. There is no make:migration:
+            // the name rule is documented, and checked when the file is read.
+            'migrate',
+            'migrate:status',
+            'migrate:rollback',
+            // Run seeders a module wrote by hand; there is no make:seeder.
+            'db:seed',
         ];
 
         $registry = new \App\Engine\Cli\CommandRegistry();
@@ -1845,12 +1907,14 @@ final class ArchitectureTest extends TestCase
             'engine/Logging/LineFormatter.php',
             'engine/Logging/LogManager.php',
             'engine/Logging/LogRecord.php',
+            'engine/Logging/LogTableMigration.php',
             'engine/Logging/LogWriter.php',
             'engine/Logging/Logger.php',
             'engine/Logging/LoggingException.php',
             'engine/Logging/McpLog.php',
             'engine/Logging/ScheduleLog.php',
             'engine/Logging/SystemAuditLog.php',
+            'engine/Logging/Writers/DatabaseWriter.php',
             'engine/Logging/Writers/FileWriter.php',
             'engine/Logging/Writers/StreamWriter.php',
             'engine/Logging/Writers/SyslogWriter.php',
@@ -2045,7 +2109,10 @@ final class ArchitectureTest extends TestCase
             'engine/Cache/CacheEntry.php',
             'engine/Cache/CacheException.php',
             'engine/Cache/CacheStore.php',
+            'engine/Cache/CacheTableMigration.php',
+            'engine/Cache/PrunableStore.php',
             'engine/Cache/Stores/ArrayStore.php',
+            'engine/Cache/Stores/DatabaseStore.php',
             'engine/Cache/Stores/FileStore.php',
             'engine/Cache/Stores/NullStore.php',
         ];
@@ -2145,6 +2212,11 @@ final class ArchitectureTest extends TestCase
             $exercised[] = (new \ReflectionClass($make[0]()))->getShortName();
         }
 
+        // Building a database store made its table on each server; the suite's
+        // own cleanup drops them. And one store runs on several databases.
+        StoreConformanceTest::tearDownAfterClass();
+        $exercised = \array_values(\array_unique($exercised));
+
         \sort($stores);
         \sort($exercised);
 
@@ -2161,10 +2233,20 @@ final class ArchitectureTest extends TestCase
      * It is handed to the asset manager, the template manager and to modules,
      * and it must not know that any of them exist -- otherwise "which store"
      * stops being a configuration decision and becomes a dependency graph.
+     *
+     * The database is below it, not above: the database store keeps entries in
+     * a table, and its table is a migration. The migration interface is all it
+     * takes of the migration layer, which knows modules.
      */
     public function test_the_cache_layer_depends_on_nothing_above_it(): void
     {
-        $allowed = ['App\\Engine\\Cache', 'App\\Engine\\Support', 'App\\Engine\\Error\\FrameworkException'];
+        $allowed = [
+            'App\\Engine\\Cache',
+            'App\\Engine\\Support',
+            'App\\Engine\\Error\\FrameworkException',
+            'App\\Engine\\Database',
+            'App\\Engine\\Migration\\Reversible',
+        ];
 
         foreach ($this->engineFiles() as $path) {
             $relative = $this->relative($path);
@@ -2208,7 +2290,9 @@ final class ArchitectureTest extends TestCase
             'engine/Queue/Queue.php',
             'engine/Queue/QueueException.php',
             'engine/Queue/QueueStore.php',
+            'engine/Queue/QueueTableMigration.php',
             'engine/Queue/QueuedJob.php',
+            'engine/Queue/Stores/DatabaseStore.php',
             'engine/Queue/Stores/FileStore.php',
             'engine/Queue/Stores/MemoryStore.php',
             'engine/Queue/Stores/SyncStore.php',
@@ -2339,6 +2423,11 @@ final class ArchitectureTest extends TestCase
         foreach (QueueStoreConformanceTest::stores() as $make) {
             $exercised[] = (new \ReflectionClass($make[0]()))->getShortName();
         }
+
+        // Building a database store made its table on each server; the suite's
+        // own cleanup drops them. And one store runs on several databases.
+        QueueStoreConformanceTest::tearDownAfterClass();
+        $exercised = \array_values(\array_unique($exercised));
 
         \sort($stores);
         \sort($exercised);
@@ -3151,6 +3240,11 @@ final class ArchitectureTest extends TestCase
         foreach (SessionStoreConformanceTest::stores() as $make) {
             $exercised[] = (new \ReflectionClass($make[0]()))->getShortName();
         }
+
+        // Building a database store made its table on each server; the suite's
+        // own cleanup drops them. And one store runs on several databases.
+        SessionStoreConformanceTest::tearDownAfterClass();
+        $exercised = \array_values(\array_unique($exercised));
 
         \sort($stores);
         \sort($exercised);

@@ -95,7 +95,8 @@ namespace beats a shorter one.
 | `App\Engine\Auth\UserProvider` | Experimental | 1.0 candidate; its method list is frozen by a test |
 | `App\Engine\Bootstrap\Bootstrap` | Experimental | `create()`, `settings()` and `defaults()`, for embedding and tests |
 | `App\Engine\Cache\*` | Experimental | |
-| `App\Engine\Cache\Stores\*` | Internal | selected by name: `CACHE_STORE=array\|file\|null` |
+| `App\Engine\Cache\CacheTableMigration` | Internal | run by `migrate` while `cache.store` is `database` |
+| `App\Engine\Cache\Stores\*` | Internal | selected by name: `CACHE_STORE=array\|file\|database\|null` |
 | `App\Engine\Cli\*` | Internal | |
 | `App\Engine\Cli\Command` | Experimental | what `CommandCollector::add()` returns |
 | `App\Engine\Cli\CommandCollector` | Experimental | |
@@ -116,7 +117,13 @@ namespace beats a shorter one.
 | `App\Engine\Data\Order` | Internal | |
 | `App\Engine\Database\*` | Experimental | |
 | `App\Engine\Database\ConnectionConfig` | Internal | |
-| `App\Engine\Database\Grammar` | Internal | the only place SQL is built |
+| `App\Engine\Database\Grammar` | Internal | the only place SQL is built; `Grammar::for()` picks the dialect |
+| `App\Engine\Database\MySqlGrammar` | Internal | |
+| `App\Engine\Database\PostgresGrammar` | Internal | |
+| `App\Engine\Database\Query\Condition` | Internal | what the builder records and the grammar writes |
+| `App\Engine\Database\Query\QueryState` | Internal | |
+| `App\Engine\Database\SqlServerGrammar` | Internal | |
+| `App\Engine\Database\SqliteGrammar` | Internal | |
 | `App\Engine\Dispatch\*` | Internal | |
 | `App\Engine\Dispatch\DispatchException` | Experimental | |
 | `App\Engine\Error\*` | Experimental | |
@@ -129,6 +136,7 @@ namespace beats a shorter one.
 | `App\Engine\Logging\*` | Internal | |
 | `App\Engine\Logging\Level` | Experimental | |
 | `App\Engine\Logging\LogRecord` | Experimental | what a `LogWriter` receives |
+| `App\Engine\Logging\LogTableMigration` | Internal | run by `migrate` while `logging.writers` names `database`; its columns are what a query of the log reads |
 | `App\Engine\Logging\LogWriter` | Experimental | |
 | `App\Engine\Logging\Logger` | Experimental | 1.0 candidate |
 | `App\Engine\Logging\LoggingException` | Experimental | |
@@ -144,6 +152,12 @@ namespace beats a shorter one.
 | `App\Engine\MCP\Resource\ResourceReader` | Internal | |
 | `App\Engine\MCP\Tool\ToolRunner` | Internal | |
 | `App\Engine\MCP\Transport\*` | Internal | selected by `mcp.transports` |
+| `App\Engine\Migration\*` | Experimental | what a migration or seeder file implements (`Migration`, `Reversible`, `Seeder`) and what a failed run throws |
+| `App\Engine\Migration\MigrationFile` | Internal | the name rule is documented; the class is not |
+| `App\Engine\Migration\MigrationRepository` | Internal | the tracking table's layout is the runner's |
+| `App\Engine\Migration\Migrator` | Internal | run through `migrate`, `migrate:status` and `migrate:rollback` |
+| `App\Engine\Migration\SeederFile` | Internal | the name rule is documented; the class is not |
+| `App\Engine\Migration\SeedRunner` | Internal | run through `db:seed` |
 | `App\Engine\MCP\Validation\*` | Internal | the schema subset is documented; the validator is not |
 | `App\Engine\Model\*` | Experimental | |
 | `App\Engine\Model\Attributes` | Internal | |
@@ -160,6 +174,7 @@ namespace beats a shorter one.
 | `App\Engine\Queue\QueueException` | Experimental | |
 | `App\Engine\Queue\QueueStore` | Experimental | a conformance suite defines it |
 | `App\Engine\Queue\QueuedJob` | Experimental | a persisted format — see above |
+| `App\Engine\Queue\QueueTableMigration` | Internal | run by `migrate` while `queue.store` is `database`; its columns are a persisted format too |
 | `App\Engine\Routing\*` | Experimental | |
 | `App\Engine\Routing\MatchStatus` | Internal | |
 | `App\Engine\Routing\RouteMatch` | Internal | |
@@ -182,6 +197,7 @@ namespace beats a shorter one.
 | `App\Engine\Session\*` | Experimental | |
 | `App\Engine\Session\SessionId` | Internal | |
 | `App\Engine\Session\SessionManager` | Internal | |
+| `App\Engine\Session\SessionTableMigration` | Internal | run by `migrate` while `session.store` is `database` |
 | `App\Engine\Session\Stores\*` | Internal | selected by name: `SESSION_STORE=file\|database\|memory` |
 | `App\Engine\Support\*` | Internal | |
 | `App\Engine\System\*` | Experimental | the newest API here; see [System operations](docs/reference/system.md) |

@@ -92,8 +92,8 @@ Everything else is in [`docs/`](docs/README.md), by what you are doing:
 | deploy and run it | [Running in production](docs/operations/running.md), [Deployment and security](docs/operations/deployment.md), [Troubleshooting](docs/troubleshooting.md) |
 | change the framework | [Contributing](docs/contributing/README.md) |
 
-Before deploying anything: the shipped `shared` module contains **demo accounts**
-that must be replaced — see [Users and permissions](docs/guides/users-and-permissions.md).
+A fresh installation has no accounts and no login route; add your own — see
+[Users and permissions](docs/guides/users-and-permissions.md).
 
 ## License
 

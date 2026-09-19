@@ -5,6 +5,8 @@ declare(strict_types=1);
 namespace App\Engine\Session\Stores;
 
 use App\Engine\Database\Connection;
+use App\Engine\Database\DatabaseException;
+use App\Engine\Database\Query\QueryBuilder;
 use App\Engine\Session\SessionException;
 use App\Engine\Session\SessionId;
 use App\Engine\Session\SessionRecord;
@@ -19,21 +21,24 @@ use App\Engine\Session\SessionStore;
  * around -- and lose every session on that node when it restarts. A shared
  * table is the version with no asterisk, and the database is already there.
  *
- * **The lock is a row lock, taken inside a transaction.** SELECT ... FOR UPDATE
- * on the drivers that have it, which gives exactly the guarantee the interface
- * asks for: one writer at a time, per session, for the length of one
- * read-modify-write rather than the length of a request.
+ * Every statement goes through the query builder, so the store runs on each
+ * database the builder writes for.
+ *
+ * **The lock is a row lock, taken inside a transaction.** lockForUpdate(),
+ * which is FOR UPDATE on MySQL and PostgreSQL and UPDLOCK on SQL Server,
+ * gives exactly the guarantee the interface asks for: one writer at a time,
+ * per session, for the length of one read-modify-write rather than the length
+ * of a request.
  *
  * SQLite has no row locking; it locks the whole database file for a write. That
  * is correct but not concurrent, and under two simultaneous writers one of them
  * gets "database is locked". It is fine for development and for the test suite,
  * which is what it is used for here.
  *
- * **The table is not created automatically.** A store that issues DDL on its
+ * **The table is not created on a request.** A store that issues DDL on its
  * first request needs permissions in production that nothing should have, and
- * it does it at the worst possible time. `session:table` prints the statement
- * for the configured driver; where that statement goes is the application's
- * business.
+ * it does it at the worst possible time. `migrate` creates it, from
+ * SessionTableMigration, while session.store is "database".
  *
  * The id and the timestamps appear both as columns and inside the JSON, and
  * that duplication is deliberate. The columns exist so that the sweep is one
@@ -44,9 +49,6 @@ use App\Engine\Session\SessionStore;
 final class DatabaseStore implements SessionStore
 {
     public const DEFAULT_TABLE = 'sessions';
-
-    /** Drivers whose SELECT can take a row lock. */
-    private const ROW_LOCKING = ['mysql', 'pgsql'];
 
     public function __construct(
         private readonly Connection $connection,
@@ -64,7 +66,7 @@ final class DatabaseStore implements SessionStore
             return null;
         }
 
-        return $this->decode($this->row($id, forUpdate: false));
+        return $this->decode($this->row($id, lock: false));
     }
 
     public function commit(string $id, \Closure $apply): ?SessionRecord
@@ -75,38 +77,28 @@ final class DatabaseStore implements SessionStore
 
         /** @var SessionRecord|null $result */
         $result = $this->connection->transaction(function () use ($id, $apply): ?SessionRecord {
-            $existing = $this->row($id, forUpdate: true);
+            $existing = $this->row($id, lock: true);
             $record = $apply($this->decode($existing));
 
             if ($record === null) {
                 if ($existing !== null) {
-                    $this->connection->execute(
-                        \sprintf('DELETE FROM %s WHERE id = ?', $this->quoted()),
-                        [$id],
-                    );
+                    $this->sessions()->where('id', $id)->delete();
                 }
 
                 return null;
             }
 
-            $encoded = $record->encode();
+            $columns = [
+                'payload' => $record->encode(),
+                'created_at' => $record->createdAt,
+                'touched_at' => $record->touchedAt,
+                'successor' => $record->successor,
+            ];
 
             if ($existing === null) {
-                $this->connection->execute(
-                    \sprintf(
-                        'INSERT INTO %s (id, payload, created_at, touched_at, successor) VALUES (?, ?, ?, ?, ?)',
-                        $this->quoted(),
-                    ),
-                    [$record->id, $encoded, $record->createdAt, $record->touchedAt, $record->successor],
-                );
+                $this->sessions()->insert(['id' => $record->id, ...$columns]);
             } else {
-                $this->connection->execute(
-                    \sprintf(
-                        'UPDATE %s SET payload = ?, created_at = ?, touched_at = ?, successor = ? WHERE id = ?',
-                        $this->quoted(),
-                    ),
-                    [$encoded, $record->createdAt, $record->touchedAt, $record->successor, $record->id],
-                );
+                $this->sessions()->where('id', $record->id)->update($columns);
             }
 
             return $record;
@@ -121,10 +113,7 @@ final class DatabaseStore implements SessionStore
             return false;
         }
 
-        return $this->connection->execute(
-            \sprintf('DELETE FROM %s WHERE id = ?', $this->quoted()),
-            [$id],
-        ) > 0;
+        return $this->sessions()->where('id', $id)->delete() > 0;
     }
 
     /**
@@ -132,130 +121,50 @@ final class DatabaseStore implements SessionStore
      *
      * Sweeping by selecting and deleting row by row would hold the table open
      * for as long as there are expired sessions, which on a busy site is
-     * exactly when it is worst. Both clocks are expressed as SQL because the
-     * database can answer this without sending a row anywhere.
+     * exactly when it is worst. Both clocks are conditions the database can
+     * answer without sending a row anywhere.
      */
     public function gc(int $idle, int $absolute = 0): int
     {
         $now = \time();
-        $conditions = [];
-        $bindings = [];
+        $query = null;
 
         if ($idle > 0) {
-            $conditions[] = 'touched_at <= ?';
-            $bindings[] = $now - $idle;
+            $query = $this->sessions()->where('touched_at', '<=', $now - $idle);
         }
 
         if ($absolute > 0) {
-            $conditions[] = 'created_at <= ?';
-            $bindings[] = $now - $absolute;
+            $query = $query === null
+                ? $this->sessions()->where('created_at', '<=', $now - $absolute)
+                : $query->orWhere('created_at', '<=', $now - $absolute);
         }
 
-        if ($conditions === []) {
-            return 0;
-        }
-
-        return $this->connection->execute(
-            \sprintf('DELETE FROM %s WHERE %s', $this->quoted(), \implode(' OR ', $conditions)),
-            $bindings,
-        );
+        return $query === null ? 0 : $query->delete();
     }
 
-    /**
-     * The statement that creates the table, printed by session:table.
-     *
-     * Written out per driver rather than generated, because there are four
-     * columns and a schema builder that produced them would be a schema builder
-     * this framework does not otherwise have. The types matter: the id is
-     * fixed-width, the payload is TEXT because a session is usually small and
-     * occasionally is not, and both timestamps are integers so that the sweep
-     * above is an index range rather than a date function.
-     */
-    public static function ddl(string $driver, string $table = self::DEFAULT_TABLE): string
+    private function sessions(): QueryBuilder
     {
-        $index = \sprintf(
-            'CREATE INDEX %s_touched_at_index ON %s (touched_at);',
-            $table,
-            $table,
-        );
-
-        return match ($driver) {
-            'mysql' => \sprintf(
-                "CREATE TABLE `%s` (\n"
-                . "    `id` CHAR(64) NOT NULL PRIMARY KEY,\n"
-                . "    `payload` TEXT NOT NULL,\n"
-                . "    `created_at` INT UNSIGNED NOT NULL,\n"
-                . "    `touched_at` INT UNSIGNED NOT NULL,\n"
-                . "    `successor` CHAR(64) NULL,\n"
-                . "    INDEX `%s_touched_at_index` (`touched_at`)\n"
-                . ') ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;',
-                $table,
-                $table,
-            ),
-            'pgsql' => \sprintf(
-                "CREATE TABLE %s (\n"
-                . "    id CHAR(64) NOT NULL PRIMARY KEY,\n"
-                . "    payload TEXT NOT NULL,\n"
-                . "    created_at BIGINT NOT NULL,\n"
-                . "    touched_at BIGINT NOT NULL,\n"
-                . "    successor CHAR(64) NULL\n"
-                . ");\n%s",
-                $table,
-                $index,
-            ),
-            default => \sprintf(
-                "CREATE TABLE %s (\n"
-                . "    id TEXT NOT NULL PRIMARY KEY,\n"
-                . "    payload TEXT NOT NULL,\n"
-                . "    created_at INTEGER NOT NULL,\n"
-                . "    touched_at INTEGER NOT NULL,\n"
-                . "    successor TEXT NULL\n"
-                . ");\n%s",
-                $table,
-                $index,
-            ),
-        };
+        return $this->connection->table($this->table);
     }
 
     /** @return array<string, mixed>|null */
-    private function row(string $id, bool $forUpdate): ?array
+    private function row(string $id, bool $lock): ?array
     {
-        $sql = \sprintf('SELECT id, payload, created_at, touched_at, successor FROM %s WHERE id = ?', $this->quoted());
-
-        if ($forUpdate && \in_array($this->connection->driver(), self::ROW_LOCKING, true)) {
-            $sql .= ' FOR UPDATE';
-        }
+        $query = $this->sessions()->select('id', 'payload', 'created_at', 'touched_at', 'successor')->where('id', $id);
 
         try {
-            return $this->connection->selectOne($sql, [$id]);
-        } catch (\Throwable $e) {
+            return ($lock ? $query->lockForUpdate() : $query)->first();
+        } catch (DatabaseException $e) {
             // A missing table is a deployment mistake, and the message every
             // driver gives for it is useless to whoever has to fix it. Anything
             // else is the database being unavailable, which is not this layer's
             // to explain and is rethrown untouched.
-            if ($this->meansTheTableIsMissing($e->getMessage())) {
-                throw SessionException::missingTable($this->table, $this->connection->driver());
+            if ($e->meansMissingTable()) {
+                throw SessionException::missingTable($this->table, $this->connection->name());
             }
 
             throw $e;
         }
-    }
-
-    /**
-     * Each driver phrases it differently and none of them uses an error code
-     * that survives PDO, so the phrasing is what there is.
-     */
-    private function meansTheTableIsMissing(string $message): bool
-    {
-        $message = \strtolower($message);
-
-        foreach (['no such table', 'base table or view not found', 'does not exist', "doesn't exist"] as $phrase) {
-            if (\str_contains($message, $phrase)) {
-                return true;
-            }
-        }
-
-        return false;
     }
 
     /** @param array<string, mixed>|null $row */
@@ -266,10 +175,5 @@ final class DatabaseStore implements SessionStore
         }
 
         return SessionRecord::decode($row['payload']);
-    }
-
-    private function quoted(): string
-    {
-        return $this->connection->driver() === 'mysql' ? '`' . $this->table . '`' : $this->table;
     }
 }

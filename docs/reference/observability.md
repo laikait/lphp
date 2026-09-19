@@ -136,7 +136,8 @@ SLOW_QUERY_MS=250
 ```
 
 Any statement slower than this is a warning on the `database` channel, with its
-SQL and its duration and never its values. It is the one timing worth paying for
+SQL, its duration, how many values were bound and how many rows it returned or
+changed, and never the values themselves. It is the one timing worth paying for
 on every statement in production: a query that took four seconds is a fact nobody
 should have to reproduce to learn about.
 

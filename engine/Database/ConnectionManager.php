@@ -25,8 +25,11 @@ final class ConnectionManager
 
     private ?string $default = null;
 
-    /** @var (\Closure(string, int, string): void)|null */
+    /** @var (\Closure(string, int, string, int, ?int): void)|null */
     private ?\Closure $observer = null;
+
+    /** @var (\Closure(string, mixed...): void)|null */
+    private ?\Closure $listener = null;
 
     /** @param list<ConnectionConfig> $configs */
     public function __construct(array $configs = [], ?string $default = null)
@@ -63,9 +66,8 @@ final class ConnectionManager
 
         $connection = new Connection($config);
 
-        if ($this->observer !== null) {
-            $connection->observe($this->observer);
-        }
+        $connection->observe($this->observer);
+        $connection->listen($this->listener);
 
         return $this->connections[$name] = $connection;
     }
@@ -76,7 +78,7 @@ final class ConnectionManager
      * See Connection::observe(), including why the bindings never reach the
      * observer.
      *
-     * @param (\Closure(string, int, string): void)|null $observer
+     * @param (\Closure(string, int, string, int, ?int): void)|null $observer
      */
     public function observe(?\Closure $observer): void
     {
@@ -84,6 +86,21 @@ final class ConnectionManager
 
         foreach ($this->connections as $connection) {
             $connection->observe($observer);
+        }
+    }
+
+    /**
+     * Hear every connection's events, open now or opened later. See
+     * Connection::listen() for what they are.
+     *
+     * @param (\Closure(string, mixed...): void)|null $listener
+     */
+    public function listen(?\Closure $listener): void
+    {
+        $this->listener = $listener;
+
+        foreach ($this->connections as $connection) {
+            $connection->listen($listener);
         }
     }
 
@@ -146,11 +163,26 @@ final class ConnectionManager
         return $open;
     }
 
-    /** Close everything. A worker calls this between units of work. */
+    /**
+     * Close everything. A worker calls this between units of work.
+     *
+     * Every connection is closed even if one of them had a transaction left
+     * open; the first such leak is reported once they all are.
+     */
     public function disconnectAll(): void
     {
+        $leak = null;
+
         foreach ($this->connections as $connection) {
-            $connection->disconnect();
+            try {
+                $connection->disconnect();
+            } catch (DatabaseException $e) {
+                $leak ??= $e;
+            }
+        }
+
+        if ($leak !== null) {
+            throw $leak;
         }
     }
 

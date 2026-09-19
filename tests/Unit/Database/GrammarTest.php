@@ -7,8 +7,16 @@ namespace App\Tests\Unit\Database;
 use App\Engine\Data\ArraySource;
 use App\Engine\Data\Operator;
 use App\Engine\Data\Query;
+use App\Engine\Database\Capability;
+use App\Engine\Database\Connection;
+use App\Engine\Database\ConnectionConfig;
 use App\Engine\Database\DatabaseException;
 use App\Engine\Database\Grammar;
+use App\Engine\Database\IsolationLevel;
+use App\Engine\Database\MySqlGrammar;
+use App\Engine\Database\PostgresGrammar;
+use App\Engine\Database\SqliteGrammar;
+use App\Engine\Database\SqlServerGrammar;
 use App\Engine\Model\ModelManager;
 use App\Tests\Support\TestCase;
 use PHPUnit\Framework\Attributes\DataProvider;
@@ -22,7 +30,7 @@ final class GrammarTest extends TestCase
 
     private function grammar(string $driver = 'sqlite'): Grammar
     {
-        return new Grammar($driver);
+        return Grammar::for($driver);
     }
 
     // ---- identifiers: the injection boundary ------------------------------
@@ -197,6 +205,55 @@ final class GrammarTest extends TestCase
         self::assertStringEndsWith('OFFSET 5', $sql);
     }
 
+    /**
+     * SQL Server has no LIMIT. OFFSET ... FETCH belongs to ORDER BY, so a query
+     * that asked for no order still gets one that orders by nothing.
+     *
+     * Compiled only: there is no SQL Server driver where this was written, so
+     * these assert the documented syntax rather than a server's answer.
+     */
+    public function test_sql_server_pages_with_offset_and_fetch(): void
+    {
+        $sqlsrv = $this->grammar('sqlsrv');
+
+        self::assertSame(
+            'SELECT * FROM [customers] ORDER BY (SELECT NULL) OFFSET 0 ROWS FETCH NEXT 10 ROWS ONLY',
+            $sqlsrv->compileSelect($this->query()->limit(10))['sql'],
+        );
+
+        self::assertSame(
+            'SELECT * FROM [customers] ORDER BY [name] ASC OFFSET 20 ROWS FETCH NEXT 10 ROWS ONLY',
+            $sqlsrv->compileSelect($this->query()->orderBy('name')->limit(10)->offset(20))['sql'],
+        );
+
+        self::assertSame(
+            'SELECT * FROM [customers] ORDER BY (SELECT NULL) OFFSET 5 ROWS',
+            $sqlsrv->compileSelect($this->query()->offset(5))['sql'],
+        );
+
+        self::assertSame('SELECT * FROM [customers]', $sqlsrv->compileSelect($this->query())['sql']);
+    }
+
+    /** FETCH NEXT 0 ROWS is an error there; skipping every row is the same nothing. */
+    public function test_sql_server_answers_a_limit_of_zero_with_nothing(): void
+    {
+        self::assertStringEndsWith(
+            ' OFFSET ' . \PHP_INT_MAX . ' ROWS FETCH NEXT 1 ROWS ONLY',
+            $this->grammar('sqlsrv')->compileSelect($this->query()->limit(0))['sql'],
+        );
+    }
+
+    /** No other driver is given SQL Server's paging, or loses its own. */
+    public function test_every_other_driver_keeps_limit_and_offset(): void
+    {
+        foreach (['mysql', 'pgsql', 'sqlite'] as $driver) {
+            $sql = $this->grammar($driver)->compileSelect($this->query()->limit(10)->offset(20))['sql'];
+
+            self::assertStringEndsWith(' LIMIT 10 OFFSET 20', $sql, $driver);
+            self::assertStringNotContainsString('ORDER BY', $sql, $driver);
+        }
+    }
+
     public function test_a_query_with_no_limit_says_nothing_about_limits(): void
     {
         self::assertStringNotContainsString('LIMIT', $this->grammar()->compileSelect($this->query())['sql']);
@@ -335,5 +392,194 @@ final class GrammarTest extends TestCase
 
         self::assertSame('DELETE FROM "customers" WHERE "id" IN (?, ?, ?)', $compiled['sql']);
         self::assertSame([1, 2, 3], $compiled['bindings']);
+    }
+
+    // ---- dialects ---------------------------------------------------------
+
+    public function test_each_driver_gets_its_own_dialect(): void
+    {
+        self::assertInstanceOf(MySqlGrammar::class, Grammar::for('mysql'));
+        self::assertInstanceOf(PostgresGrammar::class, Grammar::for('pgsql'));
+        self::assertInstanceOf(SqliteGrammar::class, Grammar::for('sqlite'));
+        self::assertInstanceOf(SqlServerGrammar::class, Grammar::for('sqlsrv'));
+
+        foreach (['mysql', 'pgsql', 'sqlite', 'sqlsrv'] as $driver) {
+            self::assertSame($driver, Grammar::for($driver)->driver());
+        }
+    }
+
+    /**
+     * A driver nobody has written a dialect for gets standard SQL, and is
+     * promised nothing beyond it.
+     */
+    public function test_an_unknown_driver_gets_standard_sql_and_no_capabilities(): void
+    {
+        $grammar = Grammar::for('firebird');
+
+        self::assertSame(Grammar::class, $grammar::class);
+        self::assertSame('', $grammar->driver());
+        self::assertSame('"name"', $grammar->identifier('name'));
+        self::assertSame(999, $grammar->maxBindings());
+        self::assertStringEndsWith(' LIMIT 10', $grammar->compileSelect($this->query()->limit(10))['sql']);
+
+        foreach (Capability::cases() as $capability) {
+            self::assertFalse($grammar->supports($capability), $capability->value);
+        }
+    }
+
+    public function test_each_dialect_states_its_placeholder_limit(): void
+    {
+        self::assertSame(65535, Grammar::for('mysql')->maxBindings());
+        self::assertSame(65535, Grammar::for('pgsql')->maxBindings());
+        self::assertSame(999, Grammar::for('sqlite')->maxBindings());
+        self::assertSame(2000, Grammar::for('sqlsrv')->maxBindings());
+    }
+
+    /**
+     * What each database really does, as a table.
+     *
+     * Every case of Capability is compared, so a new one fails here until its
+     * answer has been decided -- and written down -- for every dialect.
+     */
+    public function test_capabilities_are_what_each_database_really_does(): void
+    {
+        $expected = [
+            'mysql' => ['savepoints' => true, 'returning' => false, 'upsert' => true, 'right_join' => true, 'transactional_ddl' => false],
+            'pgsql' => ['savepoints' => true, 'returning' => true, 'upsert' => true, 'right_join' => true, 'transactional_ddl' => true],
+            'sqlite' => ['savepoints' => true, 'returning' => false, 'upsert' => true, 'right_join' => false, 'transactional_ddl' => true],
+            'sqlsrv' => ['savepoints' => true, 'returning' => true, 'upsert' => false, 'right_join' => true, 'transactional_ddl' => true],
+        ];
+
+        foreach ($expected as $driver => $answers) {
+            $actual = [];
+
+            foreach (Capability::cases() as $capability) {
+                $actual[$capability->value] = Grammar::for($driver)->supports($capability);
+            }
+
+            self::assertSame($answers, $actual, $driver);
+        }
+    }
+
+    public function test_a_connection_answers_for_its_dialect(): void
+    {
+        self::assertTrue((new Connection(ConnectionConfig::of('x', 'sqlite::memory:')))->supports(Capability::Savepoints));
+        self::assertFalse((new Connection(ConnectionConfig::of('x', 'oci:dbname=legacy')))->supports(Capability::Savepoints));
+    }
+
+    // ---- savepoints -------------------------------------------------------
+
+    public function test_savepoints_are_written_in_each_dialect(): void
+    {
+        foreach (['mysql', 'pgsql', 'sqlite'] as $driver) {
+            $grammar = $this->grammar($driver);
+
+            self::assertTrue($grammar->supports(Capability::Savepoints), $driver);
+            self::assertSame('SAVEPOINT sp_2', $grammar->compileSavepoint('sp_2'), $driver);
+            self::assertSame('RELEASE SAVEPOINT sp_2', $grammar->compileReleaseSavepoint('sp_2'), $driver);
+            self::assertSame('ROLLBACK TO SAVEPOINT sp_2', $grammar->compileRollbackToSavepoint('sp_2'), $driver);
+        }
+    }
+
+    /** SQL Server names them differently and has nothing to release. Compiled only. */
+    public function test_sql_server_saves_a_transaction_and_releases_nothing(): void
+    {
+        $sqlsrv = $this->grammar('sqlsrv');
+
+        self::assertTrue($sqlsrv->supports(Capability::Savepoints));
+        self::assertSame('SAVE TRANSACTION sp_2', $sqlsrv->compileSavepoint('sp_2'));
+        self::assertNull($sqlsrv->compileReleaseSavepoint('sp_2'));
+        self::assertSame('ROLLBACK TRANSACTION sp_2', $sqlsrv->compileRollbackToSavepoint('sp_2'));
+    }
+
+    /** Oracle has savepoints but no RELEASE; nothing is claimed that is not written. */
+    public function test_a_driver_whose_savepoints_are_not_written_does_not_claim_them(): void
+    {
+        self::assertFalse($this->grammar('oci')->supports(Capability::Savepoints));
+        self::assertFalse($this->grammar('')->supports(Capability::Savepoints));
+    }
+
+    public function test_a_savepoint_name_is_checked_like_any_identifier(): void
+    {
+        $this->expectException(DatabaseException::class);
+
+        $this->grammar()->compileSavepoint('sp; DROP TABLE customers');
+    }
+
+    // ---- isolation and retry ----------------------------------------------
+
+    /** Where each database needs the level set, and whether the session must be put back. */
+    public function test_each_dialect_sets_the_isolation_level_where_its_database_needs_it(): void
+    {
+        $level = IsolationLevel::RepeatableRead;
+
+        self::assertSame(
+            ['before' => 'SET TRANSACTION ISOLATION LEVEL REPEATABLE READ', 'after' => null, 'reset' => null],
+            Grammar::for('mysql')->compileIsolation($level),
+            'MySQL: before BEGIN, for the next transaction only',
+        );
+        self::assertSame(
+            ['before' => null, 'after' => 'SET TRANSACTION ISOLATION LEVEL REPEATABLE READ', 'reset' => null],
+            Grammar::for('pgsql')->compileIsolation($level),
+            'PostgreSQL: first inside the transaction, ending with it',
+        );
+        self::assertSame(
+            [
+                'before' => 'SET TRANSACTION ISOLATION LEVEL REPEATABLE READ',
+                'after' => null,
+                'reset' => 'SET TRANSACTION ISOLATION LEVEL READ COMMITTED',
+            ],
+            Grammar::for('sqlsrv')->compileIsolation($level),
+            'SQL Server: before BEGIN, for the whole session, so it is put back',
+        );
+        self::assertNull(Grammar::for('sqlsrv')->compileIsolation(IsolationLevel::ReadCommitted)['reset'], 'the default needs no reset');
+        self::assertSame(
+            ['before' => null, 'after' => null, 'reset' => null],
+            Grammar::for('sqlite')->compileIsolation(IsolationLevel::Serializable),
+            'SQLite: the only level there is',
+        );
+    }
+
+    public function test_which_levels_each_database_can_give(): void
+    {
+        foreach (IsolationLevel::cases() as $level) {
+            foreach (['mysql', 'pgsql', 'sqlsrv'] as $driver) {
+                self::assertTrue(Grammar::for($driver)->supportsIsolation($level), $driver . ' ' . $level->value);
+            }
+
+            self::assertSame($level === IsolationLevel::Serializable, Grammar::for('sqlite')->supportsIsolation($level));
+            self::assertFalse(Grammar::for('firebird')->supportsIsolation($level), 'standard SQL claims nothing');
+        }
+
+        $this->expectException(DatabaseException::class);
+        $this->expectExceptionMessage('The sqlite database cannot run a transaction at READ UNCOMMITTED');
+
+        Grammar::for('sqlite')->compileIsolation(IsolationLevel::ReadUncommitted);
+    }
+
+    /** @return array<string, array{string, string, int|null, bool}> */
+    public static function failures(): array
+    {
+        return [
+            'serialization failure' => ['pgsql', '40001', 7, true],
+            'PostgreSQL deadlock' => ['pgsql', '40P01', 7, true],
+            'SQL Server deadlock' => ['sqlsrv', '40001', 1205, true],
+            'MySQL deadlock as 40001' => ['mysql', '40001', 1213, true],
+            'MySQL deadlock as HY000' => ['mysql', 'HY000', 1213, true],
+            'MySQL lock wait timeout' => ['mysql', 'HY000', 1205, false],
+            'unique violation' => ['pgsql', '23505', 7, false],
+            'syntax error' => ['sqlite', 'HY000', 1, false],
+            'lost connection' => ['mysql', 'HY000', 2006, false],
+            'an unknown driver' => ['firebird', '42000', null, false],
+        ];
+    }
+
+    #[DataProvider('failures')]
+    public function test_only_deadlocks_and_serialization_failures_are_retryable(string $driver, string $state, ?int $code, bool $retryable): void
+    {
+        $failure = new \PDOException('failure');
+        $failure->errorInfo = [$state, $code, 'failure'];
+
+        self::assertSame($retryable, Grammar::for($driver)->isRetryable($failure));
     }
 }

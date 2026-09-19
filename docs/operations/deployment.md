@@ -101,11 +101,12 @@ a file on the other.
 |---|---|
 | `session.store` | `file` → `database`, or a user lands on the other host and is logged out |
 | `security.counters` | `file` counts per host, so a limit of 60 becomes 60 per machine |
-| `cache.store` | `file` means each host warms and invalidates its own |
+| `cache.store` | `file` → `database`, or each host warms and invalidates its own |
 
 Sticky sessions push the first one around rather than solving it, and lose every
-session on a node when it restarts. `session:table` prints the table the shared
-store needs.
+session on a node when it restarts. With `session.store`, `cache.store` or
+`queue.store` set to `database`, `php laika migrate` creates the table each
+shared store needs.
 
 The scheduler is the opposite problem: its lock is a file, so **`schedule:run`
 belongs on exactly one host**. Running it on three gives three copies of every

@@ -142,7 +142,7 @@ final class Report
             return;
         }
 
-        $connections->observe(function (string $sql, int $nanoseconds, string $connection) use ($profiling, $threshold): void {
+        $connections->observe(function (string $sql, int $nanoseconds, string $connection, int $bindings, ?int $rows) use ($profiling, $threshold): void {
             if ($profiling) {
                 $this->profiler->recordQuery($sql, $nanoseconds, $connection);
             }
@@ -150,8 +150,16 @@ final class Report
             if ($threshold > 0 && $nanoseconds >= $threshold) {
                 $this->logs->channel(self::SLOW_QUERY_CHANNEL)->warning(
                     \sprintf('Slow query on %s: %.1f ms', $connection, $nanoseconds / 1e6),
-                    // The statement, never the values: see Connection::observe().
-                    ['sql' => (string) \preg_replace('/\s+/', ' ', \trim($sql)), 'ms' => \round($nanoseconds / 1e6, 3)],
+                    // The statement and how much it carried, never the values:
+                    // see Connection::observe(). A slow statement with ten
+                    // thousand values bound is a different problem from one
+                    // with two, or one that read ten thousand rows.
+                    [
+                        'sql' => (string) \preg_replace('/\s+/', ' ', \trim($sql)),
+                        'ms' => \round($nanoseconds / 1e6, 3),
+                        'bindings' => $bindings,
+                        'rows' => $rows,
+                    ],
                 );
             }
         });

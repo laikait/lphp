@@ -81,13 +81,14 @@ final class SessionException extends FrameworkException
         );
     }
 
-    public static function missingTable(string $table, string $driver): self
+    public static function missingTable(string $table, string $connection): self
     {
         return new self(\sprintf(
-            'The session table "%s" does not exist. Create it with: '
-            . 'php laika session:table --driver=%s',
+            'The session table "%s" does not exist on the "%s" connection. Create it with: '
+            . 'php laika migrate --connection=%s, which adds it while session.store is "database".',
             $table,
-            $driver,
+            $connection,
+            $connection,
         ));
     }
 }

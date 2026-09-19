@@ -32,7 +32,11 @@ final class SystemServerModuleTest extends TestCase
     private function app(array $config = []): Application
     {
         $app = $this->shippedApplication([
-            'modules' => ['paths' => ['plugins' => 'tests/Fixtures/Modules/System/Plugins']],
+            'modules' => ['paths' => [
+                // The showcase's shared module, for the accounts the checks below log in as.
+                'shared' => 'tests/Fixtures/Showcase/Shared',
+                'plugins' => 'tests/Fixtures/Modules/System/Plugins',
+            ]],
             'security' => ['key' => Signer::generate()],
             'system' => ['execution' => ['max_concurrent' => null], 'services' => ['nginx' => ['restart']]],
             ...$config,

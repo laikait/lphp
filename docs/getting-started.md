@@ -5,8 +5,8 @@
 This tutorial builds one small module from nothing: **Notes**, which keeps short
 notes in a database, shows them on a page, lists them as JSON, and adds them
 from the command line. On the way it touches the pieces every module is made of —
-`module.php`, a model, a repository, a route, a template, a command, a filter, a
-hook, configuration and a test.
+`module.php`, a model, a repository, a migration, a route, a template, a
+command, a filter, a hook, configuration and a test.
 
 It assumes you know PHP and Composer, and nothing about this framework. Every
 file below is complete, and the whole module has been run exactly as written.
@@ -64,7 +64,7 @@ php laika module:list
 
 ```
   ID             KIND     NAME    VERSION  ROUTES  COMMANDS  HOOKS  FILTERS  REQUIRES
-  shared         shared   Shared  0.1.0    5       0         0      3        -
+  shared         shared   Shared  0.1.0    1       0         0      0        -
   plugins/Notes  plugins  Notes   0.1.0    0       0         0      0        shared ^0.1
 ```
 
@@ -179,7 +179,7 @@ final class NoteRepository extends Repository
 database gives it one. More in [Models](reference/models.md) and
 [Repositories and queries](reference/data.md).
 
-## 4. A database, and two commands
+## 4. A database, a migration and a command
 
 Without a database, repositories run against memory that lasts for one request —
 useful in tests, useless for notes you want to keep. Create a `.env` file in the
@@ -193,43 +193,48 @@ DB_DSN=sqlite:/path/to/framework/system/Runtime/notes.sqlite
 `.env` is ignored by git, and `system/` is refused by the web server. A real
 environment variable always beats the file.
 
-The framework has no migrations yet, so the module creates its own table with a
-command. Create `modules/Plugins/Notes/Commands/InstallNotes.php`:
+The module brings its own table, as a **migration**: a file in its
+`Database/Migrations/` directory, named for when it was written and what it
+does. Create
+`modules/Plugins/Notes/Database/Migrations/2026_01_01_000000_create_notes.php`:
 
 ```php
 <?php
 
 declare(strict_types=1);
 
-namespace App\Modules\Plugins\Notes\Commands;
+use App\Engine\Database\Structure\Table;
+use App\Engine\Database\Structure\Tables;
+use App\Engine\Migration\Reversible;
 
-use App\Engine\Cli\Output;
-use App\Engine\Database\ConnectionManager;
-
-final class InstallNotes
-{
-    public function __construct(private readonly ConnectionManager $connections) {}
-
-    public function __invoke(Output $output): int
+return new class implements Reversible {
+    public function up(Tables $tables): void
     {
-        if (!$this->connections->isConfigured()) {
-            $output->error('No database is configured. Set DB_DSN first.');
-
-            return 1;
-        }
-
-        $this->connections->connection()->execute(
-            'CREATE TABLE IF NOT EXISTS notes (id INTEGER PRIMARY KEY AUTOINCREMENT, body TEXT NOT NULL)',
-        );
-
-        $output->success('The notes table is ready.');
-
-        return 0;
+        $tables->create('notes', static function (Table $table): void {
+            $table->id();
+            $table->text('body');
+        });
     }
-}
+
+    public function down(Tables $tables): void
+    {
+        $tables->drop('notes');
+    }
+};
 ```
 
-And `modules/Plugins/Notes/Commands/AddNote.php`:
+The table is described once, with methods rather than SQL, and each database
+gets its own dialect: this file makes the same table on SQLite, MySQL,
+PostgreSQL and SQL Server. `down()` undoes `up()`, so the migration can be
+rolled back. Nothing registers it; being in that directory is enough.
+
+```bash
+php laika migrate --pretend    # the SQL it would run on this database, and nothing run
+php laika migrate
+php laika migrate:status
+```
+
+Now a command to write notes. Create `modules/Plugins/Notes/Commands/AddNote.php`:
 
 ```php
 <?php
@@ -284,7 +289,6 @@ use App\Engine\Cli\CommandCollector;
 use App\Engine\Container\ServiceRegistrar;
 use App\Engine\Module\ModuleContext;
 use App\Modules\Plugins\Notes\Commands\AddNote;
-use App\Modules\Plugins\Notes\Commands\InstallNotes;
 use App\Modules\Plugins\Notes\Data\NoteRepository;
 
 return static function (ModuleContext $module): void {
@@ -298,14 +302,10 @@ return static function (ModuleContext $module): void {
 
     $module->services(static function (ServiceRegistrar $services): void {
         $services->singleton(NoteRepository::class);
-        $services->bind(InstallNotes::class);
         $services->bind(AddNote::class);
     });
 
     $module->commands(static function (CommandCollector $commands): void {
-        $commands->add('notes:install', InstallNotes::class)
-            ->describe('Create the notes table in the configured database.');
-
         $commands->add('notes:add', AddNote::class)
             ->describe('Write a note.')
             ->argument('body', 'What the note says.');
@@ -314,7 +314,6 @@ return static function (ModuleContext $module): void {
 ```
 
 ```bash
-php laika notes:install
 php laika notes:add "Buy milk"
 php laika notes:add "Call Ada"
 php laika notes:add --help
@@ -510,7 +509,6 @@ use App\Engine\Core\Application;
 use App\Engine\Http\JsonResponse;
 use App\Engine\Http\Request;
 use App\Modules\Plugins\Notes\Commands\AddNote;
-use App\Modules\Plugins\Notes\Commands\InstallNotes;
 use App\Modules\Plugins\Notes\Model\Note;
 use App\Tests\Support\TestCase;
 
@@ -566,7 +564,7 @@ final class NotesTest extends TestCase
             'database' => ['connections' => ['default' => ['dsn' => 'sqlite::memory:']]],
         ])->boot();
 
-        $app->container()->get(InstallNotes::class)($this->console());
+        $this->migrate($app);
 
         return $app;
     }
@@ -617,7 +615,8 @@ modules/Plugins/Notes/
   module.php                 everything the module contributes, in one file
   Model/Note.php             a note, and the rule that it cannot be empty
   Data/NoteRepository.php    latest() and write(), and nothing inherited
-  Commands/InstallNotes.php  notes:install
+  Database/Migrations/2026_01_01_000000_create_notes.php
+                             the notes table, on any database
   Commands/AddNote.php       notes:add, which fires note.added
   Http/NotesPage.php         GET /notes and GET /api/notes
   Templates/index.twig       @plugin.Notes/index

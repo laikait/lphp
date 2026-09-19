@@ -11,8 +11,8 @@ use App\Engine\Http\ApiResponse;
 use App\Engine\Http\JsonResponse;
 use App\Engine\Http\Request;
 use App\Engine\Routing\Router;
-use App\Modules\Shared\Schema\PaginationSchema;
 use App\Tests\Fixtures\Showcase\Plugins\Example\Data\CustomerQuery;
+use App\Tests\Fixtures\Showcase\Shared\Schema\PaginationSchema;
 
 /**
  * An invokable handler.

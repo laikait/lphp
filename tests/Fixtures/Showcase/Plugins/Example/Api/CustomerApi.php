@@ -15,12 +15,12 @@ use App\Engine\Model\ModelCollection;
 use App\Engine\Model\RelationManager;
 use App\Engine\Queue\Queue;
 use App\Engine\Routing\Router;
-use App\Modules\Shared\Data\UserRepository;
-use App\Modules\Shared\Model\User;
 use App\Tests\Fixtures\Showcase\Plugins\Example\Data\CustomerRepository;
 use App\Tests\Fixtures\Showcase\Plugins\Example\Jobs\WelcomeCustomer;
 use App\Tests\Fixtures\Showcase\Plugins\Example\Model\Customer;
 use App\Tests\Fixtures\Showcase\Plugins\Example\Schema\CustomerSchema;
+use App\Tests\Fixtures\Showcase\Shared\Data\UserRepository;
+use App\Tests\Fixtures\Showcase\Shared\Model\User;
 
 /**
  * The REST surface for customers.

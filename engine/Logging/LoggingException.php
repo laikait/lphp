@@ -42,6 +42,16 @@ final class LoggingException extends FrameworkException
         return new self(\sprintf('The log file %s could not be opened for appending.', $path));
     }
 
+    public static function missingTable(string $table, string $connection): self
+    {
+        return new self(\sprintf(
+            'The log table "%s" does not exist on the "%s" connection. Run: php laika migrate --connection=%s',
+            $table,
+            $connection,
+            $connection,
+        ));
+    }
+
     public static function unusableChannel(string $name): self
     {
         return new self(\sprintf(

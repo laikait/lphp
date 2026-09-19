@@ -5,7 +5,7 @@ declare(strict_types=1);
 namespace App\Engine\Cli\Commands;
 
 use App\Engine\Cache\Cache;
-use App\Engine\Cache\Stores\FileStore;
+use App\Engine\Cache\PrunableStore;
 use App\Engine\Cli\Output;
 use App\Engine\Config\ConfigCache;
 use App\Engine\Core\Application;
@@ -58,7 +58,7 @@ final class CacheClearCommand
         $store = $this->cache->store();
 
         if ($expired) {
-            if (!$store instanceof FileStore) {
+            if (!$store instanceof PrunableStore) {
                 $output->line(\sprintf('  %-10s %s expires its own entries', 'cache', $store->describe()));
 
                 return 0;

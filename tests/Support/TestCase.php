@@ -7,6 +7,7 @@ namespace App\Tests\Support;
 use App\Engine\Bootstrap\Bootstrap;
 use App\Engine\Core\Application;
 use App\Engine\Core\ExecutionContext;
+use App\Engine\Migration\Migrator;
 use App\Engine\Support\Extensions;
 use PHPUnit\Framework\TestCase as PHPUnitTestCase;
 
@@ -50,14 +51,28 @@ abstract class TestCase extends PHPUnitTestCase
     protected function application(array $config = []): Application
     {
         $config['modules']['paths'] ??= [
-            'shared' => 'modules/Shared',
+            'shared' => self::SHOWCASE . '/Shared',
             'plugins' => self::SHOWCASE . '/Plugins',
             'gateways' => self::SHOWCASE . '/Gateways',
         ];
 
+        // Separately, because a test that brings its own plugins still wants
+        // the showcase's shared module: its accounts and tokens are the ones
+        // every such test logs in with. The shipped one has none.
+        $config['modules']['paths']['shared'] ??= self::SHOWCASE . '/Shared';
+
         $config['plugins/Example']['page_size'] ??= 10;
 
         return $this->build($config);
+    }
+
+    /**
+     * Run every module's migrations on a booted application, as
+     * `php laika migrate` would: the same tables in a test as in production.
+     */
+    protected function migrate(Application $app): void
+    {
+        $app->container()->get(Migrator::class)->migrate();
     }
 
     /**

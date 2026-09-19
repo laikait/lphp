@@ -146,8 +146,11 @@ adds a content hash. A hand-written `/assets/...` URL has no version.
 **Everything I saved is gone on the next request.** No database is configured, so
 repositories use memory that lasts one request. Set `DB_DSN`.
 
-**"no such table".** Nothing creates tables; there are no migrations. Create them
-yourself — see [Storing data](guides/storing-data.md#create-the-tables).
+**"no such table".** The migrations have not run on this database. Run
+`php laika migrate`, and `php laika migrate:status` to see what is pending. A
+table no module migrates is not created by anything; see
+[Storing data](guides/storing-data.md#create-the-tables). In a test, call
+`$this->migrate($app)` after booting.
 
 **A model property is never filled.** Columns match constructor **parameter
 names** exactly, including case.

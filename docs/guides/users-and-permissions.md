@@ -9,38 +9,43 @@ interface with two lookups, and handles sessions, passwords, tokens and
 permission checks around the answer. Reference:
 [Authentication and authorization](../reference/auth.md).
 
-## Before anything else: the shared module's demo accounts
+## What a fresh installation has: no accounts
 
-`modules/Shared/Auth/AccountProvider.php` is a **demonstration**. It knows two
-accounts, `ada` and `grace`, whose password is `secret` and which exist whenever
-no database is configured; `ada` is an administrator, and a fixed bearer token
-logs in as her. The shared module also declares `POST /login`, `POST /logout`,
-`GET /me` and `GET /users`.
-
-**Replace the provider before anything is deployed where others can reach it.**
-The rest of this page is how.
+Until a module binds a provider, the framework uses `EmptyProvider`: nobody can
+log in, no token is accepted, and every route that requires someone refuses
+everybody. There is no demo account and no login route to remove before
+deploying. `php laika security:check` says which provider is in use.
 
 ## Connect your accounts
 
 Implement `UserProvider` — or `TokenProvider`, which adds API tokens. This one
-reads a `staff` table:
+reads a `staff` table, which the module's migration creates on any database:
 
-```sql
-CREATE TABLE staff (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    email TEXT NOT NULL UNIQUE,
-    password_hash TEXT NOT NULL,
-    roles TEXT NOT NULL DEFAULT '',
-    active INTEGER NOT NULL DEFAULT 1,
-    token_fingerprint TEXT NULL UNIQUE
-);
+```php
+// modules/Shared/Database/Migrations/2026_09_19_120000_create_staff.php
+return new class implements Reversible {
+    public function up(Tables $tables): void
+    {
+        $tables->create('staff', static function (Table $table): void {
+            $table->id();
+            $table->string('email', 190)->unique();
+            $table->string('password_hash');
+            $table->string('roles')->default('');
+            $table->boolean('active')->default(true);
+            $table->string('token_fingerprint', 64)->nullable()->unique();
+        });
+    }
+
+    public function down(Tables $tables): void
+    {
+        $tables->drop('staff');
+    }
+};
 ```
 
 ```php
 final class StaffProvider implements TokenProvider
 {
-    private const COLUMNS = 'id, email, password_hash, roles, active';
-
     public function __construct(private readonly ConnectionManager $connections) {}
 
     public function describe(): string
@@ -50,31 +55,27 @@ final class StaffProvider implements TokenProvider
 
     public function byId(string $id): ?Account
     {
-        return $this->account($this->connections->connection()->selectOne(
-            'SELECT ' . self::COLUMNS . ' FROM staff WHERE id = ?',
-            [$id],
-        ));
+        return $this->account('id', $id);
     }
 
     public function byLogin(string $login): ?Account
     {
-        return $this->account($this->connections->connection()->selectOne(
-            'SELECT ' . self::COLUMNS . ' FROM staff WHERE email = ?',
-            [$login],
-        ));
+        return $this->account('email', $login);
     }
 
     public function byToken(string $token): ?Account
     {
-        return $this->account($this->connections->connection()->selectOne(
-            'SELECT ' . self::COLUMNS . ' FROM staff WHERE token_fingerprint = ?',
-            [TokenAuthenticator::fingerprint($token)],
-        ));
+        return $this->account('token_fingerprint', TokenAuthenticator::fingerprint($token));
     }
 
-    /** @param array<string, mixed>|null $row */
-    private function account(?array $row): ?Account
+    /** The one row whose $column holds $value, as an Account. */
+    private function account(string $column, string $value): ?Account
     {
+        $row = $this->connections->connection()->table('staff')
+            ->select('id', 'email', 'password_hash', 'roles', 'active')
+            ->where($column, $value)
+            ->first();
+
         if ($row === null) {
             return null;
         }
@@ -100,10 +101,9 @@ $module->services(static function (ServiceRegistrar $services): void {
 });
 ```
 
-Plugins register after `shared`, so this binding replaces the demo provider.
-`php laika security:check` shows which provider is in use. (Leaving
-`shared`'s own line in place is harmless; deleting it and its demo
-`AccountProvider` is tidier.)
+Bind it once, in the module that owns your accounts — `modules/Shared` if
+several modules need them. `php laika security:check` shows which provider is in
+use.
 
 What the pieces mean:
 
@@ -118,7 +118,8 @@ What the pieces mean:
 
 ## Passwords
 
-Hash a password for a first account or a seed script:
+Hash a password for a first account, or for a
+[seeder](../reference/database.md#migrations-and-seeders) that creates one:
 
 ```bash
 php laika auth:hash 'correct horse battery staple'
@@ -135,32 +136,57 @@ $module->hook('auth.rehash', [StaffPasswords::class, 'store']);   // (Identity $
 
 ## Log in and out
 
-The shared module's endpoints work with any provider:
-
-| | |
-|---|---|
-| `POST /login` | form or JSON fields `username` and `password`. 200 with the identity, or 401. Rate limited to 5 a minute |
-| `POST /logout` | ends the session |
-| `GET /me` | who is logged in, with roles and capabilities |
-
-`/login` is CSRF-protected like every other form — send the `_token` field or
-`X-CSRF-TOKEN` header (see [Pages and forms](pages-and-forms.md#a-form)).
-
-To write your own login — a page that redirects, a second factor — inject
-`AuthManager`:
+The framework ships no login route; how an application logs people in — a JSON
+endpoint, a page that redirects, a second factor — is its decision. Inject
+`AuthManager` and call `attempt()`:
 
 ```php
-$identity = $auth->attempt($email, new Secret($password));   // ?Identity
+final class SessionEndpoints
+{
+    public function __construct(private readonly AuthManager $auth) {}
 
-if ($identity === null) {
-    // Say only that the details are wrong. Never which half.
+    public function login(Request $request): JsonResponse
+    {
+        $email = $request->input('email');
+        $password = $request->input('password');
+
+        if (!\is_string($email) || !\is_string($password)) {
+            throw HttpException::badRequest('Send an email and a password.');
+        }
+
+        // Wrapped at once: from here the plaintext cannot reach a log or a response.
+        $identity = $this->auth->attempt($email, new Secret($password));
+
+        if ($identity === null) {
+            // Say only that the details are wrong. Never which half.
+            throw HttpException::unauthorized('Those details are not right.');
+        }
+
+        return new JsonResponse(['id' => $identity->id, 'name' => $identity->name]);
+    }
+
+    public function logout(): JsonResponse
+    {
+        $this->auth->logout();
+
+        return new JsonResponse(['authenticated' => false]);
+    }
 }
-
-$auth->logout();
 ```
 
-`attempt()` changes the session id on success, which defeats session fixation,
-and costs the same time whether the account exists or not.
+```php
+$routes->post('/login', [SessionEndpoints::class, 'login'])->meta(['rate_limit' => '5/1m']);
+$routes->post('/logout', [SessionEndpoints::class, 'logout'])->meta(['auth' => true]);
+```
+
+- `attempt()` changes the session id on success, which defeats session
+  fixation, and costs the same time whether the account exists or not.
+- **Rate-limit the login route.** A password endpoint without a limit is an
+  offline attack conducted online.
+- The login form is CSRF-protected like every other form — send the `_token`
+  field or `X-CSRF-TOKEN` header (see
+  [Pages and forms](pages-and-forms.md#a-form)). Do not exempt it: logging in is
+  exactly the request a forged form would want to make on somebody's behalf.
 
 ## Protect routes
 
@@ -265,6 +291,6 @@ must too.
 
 ## Test it
 
-The flow above — a staff table in `sqlite::memory:`, logging in through
-`/login`, then reading a guarded route by session and by token — fits in one
-test. See [Testing](testing.md#forms-cookies-and-csrf).
+The flow above — a staff table in `sqlite::memory:`, logging in through your
+`/login` route, then reading a guarded route by session and by token — fits in
+one test. See [Testing](testing.md#forms-cookies-and-csrf).

@@ -44,11 +44,11 @@ note.
   codes and generated help; 32 framework commands, none of which writes code.
 - **Errors** rendered by audience (browser, API, console) with disclosure rules,
   and **logging** as a listener, with redaction, retiring writers and file,
-  stream and syslog destinations.
+  stream, syslog and database destinations.
 - **Configuration** from defaults, `config/*.php` and the environment, with a
-  cache that notices environment changes; a **cache** with array, file and null
-  stores.
-- **Queue and worker** with sync, memory and file stores, retries with capped
+  cache that notices environment changes; a **cache** with array, file,
+  database and null stores.
+- **Queue and worker** with sync, memory, file and database stores, retries with capped
   exponential backoff and a failed list; a **scheduler** driven by one cron line,
   with overlap locks.
 - **Security**: opt-out CSRF with signed tokens, rate limiting, request size
@@ -88,6 +88,132 @@ note.
   `mcp:list` shows what is exposed. Configured in `config/mcp.php`, where
   everything is opt-in except STDIO, which opens nothing. See
   [MCP](docs/reference/mcp.md).
+- **A dialect per database.** `MySqlGrammar`, `PostgresGrammar`,
+  `SqliteGrammar` and `SqlServerGrammar` each override only where their database
+  differs — quoting, paging, savepoints, the placeholder limit — and any other
+  driver gets standard SQL. `Connection::supports(Capability::Savepoints)` says
+  what a database can do. Only the savepoint capability exists so far; each
+  later feature adds its own. The dialect tests run on every database a test run
+  can reach: SQLite always, and MySQL, PostgreSQL or SQL Server when
+  `DB_TEST_*_DSN` names one. CI starts all three.
+- **A SQL query builder.** `$connection->table('invoices')` returns an immutable
+  `QueryBuilder` with `select()`, `where()`/`orWhere()` (including groups in a
+  closure), `whereNull()`, `whereIn()`, `whereBetween()` and their negations,
+  `orderBy()`, `limit()` and `offset()`. It runs nothing until `get()`,
+  `first()`, `cursor()`, `count()` or `exists()`. Values are always bound. Names
+  such as `orders.customer_id` or `total AS amount` are checked part by part.
+  Operators and directions come from a fixed list. `RawExpression` is the one
+  place hand-written SQL goes, with its own bindings. `Data\Query` is
+  unchanged: AND only and no joins, the same on every `DataSource`.
+- **Writes through the query builder.** `insert($row, $key)` returns the
+  generated key; `insertMany()` counts what it wrote; `update()` and `delete()`
+  refuse to run without a condition (`updateAll()` and `deleteAll()` say "every
+  row" explicitly); `upsert()` where the database has one. A write refuses order,
+  limit, offset and aliases, which not every database can honour. Rows of a
+  many-row write must name the same columns. `RawExpression` values are
+  accepted in single-row writes. New capabilities `Returning` and `Upsert`.
+- **Joins, grouping and aggregates in the query builder.** `join()`,
+  `leftJoin()` and `rightJoin()` (where `Capability::RightJoin` allows), with ON
+  conditions in a `JoinClause`. Also `whereColumn()`, `groupBy()`, `having()` and
+  `orHaving()`. `Aggregate` is COUNT, SUM, AVG, MIN or MAX of a checked column:
+  selectable, usable in `having()`, and available as the `sum()`, `avg()`,
+  `min()` and `max()` terminals. `count()` on a grouped query counts the groups.
+- **Transaction isolation levels and retry.** `transaction($callback,
+  isolation: IsolationLevel::Serializable, retries: 3)`. Each dialect sets the
+  level where its database needs it (before `BEGIN` on MySQL and SQL Server,
+  resetting SQL Server's session afterwards; inside the transaction on
+  PostgreSQL). A level the database cannot give is refused, never substituted.
+  Retries fire only on deadlocks and serialization failures (SQLSTATE 40001 or
+  40P01, and MySQL 1213), with a short jittered backoff.
+  `Connection::isRetryable()` makes the same judgement. Both options belong to
+  the outermost transaction only.
+- **Migrations.** Each module keeps its own in `Database/Migrations/`, one file
+  per change, named `YYYY_MM_DD_HHMMSS_what_it_does.php` and returning a
+  `Migration` (or a `Reversible`, with a `down()`) written with the table
+  builder. `migrate` runs what is pending, in module dependency order and then
+  file order, as one batch; `--pretend` prints each migration's SQL for this
+  database and runs nothing. `migrate:status` lists every migration, and
+  `migrate:rollback` undoes the last batch (or `--batches=N`) newest first,
+  refusing before it starts if anything in range has no `down()` or no file,
+  and asking for `--force` in production. Where the database rolls structure
+  back, a migration and its record commit together; MySQL's partial failures
+  are reported as such. A lock in the database lets only one run migrate at a
+  time, across machines. The tracking table is `database.migrations.table`
+  (`migrations`). In a test, `$this->migrate($app)` runs them. The getting-started
+  tutorial and the storing-data, testing and users guides now create their tables
+  with migrations, and migrations are gone from "What is not built".
+- **Seeders.** A module's `Database/Seeders/*.php` files each return a
+  `Seeder`, whose `run(Connection $db)` writes through the query builder.
+  `db:seed` runs them in module order and then file order, or one module's with
+  `--module=<id>`, and asks for `--force` in production. Every seeder is loaded
+  before any runs, and each runs in its own transaction. Nothing records that a
+  seeder ran, so each should look before it inserts.
+- **`migrate` creates the session table.** While `session.store` is
+  `database`, the framework's own migration runs before any module's and makes
+  the table under `session.table`. A table made earlier by hand is kept and
+  recorded. `session:table` and `DatabaseStore::ddl()` are gone. The store now
+  writes through the query builder and runs on all four databases, SQL Server
+  included; its conformance suite runs on each in CI.
+- **A database log writer.** Naming `database` in `logging.writers` writes each
+  record as a row: `logged_at` in UTC, the level as its RFC 5424 code and its
+  name, the channel, the message and the context as JSON. Its table comes from
+  `migrate` (`logging.database.table`, `logs`, on `LOG_CONNECTION`), and
+  `retention_days` deletes older rows. On MySQL, PostgreSQL and SQL Server it
+  writes through a connection of its own, so an application rolling back does
+  not take the record of why with it; on SQLite, with one writer at a time, it
+  shares the application's. Tested on all four databases, in CI too.
+- **Database cache and queue stores.** `CACHE_STORE=database` keeps entries in a
+  table every machine shares, and `QUEUE_STORE=database` keeps jobs in one that
+  workers on any number of machines take from. Their tables come from `migrate`,
+  like the session table: `cache.table` (`cache`) and `queue.table` (`jobs`), on
+  `cache.connection` and `queue.connection`. A job is claimed by a locked read
+  and then an `UPDATE` that repeats "not reserved", so two workers never take the
+  same one. Both are built on the query builder, pass their conformance suites
+  on MySQL, PostgreSQL, SQLite and SQL Server, and run on each in CI.
+  `cache:clear --expired` sweeps the database store as it does the file store,
+  through the new `PrunableStore` interface.
+- **Row locks in the query builder.** `lockForUpdate()` keeps the rows read
+  locked until the transaction ends: `FOR UPDATE` on MySQL and PostgreSQL,
+  `UPDLOCK` on SQL Server, nothing on SQLite. It is refused outside a transaction
+  and on grouped queries.
+- **String keys in the table builder.** `->primary()` makes a column the table's
+  key, for a table whose key is not a counted `id()`.
+- **A table builder.** `$connection->tables()->create('invoices', fn (Table $t) => ...)`
+  describes a table once with chained methods (`id`, `integer`, `bigInteger`,
+  `decimal`, `string`, `text`, `boolean`, `date`, `dateTime`, `binary`,
+  `timestamps`; `nullable`, `default`, `unique`, `index`; foreign keys with
+  their actions). Each dialect writes its own DDL, and what some database
+  cannot do is refused before anything runs. MySQL tables are InnoDB and
+  utf8mb4, and SQL Server's unique indexes admit many NULLs, as elsewhere.
+  `drop()`, and `raw()` for hand-written SQL scoped to named drivers. New
+  capability: `TransactionalDdl`.
+  `alter()` changes a table that exists: it adds columns, indexes and foreign
+  keys, and drops or renames columns and drops indexes and keys by the names
+  the builder gave them, in a fixed order (drops, then renames, then additions).
+  A column added to a table with rows needs `nullable()` or a default. What
+  SQLite's `ALTER TABLE` cannot do (dropping a foreign key, or adding one to a
+  column that is already there) is refused with nothing run, never done by
+  rebuilding the table. Renaming a column needs MySQL 8.0 or MariaDB 10.5.2;
+  on an older server the rename is refused with nothing run, not left to fail
+  as a syntax error.
+- **`database.*` hooks.** An application now fires
+  `database.query.failed`, `database.transaction.committed`,
+  `database.transaction.rolled_back` (with its cause) and
+  `database.transaction.retrying` (with the attempt about to run). The database
+  layer announces these through `Connection::listen()` and
+  `ConnectionManager::listen()`, and the bootstrap turns them into hooks, so the
+  layer still works without the application. Hooks fire once the event has
+  happened: a listener that throws cannot undo a commit, trigger a retry, or
+  replace a database failure.
+- **The statement observer counts.** `observe()` callbacks also receive how many
+  values were bound and how many rows came back or changed, never the values.
+  Observers written for three arguments still work. The slow-query warning logs
+  both counts.
+- **A database connection may be configured by its parts.** In
+  `config/database.php`, `driver`, `host`, `port`, `database` and `charset` are
+  assembled into the DSN for mysql, pgsql, sqlite and sqlsrv; a `dsn` still wins
+  when given, and is required for any other driver. A part containing `;` (or,
+  for a host, `,`) is refused rather than escaped.
 
 ### Changed
 
@@ -113,12 +239,70 @@ note.
   `modules/Gateways`**, autoloaded through one PSR-4 root, `App\Modules\` →
   `modules/`. Directory names now match their namespace segment, which Linux
   requires.
+- **The shipped `shared` module is the front page and nothing else.** It
+  answers `/` and binds `DataSource`. The demo accounts (`ada` and `grace`,
+  password `secret`, and a fixed API token that logged in as an administrator),
+  `POST /login`, `POST /logout`, `GET /me`, `GET /users`, the `member` and
+  `administrator` roles, the `X-Engine` and API version headers, and the
+  `money.php` template are gone. A fresh installation has no accounts: nobody
+  can log in until an application binds its own `UserProvider`. The demo lives
+  on in `tests/Fixtures/Showcase/Shared`, where the tests use it.
+- **`composer stan` analyses `modules/`**, at the same level 8 as `engine/` and
+  `tests/`. It never did, so an application's own modules were not
+  type-checked by the gate at all.
+- **A statement's observed time includes reading its rows.** For `select()`,
+  `selectOne()` and `scalar()`, the observer and the slow-query warning now
+  time until the rows are fetched, not only until the statement ran. A cursor
+  is still timed until it runs.
 - **Any path may be a route**, including `/templates` or `/config/app`: with the
   document root at `public/`, no path names a file outside it, and a real file
   answers exactly like a missing one.
 
 ### Fixed
 
+- **Binary data could not be written on SQL Server.** A stream was sent as
+  text, and SQL Server refuses text in a `VARBINARY` column. It is now bound
+  with the driver's binary encoding, and comes back byte for byte, as on the
+  other three databases.
+- **A new visitor's first form was refused as a CSRF mismatch.** With no
+  `XSRF-TOKEN` cookie yet, every call to `Csrf::token()` signed a new token, so
+  a handler that put one in its form and the guard that set the cookie handed
+  the browser two different ones. `token()` now issues one token per request,
+  which the form and the cookie share, and forgets it when the next request
+  begins. After a login, a page rendered in the same response carries the
+  rotated token that its cookie does.
+- **Inserts on PostgreSQL could report another table's key, or abort the
+  transaction.** PDO's last-insert id there is `LASTVAL()`: the last value of
+  whichever sequence the session used. So it was stale after an insert into a
+  table without a sequence, and inside a transaction that had used none, it
+  raised an error that aborted the whole transaction. Repositories on
+  PostgreSQL were affected. The generated key now comes back from the INSERT
+  itself (`RETURNING`, and `OUTPUT INSERTED` on SQL Server).
+  `Connection::insert()` never asks PostgreSQL for `LASTVAL()`: without
+  `RETURNING` it returns null.
+- **SQL Server queries with a limit or offset failed.** The grammar wrote
+  `LIMIT`, which SQL Server does not have; it now writes `OFFSET … FETCH`, with
+  `ORDER BY (SELECT NULL)` when the query has no order of its own.
+- **Nested transactions failed on SQL Server**, which saves a transaction rather
+  than setting a savepoint and has no release. Savepoint statements are now the
+  grammar's, in each driver's dialect. Oracle is no longer claimed to support
+  them; its savepoints have no release either, and none are written for it.
+- **A failing rollback replaced the exception that caused it.** The callback's
+  exception now always propagates from `transaction()`. A failed rollback closes
+  the connection, so the database discards what was not committed. Any outer
+  level still open is refused every statement and commit until it too has
+  rolled back, where before it could go on writing in autocommit mode.
+- **`transaction()` committed the wrong level after an unbalanced callback.** A
+  callback that called `begin()` without finishing it, or finished a transaction
+  it had not begun, is now rolled back and reported.
+- **`disconnect()` inside a transaction discarded it silently.** It still
+  closes, and then throws, naming the connection and the depth.
+  `disconnectAll()` closes every connection before reporting.
+- **Floats lost digits and dates could not be bound.** A float was written at
+  PHP's `precision`, so `0.1 + 0.2` was stored as `0.3`; it is now bound with the
+  digits it needs to read back unchanged, under any locale. `DateTimeInterface`
+  values bind as `Y-m-d H:i:s[.u]`, stream resources as binary large objects,
+  and anything else unbindable is refused by position and type, never by value.
 - **`composer serve` routed some paths to the home page.** For a path naming a
   real directory (`/templates`) or looking like a file (`/customers.json`), PHP's
   built-in server reported the path as the script name, so the whole path became

@@ -14,13 +14,16 @@ php laika auth:hash 'hunter2'   # a hash, for seeding the first account
 `engine/`, no users table it expects and no column it names — there is a
 `UserProvider` interface with two lookups, `byId()` and `byLogin()`, plus
 `describe()` for the console. An architecture test freezes that list, because a
-third lookup is how an interface starts describing a schema it does not own. Everything that knows what a user actually is lives in a module; in
-this repository that is `modules/Shared/Auth/AccountProvider.php`. Point it at
-LDAP and nothing in `engine/` changes.
+third lookup is how an interface starts describing a schema it does not own. Everything that knows what a user actually is lives in a module, which
+binds its own provider. Point it at LDAP and nothing in `engine/` changes.
 
 ```php
-$services->singleton(UserProvider::class, AccountProvider::class);
+$services->singleton(UserProvider::class, StaffProvider::class);
 ```
+
+A fresh installation binds none: there are no demo accounts and no login route.
+[Users and permissions](../guides/users-and-permissions.md) writes a provider
+and a login endpoint.
 
 Until a module binds one, every request is a guest and every protected route
 answers 401. That is the correct behaviour for an application with no user
@@ -101,9 +104,9 @@ and a default everybody disables protects nothing while looking like it does.
 What replaces it is visibility rather than hope:
 
 ```
-METHOD  PATH       NAME         MODULE  ACCESS     HANDLER
-GET     /users     users.index  shared  user.list  Closure
-POST    /login     auth.login   shared  public     ...
+METHOD  PATH       NAME         MODULE         ACCESS     HANDLER
+GET     /staff     staff.index  plugins/Staff  staff.list  ...
+POST    /login     auth.login   plugins/Staff  public      ...
 ```
 
 `route:list` has an ACCESS column, `auth:access` lists which routes check what,

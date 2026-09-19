@@ -14,7 +14,7 @@ security](deployment.md). Every environment variable, with its default, is in
 |---|---|---|
 | PHP behind a web server | Apache with `.htaccess`, or nginx + PHP-FPM | always |
 | `php laika schedule:run` | cron, every minute, on **one** host | any module declares a schedule (`schedule:list` is not empty) |
-| `php laika queue:work` | a supervisor, restarting it when it exits | `QUEUE_STORE=file` |
+| `php laika queue:work` | a supervisor, restarting it when it exits | `QUEUE_STORE=file` or `database` |
 
 Nothing else is resident. There is no daemon to install and no port besides the
 web server's.
@@ -24,9 +24,9 @@ web server's.
 1. **PHP 8.2+** with `json`, `mbstring`, `pdo` and your database's PDO driver;
    `fileinfo` if the application accepts uploads. **Turn opcache on** — without
    it a request costs 45–60 ms, almost all of it compiling PHP.
-2. **Replace the demo accounts.** The shipped `modules/Shared` authenticates
-   `ada` / `secret` as an administrator, plus a fixed API token. A real
-   `UserProvider` must be bound before anyone else can reach the site — see
+2. **Connect your accounts, if the site has logins.** A fresh installation has
+   none: no provider is bound, nobody can log in, and every protected route
+   refuses. Bind a `UserProvider` and write a login route — see
    [Users and permissions](../guides/users-and-permissions.md).
 3. **Set the environment**, as real environment variables rather than a `.env`
    file:
@@ -40,9 +40,12 @@ web server's.
    | `SESSION_STORE`, `CACHE_STORE`, `QUEUE_STORE` | see [More than one host](#more-than-one-host) |
    | `SESSION_ABSOLUTE` | consider a ceiling; the default is none |
 
-4. **Create the tables.** There are no migrations: each module's tables are
-   created by whatever that module provides, and the database session store's by
-   `php laika session:table`.
+4. **Create the tables.** `php laika migrate --connection=<name>` runs every
+   module's pending migrations, on a connection whose account may create tables
+   (the application's own should not). Run it on every deploy; it does nothing
+   when nothing is pending, and only one deploy can run it at a time.
+   `migrate --pretend` shows the SQL first. The session, cache and queue
+   stores set to `database` have their tables among the migrations.
 5. **Choose where logs go** — nothing is written by default. For daily files
    under `system/Logs`, create `config/logging.php`:
 
@@ -56,7 +59,9 @@ web server's.
    ];
    ```
 
-   `stderr` suits containers; `syslog` a host with a log shipper.
+   `stderr` suits containers; `syslog` a host with a log shipper; `database`,
+   next to one of those, several machines that share a database. Its table comes
+   from `php laika migrate`.
 6. **Make `system/` writable** by the PHP user, and nothing else in the tree.
 
 ## Every deployment
@@ -118,8 +123,9 @@ User=www-data
 ```
 
 `--max-jobs` and `--max-time` bound memory growth and make a deployment reach
-every worker. Any number of workers on one host is safe; the `file` store does
-not work across hosts. A worker exits 1 when it gave up on a job.
+every worker. Any number of workers on one host is safe with the `file` store,
+which does not work across hosts; with the `database` store, workers on any
+number of hosts share the queue. A worker exits 1 when it gave up on a job.
 
 | Variable | |
 |---|---|
@@ -154,16 +160,19 @@ All of it is refused by the web server, and none of it belongs in version contro
 
 ## More than one host
 
-Three stores keep their state in files on the host, and become wrong the moment a
+Four stores keep their state in files on the host, and become wrong the moment a
 second host serves the same site:
 
 | Setting | Change to | Otherwise |
 |---|---|---|
 | `SESSION_STORE=file` | `database` | a user reaching the other host is logged out |
 | `security.counters` `file` | nothing yet — no shared counter store is built | each rate limit applies per host |
-| `CACHE_STORE=file` | nothing yet — no shared cache store is built | each host caches, and invalidates, on its own |
+| `CACHE_STORE=file` | `database` | each host caches, and invalidates, on its own |
+| `QUEUE_STORE=file` | `database` | each host's workers see only that host's jobs |
+| `logging.writers` `file` | add `database` (or ship with `syslog`) | each host's log is on that host |
 
-Plus: `schedule:run` on exactly one host, and the `file` queue store on one host.
+`migrate` creates the tables of whichever of these are `database`. Plus:
+`schedule:run` on exactly one host.
 
 ## Watching it
 

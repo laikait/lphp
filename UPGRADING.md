@@ -97,6 +97,36 @@ repository as it stood at that commit, and they become the 0.1.0 notes.
 - **Do:** rename your route. Your `/` still wins: every other module registers
   after `shared`, and the router keeps the last route declared for a path.
 
+### `composer stan` checks your modules
+
+- **Changed:** `phpstan.neon` analyses `modules/` at level 8, alongside
+  `engine/` and `tests/`.
+- **Affected:** an application whose modules have type errors. `composer stan`
+  and `composer check` now report them, and fail, where they passed before.
+- **Do:** fix what is reported. There is no baseline to hide it in, by design.
+  To defer it, remove `modules` from `paths` in `phpstan.neon` until you can.
+
+### The shared module ships no accounts, login routes or headers
+
+- **Changed:** `modules/Shared` is now one file. It answers `/` and binds
+  `DataSource`, and nothing else. Removed: `AccountProvider` (the `ada` and
+  `grace` accounts and the fixed API token), `SessionEndpoints` with
+  `POST /login`, `POST /logout` and `GET /me`, `GET /users`, the `User` model,
+  `UserRepository`, `PaginationSchema`, the `user.list` and `user.impersonate`
+  capabilities, the `member` and `administrator` roles, the `X-Engine` and API
+  version headers (`ResponseFilters`, `ApiFilters`), the `money.php` template and
+  the `shared.currency` and `shared.locale` settings.
+- **Affected:** an application still logging in with the demo accounts or
+  calling those routes; a module that imports `App\Modules\Shared\…` classes or
+  requires `user.*` capabilities or those roles; a client or monitor that reads
+  `X-Engine`. With no provider bound, nobody can log in and every protected
+  route refuses.
+- **Do:** bind your own `UserProvider` and write your login routes, as in
+  [Users and permissions](docs/guides/users-and-permissions.md). If you kept
+  local changes in `modules/Shared`, merge them into the new `module.php`.
+  To keep anything removed, copy it from `tests/Fixtures/Showcase/Shared` and
+  rename its namespace to match where you put it.
+
 ### Twig is required, and wins over PHP
 
 - **Changed:** `twig/twig` moved from `require-dev` to `require`, and the Twig
@@ -160,3 +190,81 @@ repository as it stood at that commit, and they become the 0.1.0 notes.
   ignored unless `observability.trust_incoming_ids` is on.
 - **Do:** allow the three keys, or turn on `trust_incoming_ids` behind a gateway
   that sets the ids.
+
+### Database behaviour that was wrong, now refused or corrected
+
+- **Changed:**
+  - `Connection::disconnect()` inside a transaction still closes, then throws.
+    `ConnectionManager::disconnectAll()` closes every connection before throwing
+    for the first that had one open.
+  - On PostgreSQL, `Connection::insert()` returns the key only when the
+    statement has a `RETURNING` clause, and null otherwise. It used to return
+    `LASTVAL()`, which could be another table's key.
+  - A float is bound with every digit it needs to read back unchanged: `0.1 + 0.2`
+    is now stored as `0.30000000000000004`, not `0.3`.
+  - Nested transactions on Oracle (`oci`) are refused, as on any driver without
+    a grammar of its own.
+- **Affected:**
+  - a worker or script that called `disconnect()` with a transaction still open,
+    which lost that work without a word;
+  - code on PostgreSQL that calls `Connection::insert()` with hand-written SQL
+    and reads the key it returns. Repositories are not affected: their inserts
+    now write `RETURNING` themselves;
+  - a test that compared a stored float with its fourteen-digit rounding;
+  - an application on Oracle that nested `transaction()` calls.
+- **Do:**
+  - commit or roll back before disconnecting;
+  - add `RETURNING id` to the INSERT, or use `$connection->table('t')->insert($row, 'id')`;
+  - round deliberately where a rounded value is meant, or store money in a
+    DECIMAL column;
+  - on Oracle, flatten the nesting into one transaction.
+
+### Database additions
+
+- **Added:** the SQL query builder (`Connection::table()`), a grammar per
+  dialect, `Capability`, transaction isolation levels and retries,
+  connections configured by parts, and the `database.*` hooks. The statement
+  observer also receives the number of bound values and of rows.
+- **Affected:**
+  - an observer that declares three parameters still works, because PHP drops
+    the extra arguments. One that collects them all (`mixed ...$arguments`) now
+    receives five;
+  - the observer's time now runs until a read's rows have been fetched, so a
+    slow-query threshold may catch a statement it missed before.
+- **Do:** nothing for most applications. Count on five arguments in a variadic
+  observer, and recheck a slow-query threshold that was tuned tightly.
+
+### Migrations and seeders
+
+- **Added:** the table builder (`Connection::tables()`, with `create()`,
+  `alter()` and `drop()`), module migrations in `Database/Migrations/`, and
+  seeders in `Database/Seeders/`. The commands are `migrate`, `migrate:status`,
+  `migrate:rollback` and `db:seed`. `TestCase::migrate()` runs the migrations in
+  a test.
+- **Affected:**
+  - an application that created its tables by hand. Its databases already hold
+    tables that no migration recorded, so a migration that creates one of them
+    fails with "already exists";
+  - an application whose own table is called `migrations`. The runner keeps
+    its records in a table of that name.
+- **Do:**
+  - write a migration for each table a module owns. Where a database may
+    already have the table, make it `if (!$tables->exists('notes')) { ... }`,
+    so the migration is recorded without failing. Then retire the install
+    command or script that made the table;
+  - if `migrations` is taken, set `database.migrations.table` in
+    `config/database.php`.
+
+### `session:table` is gone; `migrate` creates the session table
+
+- **Removed:** `php laika session:table`, and `DatabaseStore::ddl()`.
+- **Added:** while `session.store` is `database`, `migrate` runs the framework's
+  own migration, `framework:2026_09_19_000000_create_sessions`, before any
+  module's. The store also runs on SQL Server now: its statements go through the
+  query builder, and its row lock through the new `lockForUpdate()`.
+- **Affected:** a deploy script that ran `session:table`. A sessions table made
+  from its statement stays as it is: the migration sees the table and records
+  itself without touching it.
+- **Do:** replace `session:table` in deploy scripts with `migrate`. When
+  `session.connection` names a database other than the default, run
+  `migrate --connection=<that connection>` as well.

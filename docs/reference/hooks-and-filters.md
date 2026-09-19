@@ -75,7 +75,7 @@ the next number. Three rules keep that honest, all enforced by tests in
 
 The helpers exist for `module.php` files, templates and one-off extension code
 — places with no constructor to inject into. Module *classes* should prefer
-injection, as the ones in `modules/Shared/` and the showcase do.
+injection, as the showcase modules in `tests/Fixtures/Showcase/` do.
 
 ## Lifecycle extension points
 
@@ -111,6 +111,15 @@ they carry.
 | `mcp.tool.before`, `mcp.tool.after`, `mcp.tool.failed` | `mcp.tool.description` |
 | `mcp.resource.read`, `mcp.resource.failed` | `mcp.resource.output` |
 | `mcp.prompt.loaded`, `mcp.prompt.failed` | `mcp.prompt.output` |
+| `database.query.failed` |  |
+| `database.transaction.committed`, `database.transaction.rolled_back` |  |
+| `database.transaction.retrying` |  |
+
+The `database.*` hooks report what has already happened. A listener cannot undo
+a commit or replace a database failure, and nothing it throws causes a
+transaction to be retried. See
+[Database](database.md#watching-statements-and-transactions) for their
+arguments.
 
 The `mcp.*` extension points never run ahead of MCP's security checks. A
 capability the caller may not use reaches no listener, `mcp.tool.input` runs

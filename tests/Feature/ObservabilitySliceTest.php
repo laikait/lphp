@@ -7,7 +7,10 @@ namespace App\Tests\Feature;
 use App\Engine\Cli\Output;
 use App\Engine\Core\Application;
 use App\Engine\Core\ExecutionContext;
+use App\Engine\Database\Connection;
 use App\Engine\Database\ConnectionManager;
+use App\Engine\Database\DatabaseException;
+use App\Engine\Hook\HookEngine;
 use App\Engine\Http\Request;
 use App\Engine\Logging\LogManager;
 use App\Engine\Logging\LogRecord;
@@ -216,8 +219,37 @@ final class ObservabilitySliceTest extends TestCase
 
         self::assertStringStartsWith('Slow query on default: ', $warning->message);
         self::assertStringContainsString('WITH RECURSIVE', (string) $warning->context['sql']);
+        self::assertSame(1, $warning->context['bindings'], 'how many values, not what they were');
+        self::assertSame(1, $warning->context['rows']);
         self::assertStringNotContainsString('400000', \json_encode($warning->context, \JSON_THROW_ON_ERROR));
         self::assertArrayHasKey('request_id', $warning->context, 'even outside a request, the line names its process');
+    }
+
+    /** The database layer announces; the bootstrap turns each announcement into a database.* hook. */
+    public function test_statements_and_transactions_fire_database_hooks(): void
+    {
+        $container = $this->fixtureApplication([
+            'database' => ['connections' => ['default' => ['dsn' => 'sqlite::memory:']]],
+        ])->boot()->container();
+
+        $heard = [];
+        $hooks = $container->get(HookEngine::class);
+
+        foreach (['query.failed', 'transaction.committed', 'transaction.rolled_back', 'transaction.retrying'] as $event) {
+            $hooks->add('database.' . $event, static function () use (&$heard, $event): void {
+                $heard[] = $event;
+            });
+        }
+
+        $connection = $container->get(ConnectionManager::class)->connection();
+        $connection->transaction(static fn(): bool => true);
+
+        try {
+            $connection->transaction(static fn(Connection $db): mixed => $db->select('SELECT * FROM no_such_table'));
+        } catch (DatabaseException) {
+        }
+
+        self::assertSame(['transaction.committed', 'query.failed', 'transaction.rolled_back'], $heard);
     }
 
     public function test_a_console_command_is_traced_and_profiled(): void

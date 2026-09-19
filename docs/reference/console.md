@@ -135,8 +135,12 @@ cache:clear      Delete the configuration, module, template and application cach
 cache:warm       Build the production boot path: the configuration and discovery caches.
 config:cache     Compile config/ and the defaults into one cached file.
 config:list      The configuration this process actually resolved to.
+db:seed          Run every module's seeders, in module order, or one module's.
 log:status       Where records go, and whether they are getting there.
 mcp:list         Every MCP tool, resource and prompt, its module and who may use it.
+migrate          Run every module's pending migrations, in module order, as one batch.
+migrate:status   Every migration, whether it ran and in which batch.
+migrate:rollback Undo the last batch of migrations, newest first.
 mcp:stdio        Serve MCP over stdin and stdout, as a user, for a local client.
 module:list      Discovered modules, in the order they load.
 nginx:make       Write the nginx server block for this application to nginx.conf.
@@ -150,7 +154,6 @@ schedule:unlock  Held schedule locks; release them after a machine died mid-run.
 security:check   Audit what this deployment actually has switched on.
 security:key     Print a new APP_KEY.
 session:gc       Delete sessions past their lifetime.
-session:table    Print the CREATE TABLE the database session store needs.
 system:info      The operating system, kernel, memory, disk and load of this machine.
 system:service:status   Whether a systemd service is running.
 system:service:restart  Restart a service that system.services allows restarting.

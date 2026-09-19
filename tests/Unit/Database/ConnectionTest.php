@@ -7,7 +7,9 @@ namespace App\Tests\Unit\Database;
 use App\Engine\Database\Connection;
 use App\Engine\Database\ConnectionConfig;
 use App\Engine\Database\DatabaseException;
+use App\Engine\Database\IsolationLevel;
 use App\Tests\Support\TestCase;
+use PHPUnit\Framework\Attributes\DataProvider;
 
 /**
  * Run against a real database.
@@ -201,6 +203,77 @@ final class ConnectionTest extends TestCase
         self::assertNull($this->connection->scalar('SELECT age FROM people WHERE name = ?', ['Nobody']));
     }
 
+    /**
+     * Left to PDO, a float is written at the `precision` setting -- fourteen
+     * digits -- and 0.1 + 0.2 is stored as 0.3.
+     */
+    public function test_a_float_is_bound_without_losing_digits(): void
+    {
+        $this->connection->execute('CREATE TABLE amounts (value REAL)');
+
+        foreach ([0.1 + 0.2, 1 / 3, 1e25, -2.5e-12, 100.0] as $value) {
+            $this->connection->execute('DELETE FROM amounts');
+            $this->connection->execute('INSERT INTO amounts (value) VALUES (?)', [$value]);
+
+            self::assertSame($value, $this->connection->scalar('SELECT value FROM amounts'));
+        }
+    }
+
+    /** %G follows the locale; a German one would write 0,5. */
+    public function test_a_float_is_bound_the_same_under_any_locale(): void
+    {
+        $previous = \setlocale(\LC_NUMERIC, '0');
+        \setlocale(\LC_NUMERIC, 'de_DE.UTF-8', 'de_DE', 'deu', 'German');
+
+        try {
+            self::assertSame('0.5', $this->connection->scalar('SELECT CAST(? AS TEXT)', [0.5]));
+        } finally {
+            \setlocale(\LC_NUMERIC, \is_string($previous) ? $previous : 'C');
+        }
+    }
+
+    public function test_a_date_is_bound_as_its_wall_clock_time(): void
+    {
+        self::assertSame(
+            '2026-01-02 03:04:05',
+            $this->connection->scalar('SELECT ?', [new \DateTimeImmutable('2026-01-02 03:04:05', new \DateTimeZone('Asia/Dhaka'))]),
+        );
+
+        self::assertSame(
+            '2026-01-02 03:04:05.250000',
+            $this->connection->scalar('SELECT ?', [new \DateTime('2026-01-02 03:04:05.25')]),
+        );
+    }
+
+    public function test_a_stream_is_bound_as_binary_data(): void
+    {
+        $this->connection->execute('CREATE TABLE files (content BLOB)');
+
+        $stream = \fopen('php://memory', 'r+b');
+        self::assertIsResource($stream);
+        \fwrite($stream, "\x00\xFFbinary\x00");
+        \rewind($stream);
+
+        $this->connection->execute('INSERT INTO files (content) VALUES (?)', [$stream]);
+
+        self::assertSame("\x00\xFFbinary\x00", $this->connection->scalar('SELECT content FROM files'));
+    }
+
+    /** Refused by position and type; the value itself is never quoted. */
+    public function test_a_value_that_cannot_be_bound_is_named_by_position_only(): void
+    {
+        try {
+            $this->connection->select('SELECT ? , ?', ['fine', ['secret-in-an-array']]);
+            self::fail('an array was bound');
+        } catch (DatabaseException $e) {
+            self::assertStringContainsString('Parameter #2 is of type array', $e->getMessage());
+            self::assertStringNotContainsString('secret', $e->getMessage());
+        }
+
+        $this->expectExceptionMessage('Parameter "amount" is of type float');
+        $this->connection->select('SELECT :amount', ['amount' => \NAN]);
+    }
+
     /** A broken statement should say which statement, and not what was in it. */
     public function test_a_failing_statement_reports_the_sql_and_withholds_the_values(): void
     {
@@ -376,21 +449,160 @@ final class ConnectionTest extends TestCase
         self::assertSame(1, $this->connection->scalar('SELECT COUNT(*) FROM people'));
     }
 
-    public function test_disconnecting_forgets_any_open_transaction(): void
+    /** A leaked transaction is closed, and then reported rather than forgotten. */
+    public function test_disconnecting_inside_a_transaction_closes_it_and_says_so(): void
     {
         $this->connection->begin();
+        $this->connection->begin();
+
+        try {
+            $this->connection->disconnect();
+            self::fail('closing an open transaction went unreported');
+        } catch (DatabaseException $e) {
+            self::assertStringContainsString('"test" connection was closed with a transaction still open (2 levels', $e->getMessage());
+        }
+
+        self::assertFalse($this->connection->isConnected());
+        self::assertSame(0, $this->connection->transactionDepth());
+
+        // Closed, not broken: the next statement opens a fresh session.
+        self::assertSame(1, $this->connection->scalar('SELECT 1'));
+    }
+
+    public function test_disconnecting_outside_a_transaction_is_quiet(): void
+    {
+        $this->connection->pdo();
         $this->connection->disconnect();
 
+        self::assertFalse($this->connection->isConnected());
+    }
+
+    /**
+     * The exception that explains the failure is the callback's. A rollback
+     * that fails afterwards closes the connection -- the database discards the
+     * transaction with the session -- and must not replace it.
+     */
+    public function test_the_callbacks_exception_survives_a_failing_rollback(): void
+    {
+        $caught = null;
+
+        try {
+            $this->connection->transaction(function (Connection $db): void {
+                // Finish the transaction behind the connection's back, so the
+                // rollback that follows has nothing to roll back and fails.
+                $db->pdo()->commit();
+
+                throw new \RuntimeException('the real failure');
+            });
+        } catch (\Throwable $e) {
+            $caught = $e;
+        }
+
+        self::assertInstanceOf(\RuntimeException::class, $caught);
+        self::assertSame('the real failure', $caught->getMessage());
+        self::assertFalse($this->connection->isConnected(), 'a failed rollback should close the connection');
         self::assertSame(0, $this->connection->transactionDepth());
+    }
+
+    /**
+     * An inner rollback that fails loses the whole transaction. An outer level
+     * that swallowed the failure must not go on writing into a new session in
+     * autocommit mode, where its "transaction" would commit line by line.
+     */
+    public function test_a_lost_transaction_refuses_everything_until_it_is_rolled_back(): void
+    {
+        $refused = 'the write was allowed';
+
+        try {
+            $this->connection->transaction(function (Connection $outer): void {
+                try {
+                    $outer->transaction(function (Connection $inner): void {
+                        // Remove the savepoint the rollback will look for.
+                        $inner->pdo()->exec('RELEASE framework_savepoint_2');
+
+                        throw new \RuntimeException('inner failed');
+                    });
+                } catch (\RuntimeException) {
+                    // Swallowed, as careless code does.
+                }
+
+                $outer->insert('INSERT INTO people (name) VALUES (?)', ['written outside any transaction']);
+            });
+        } catch (DatabaseException $e) {
+            $refused = $e->getMessage();
+        }
+
+        self::assertStringContainsString('transaction on the "test" connection was lost', $refused);
+        self::assertSame(0, $this->connection->transactionDepth());
+
+        // Every level rolled back: the connection is usable again.
+        self::assertSame(1, $this->connection->scalar('SELECT 1'));
+    }
+
+    public function test_a_lost_transaction_cannot_be_committed(): void
+    {
+        $this->connection->begin();
+        $this->connection->begin();
+        $this->connection->pdo()->exec('RELEASE framework_savepoint_2');
+
+        try {
+            $this->connection->rollBack();
+            self::fail('the rollback to a missing savepoint succeeded');
+        } catch (DatabaseException $e) {
+            self::assertStringContainsString('Could not roll back on the "test" connection', $e->getMessage());
+        }
+
+        self::assertSame(1, $this->connection->transactionDepth());
+
+        try {
+            $this->connection->commit();
+            self::fail('a lost transaction was committed');
+        } catch (DatabaseException $e) {
+            self::assertStringContainsString('was lost', $e->getMessage());
+        }
+
+        $this->connection->rollBack();
+
+        self::assertFalse($this->connection->inTransaction());
+    }
+
+    /**
+     * A callback that opens a level and never closes it would otherwise have
+     * the commit release its savepoint instead of committing ours.
+     */
+    public function test_a_callback_that_leaves_a_transaction_open_is_rolled_back(): void
+    {
+        try {
+            $this->connection->transaction(function (Connection $db): void {
+                $db->insert('INSERT INTO people (name) VALUES (?)', ['Ada']);
+                $db->begin();
+            });
+            self::fail('an unbalanced callback was committed');
+        } catch (DatabaseException $e) {
+            self::assertStringContainsString('returned 2 levels deep, where it began at 1', $e->getMessage());
+        }
+
+        self::assertSame(0, $this->connection->transactionDepth());
+        self::assertSame(0, $this->connection->scalar('SELECT COUNT(*) FROM people'));
+    }
+
+    public function test_a_callback_that_finishes_a_transaction_it_did_not_begin_is_refused(): void
+    {
+        $this->expectException(DatabaseException::class);
+        $this->expectExceptionMessage('returned 0 levels deep, where it began at 1');
+
+        $this->connection->transaction(function (Connection $db): void {
+            $db->commit();
+        });
     }
 
     // ---- the observation seam -----------------------------------------------
 
     /**
-     * The observer is told the statement, how long it took and which
-     * connection -- three things, and never the values bound into it. A
-     * profile or a slow-query line is exactly the output that gets pasted into
-     * a ticket, and the bindings are where a password is.
+     * The observer is told the statement, how long it took, which connection,
+     * how many values were bound and how many rows came of it -- and never the
+     * values themselves. A profile or a slow-query line is exactly the output
+     * that gets pasted into a ticket, and the bindings are where a password is.
      */
     public function test_an_observer_hears_each_statement_but_never_its_bindings(): void
     {
@@ -402,11 +614,52 @@ final class ConnectionTest extends TestCase
         $this->connection->insert('INSERT INTO people (name, age) VALUES (?, ?)', ['hunter2-secret', 99]);
 
         self::assertCount(1, $heard);
-        self::assertCount(3, $heard[0], 'the observer was passed more than the statement, the time and the connection');
+        self::assertCount(5, $heard[0], 'the observer was passed something beyond the statement, time, connection and counts');
         self::assertSame('INSERT INTO people (name, age) VALUES (?, ?)', $heard[0][0]);
         self::assertIsInt($heard[0][1]);
         self::assertSame('test', $heard[0][2]);
+        self::assertSame(2, $heard[0][3], 'the bindings were not counted');
+        self::assertSame(1, $heard[0][4], 'the inserted row was not counted');
         self::assertStringNotContainsString('hunter2', \var_export($heard, true));
+    }
+
+    /** An observer written for three arguments, as they were, still works. */
+    public function test_an_observer_that_wants_fewer_arguments_is_given_what_it_asks_for(): void
+    {
+        $heard = [];
+        $this->connection->observe(static function (string $sql, int $nanoseconds, string $connection) use (&$heard): void {
+            $heard[] = $connection;
+        });
+
+        $this->connection->scalar('SELECT 1');
+
+        self::assertSame(['test'], $heard);
+    }
+
+    /** Rows handed back for a read, changed for a write; null where it was not known when it was reported. */
+    public function test_the_row_count_is_what_the_statement_produced(): void
+    {
+        $this->seed();
+
+        $rows = [];
+        $this->connection->observe(static function (string $sql, int $ns, string $name, int $bindings, ?int $count) use (&$rows): void {
+            $rows[] = $count;
+        });
+
+        $this->connection->select('SELECT * FROM people');
+        $this->connection->select('SELECT * FROM people WHERE age > ?', [100]);
+        $this->connection->selectOne('SELECT * FROM people WHERE age > ?', [40]);
+        $this->connection->scalar('SELECT name FROM people WHERE age > ?', [100]);
+        $this->connection->execute('UPDATE people SET age = age + 1 WHERE age > ?', [40]);
+        \iterator_to_array($this->connection->cursor('SELECT * FROM people'));
+        $this->connection->run('SELECT 1');
+
+        try {
+            $this->connection->select('SELECT * FROM no_such_table');
+        } catch (DatabaseException) {
+        }
+
+        self::assertSame([3, 0, 1, 0, 2, null, null, null], $rows);
     }
 
     public function test_a_failing_statement_is_still_observed(): void
@@ -423,5 +676,316 @@ final class ConnectionTest extends TestCase
         }
 
         self::assertSame(1, $heard);
+    }
+
+    // ---- events -------------------------------------------------------------
+
+    /** @var list<array{string, list<mixed>}> what the connection announced, in order, as [event, arguments] */
+    private array $events = [];
+
+    private function listen(): void
+    {
+        $this->connection->listen(function (string $event, mixed ...$arguments): void {
+            $this->events[] = [$event, \array_values($arguments)];
+        });
+    }
+
+    /** @return list<string> */
+    private function announced(): array
+    {
+        return \array_map(static fn(array $event): string => $event[0], $this->events);
+    }
+
+    public function test_a_failed_statement_is_announced_with_its_failure_but_never_its_values(): void
+    {
+        $this->listen();
+
+        try {
+            $this->connection->select('SELECT * FROM no_such_table WHERE secret = ?', ['hunter2-secret']);
+            self::fail('the statement did not fail');
+        } catch (DatabaseException $thrown) {
+        }
+
+        self::assertSame(['query.failed'], $this->announced());
+        [$failure, $connection] = $this->events[0][1];
+        self::assertSame($thrown, $failure, 'the listener was not given the failure the caller got');
+        self::assertSame($this->connection, $connection);
+        self::assertStringNotContainsString('hunter2', $thrown->getMessage());
+    }
+
+    /** Only the outermost transaction commits; a savepoint released inside it is not announced. */
+    public function test_a_commit_is_announced_once_for_the_outermost_transaction(): void
+    {
+        $this->listen();
+
+        $this->connection->transaction(static function (Connection $db): void {
+            $db->transaction(static fn(Connection $inner): mixed => $inner->insert('INSERT INTO people (name) VALUES (?)', ['Ada']));
+        });
+
+        $this->connection->begin();
+        $this->connection->commit();
+
+        self::assertSame(['transaction.committed', 'transaction.committed'], $this->announced());
+        self::assertSame([$this->connection], $this->events[0][1]);
+    }
+
+    public function test_a_rollback_is_announced_with_what_caused_it(): void
+    {
+        $this->listen();
+        $failure = new \RuntimeException('the invoice did not balance');
+
+        try {
+            $this->connection->transaction(static function (Connection $db) use ($failure): void {
+                // A savepoint rolled back inside it is not the transaction ending.
+                try {
+                    $db->transaction(static function (): never {
+                        throw new \LogicException('inner');
+                    });
+                } catch (\LogicException) {
+                }
+
+                throw $failure;
+            });
+        } catch (\RuntimeException) {
+        }
+
+        $this->connection->begin();
+        $this->connection->rollBack();
+
+        self::assertSame(['transaction.rolled_back', 'transaction.rolled_back'], $this->announced());
+        self::assertSame([$this->connection, $failure], $this->events[0][1]);
+        self::assertSame([$this->connection, null], $this->events[1][1], 'a rollBack() called by hand has no cause to give');
+    }
+
+    public function test_each_retry_is_announced_with_the_attempt_about_to_run(): void
+    {
+        $this->listen();
+        $attempts = 0;
+
+        $this->connection->transaction(static function () use (&$attempts): void {
+            if (++$attempts < 3) {
+                throw self::deadlock();
+            }
+        }, retries: 3);
+
+        self::assertSame(
+            ['transaction.rolled_back', 'transaction.retrying', 'transaction.rolled_back', 'transaction.retrying', 'transaction.committed'],
+            $this->announced(),
+        );
+        self::assertInstanceOf(\PDOException::class, $this->events[1][1][0]);
+        self::assertSame(2, $this->events[1][1][1]);
+        self::assertSame(3, $this->events[3][1][1]);
+        self::assertSame($this->connection, $this->events[3][1][2]);
+    }
+
+    /**
+     * A listener that throws after the commit reports on a transaction that
+     * has happened. Even a deadlock of its own is not a reason to run the
+     * transaction again -- that would write it twice.
+     */
+    public function test_a_listener_that_throws_after_the_commit_never_causes_a_retry(): void
+    {
+        $this->connection->listen(static function (string $event): void {
+            if ($event === 'transaction.committed') {
+                throw self::deadlock();
+            }
+        });
+        $attempts = 0;
+
+        try {
+            $this->connection->transaction(function (Connection $db) use (&$attempts): void {
+                ++$attempts;
+                $db->insert('INSERT INTO people (name) VALUES (?)', ['Ada']);
+            }, retries: 3);
+            self::fail("the listener's exception was swallowed");
+        } catch (\PDOException) {
+        }
+
+        self::assertSame(1, $attempts);
+        self::assertSame(1, $this->connection->scalar('SELECT COUNT(*) FROM people'));
+        self::assertFalse($this->connection->inTransaction());
+    }
+
+    /** A failure on its way out is the one the caller sees, whatever a listener throws. */
+    public function test_a_listener_cannot_replace_a_failure_already_on_its_way_out(): void
+    {
+        $this->connection->listen(static function (): void {
+            throw new \LogicException('a listener broke');
+        });
+
+        try {
+            $this->connection->select('SELECT * FROM no_such_table');
+            self::fail('the statement did not fail');
+        } catch (DatabaseException) {
+        }
+
+        $failure = new \RuntimeException('the invoice did not balance');
+
+        try {
+            $this->connection->transaction(static function () use ($failure): void {
+                throw $failure;
+            });
+        } catch (\Throwable $e) {
+            self::assertSame($failure, $e);
+        }
+
+        self::assertFalse($this->connection->inTransaction());
+    }
+
+    public function test_detaching_the_listener_silences_it(): void
+    {
+        $this->listen();
+        $this->connection->listen(null);
+
+        $this->connection->transaction(static fn(): bool => true);
+
+        self::assertSame([], $this->events);
+    }
+
+    // ---- isolation and retry ----------------------------------------------
+
+    /** A failure the database would report for a deadlock: SQLSTATE 40001, as a PDOException. */
+    private static function deadlock(): \PDOException
+    {
+        $failure = new \PDOException('Deadlock found when trying to get lock');
+        $failure->errorInfo = ['40001', 1213, 'Deadlock found when trying to get lock'];
+
+        return $failure;
+    }
+
+    public function test_a_transaction_runs_at_a_level_the_database_has(): void
+    {
+        $result = $this->connection->transaction(
+            static fn(Connection $db): mixed => $db->insert('INSERT INTO people (name) VALUES (?)', ['Ada']),
+            isolation: IsolationLevel::Serializable,
+        );
+
+        self::assertSame(1, $result);
+        self::assertFalse($this->connection->inTransaction());
+    }
+
+    /** SQLite is serializable only; READ COMMITTED is refused, not silently strengthened. */
+    public function test_a_level_the_database_cannot_give_is_refused_before_anything_runs(): void
+    {
+        $ran = false;
+
+        try {
+            $this->connection->transaction(static function () use (&$ran): void {
+                $ran = true;
+            }, isolation: IsolationLevel::ReadCommitted);
+            self::fail('an unsupported isolation level was accepted');
+        } catch (DatabaseException $e) {
+            self::assertStringContainsString('cannot run a transaction at READ COMMITTED', $e->getMessage());
+        }
+
+        self::assertFalse($ran, 'the callback ran');
+        self::assertFalse($this->connection->inTransaction());
+    }
+
+    public function test_only_the_outermost_transaction_chooses_its_level_or_its_retries(): void
+    {
+        foreach ([
+            'an isolation level' => static fn(Connection $db): mixed => $db->transaction(static fn(): bool => true, isolation: IsolationLevel::Serializable),
+            'retries' => static fn(Connection $db): mixed => $db->transaction(static fn(): bool => true, retries: 2),
+        ] as $option => $nested) {
+            try {
+                $this->connection->transaction($nested);
+                self::fail(\sprintf('a nested transaction was given %s', $option));
+            } catch (DatabaseException $e) {
+                self::assertStringContainsString('was given ' . $option, $e->getMessage());
+            }
+
+            self::assertFalse($this->connection->inTransaction());
+        }
+    }
+
+    /** Each attempt starts clean: what a failed attempt wrote is gone. */
+    public function test_a_deadlock_is_retried_and_the_failed_attempts_leave_nothing(): void
+    {
+        $attempts = 0;
+
+        $result = $this->connection->transaction(function (Connection $db) use (&$attempts): string {
+            ++$attempts;
+            $db->insert('INSERT INTO people (name) VALUES (?)', ['attempt ' . $attempts]);
+
+            if ($attempts < 3) {
+                throw self::deadlock();
+            }
+
+            return 'done';
+        }, retries: 3);
+
+        self::assertSame('done', $result);
+        self::assertSame(3, $attempts);
+        self::assertSame([['name' => 'attempt 3']], $this->connection->select('SELECT name FROM people'));
+    }
+
+    public function test_the_last_deadlock_is_thrown_once_the_retries_are_spent(): void
+    {
+        $attempts = 0;
+        $caught = null;
+
+        try {
+            $this->connection->transaction(function () use (&$attempts): void {
+                ++$attempts;
+
+                throw self::deadlock();
+            }, retries: 2);
+        } catch (\PDOException $e) {
+            $caught = $e;
+        }
+
+        self::assertInstanceOf(\PDOException::class, $caught, 'the deadlock was swallowed');
+        self::assertSame('40001', $caught->errorInfo[0] ?? null);
+        self::assertSame(3, $attempts, 'one attempt and two retries');
+    }
+
+    /** @return array<string, array{\Throwable}> */
+    public static function notRetryable(): array
+    {
+        $constraint = new \PDOException('UNIQUE constraint failed');
+        $constraint->errorInfo = ['23000', 19, 'UNIQUE constraint failed'];
+
+        $timeout = new \PDOException('Lock wait timeout exceeded');
+        $timeout->errorInfo = ['HY000', 1205, 'Lock wait timeout exceeded'];
+
+        return [
+            'a constraint violation' => [$constraint],
+            'a lock wait timeout' => [$timeout],
+            'an application error' => [new \RuntimeException('card declined')],
+        ];
+    }
+
+    /** Only a deadlock or a serialization failure is worth a second attempt. */
+    #[DataProvider('notRetryable')]
+    public function test_nothing_else_is_retried(\Throwable $failure): void
+    {
+        $attempts = 0;
+
+        try {
+            $this->connection->transaction(function () use (&$attempts, $failure): void {
+                ++$attempts;
+
+                throw $failure;
+            }, retries: 5);
+        } catch (\Throwable $e) {
+            self::assertSame($failure, $e);
+        }
+
+        self::assertSame(1, $attempts);
+    }
+
+    /** A deadlock reported through the framework's own exception is still recognised. */
+    public function test_a_wrapped_deadlock_is_recognised_by_its_cause(): void
+    {
+        self::assertTrue($this->connection->isRetryable(DatabaseException::statementFailed('UPDATE x', [], self::deadlock())));
+        self::assertFalse($this->connection->isRetryable(new \LogicException('no')));
+    }
+
+    public function test_negative_retries_are_refused(): void
+    {
+        $this->expectException(DatabaseException::class);
+
+        $this->connection->transaction(static fn(): bool => true, retries: -1);
     }
 }

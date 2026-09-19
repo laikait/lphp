@@ -26,7 +26,7 @@ are not needed.
 | | |
 |---|---|
 | `composer cs` | PHP-CS-Fixer, dry run, over `engine/` and `tests/`. `composer cs:fix` applies it |
-| `composer stan` | PHPStan level 8 over `engine/` and `tests/`, analysed for every PHP version from 8.2 to 8.5 |
+| `composer stan` | PHPStan level 8 over `engine/`, `modules/` and `tests/`, analysed for every PHP version from 8.2 to 8.5. An application's own modules are held to the same level; the coding standard (`composer cs`) covers only `engine/` and `tests/` |
 | `composer test` | PHPUnit: `tests/Unit`, `tests/Architecture`, `tests/Feature` |
 
 There is **no PHPStan baseline**, and there will not be one. Fix the error, or

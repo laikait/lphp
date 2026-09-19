@@ -25,7 +25,8 @@ DB_PASSWORD=secret
 ```
 
 Any PDO driver works: `pgsql:`, `sqlite:/absolute/path/app.sqlite`, `sqlsrv:`.
-For more than one connection, write `config/database.php` — see
+For more than one connection, or to give `host`, `port` and `database` as
+separate keys instead of a DSN, write `config/database.php` — see
 [Configuring a connection](../reference/database.md#configuring-a-connection).
 
 The switch from memory to database is made in one place,
@@ -34,26 +35,75 @@ which they have.
 
 ## Create the tables
 
-**There are no migrations yet.** Nothing creates tables for you, and there is no
-migration runner to register them with. Until there is, keep each module's
-schema as SQL in the module and apply it deliberately — from a deployment
-script, or from a command the module declares:
+Each module owns its tables, as **migrations** in its `Database/Migrations/`
+directory. A migration describes the table with methods, not SQL, so the same
+file creates it on MySQL, PostgreSQL, SQLite and SQL Server.
+`modules/Plugins/Contact/Database/Migrations/2026_09_19_120000_create_messages.php`:
 
 ```php
-$this->connections->connection()->execute(
-    'CREATE TABLE IF NOT EXISTS messages (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        email TEXT NOT NULL,
-        body TEXT NOT NULL,
-        spam INTEGER NOT NULL DEFAULT 0
-    )',
-);
+<?php
+
+declare(strict_types=1);
+
+use App\Engine\Database\Structure\Table;
+use App\Engine\Database\Structure\Tables;
+use App\Engine\Migration\Reversible;
+
+return new class implements Reversible {
+    public function up(Tables $tables): void
+    {
+        $tables->create('messages', static function (Table $table): void {
+            $table->id();
+            $table->string('email', 190)->index();
+            $table->text('body');
+            $table->boolean('spam')->default(false);
+        });
+    }
+
+    public function down(Tables $tables): void
+    {
+        $tables->drop('messages');
+    }
+};
 ```
 
-([Getting started](../getting-started.md#4-a-database-and-two-commands) builds
-such a command.) Column names are the **model's constructor parameter names**,
-exactly, so a camelCase parameter means a camelCase column. The session store's
-table comes from `php laika session:table`.
+```bash
+php laika migrate --pretend   # this database's SQL, run nowhere
+php laika migrate             # everything pending, in module order
+php laika migrate:status
+php laika migrate:rollback    # the last run, undone
+```
+
+- **The file name is the order:** `YYYY_MM_DD_HHMMSS_what_it_does.php`, in
+  lower case, written by hand. There is no generator. A name that breaks the
+  rule stops the run before anything runs.
+- **Modules run in dependency order.** A table whose foreign key names another
+  module's table belongs to a module that `requires()` that module, and so its
+  migrations run after that module's.
+- **A migration runs once.** What ran is recorded in the `migrations` table. A
+  change to a table that exists is a new migration that calls
+  `$tables->alter(...)`; never edit one that has run.
+- **Column names are the model's constructor parameter names**, exactly, so a
+  camelCase parameter means a camelCase column.
+
+Rows a module starts with go in **seeders**, in `Database/Seeders/`. A seeder
+writes through the query builder and runs every time `php laika db:seed` does,
+so it looks before it inserts:
+
+```php
+return new class implements Seeder {
+    public function run(Connection $db): void
+    {
+        if (!$db->table('messages')->where('email', 'welcome@example.test')->exists()) {
+            $db->table('messages')->insert(['email' => 'welcome@example.test', 'body' => 'Hello.']);
+        }
+    }
+};
+```
+
+Every column type, what each database is sent, and what is refused are in
+[Migrations and seeders](../reference/database.md#migrations-and-seeders). With
+`session.store` set to `database`, `migrate` creates the session table too.
 
 ## A model
 
@@ -164,8 +214,9 @@ $this->query()
 | read models | `into()`, `firstInto()`, `pageInto()` |
 | batches | `page()`, `chunk($size, $callback)` |
 
-Criteria combine with AND; there is **no OR and no join**. A read that needs
-either is a repository method over SQL — see [SQL directly](#sql-directly).
+Criteria combine with AND; there is **no OR and no join**, because this query
+runs the same on every `DataSource`, memory included. A read that needs either
+is a repository method over SQL — see [SQL directly](#sql-directly).
 
 ## Read cheaply
 
@@ -250,10 +301,55 @@ An exception rolls everything back and is rethrown. Nested calls become
 savepoints. Get the `Connection` from an injected `ConnectionManager`:
 `$connections->connection()`, or `connection('reports')` for a named one.
 
+Where two requests can collide on the same rows, choose an isolation level and
+let a deadlock run the transaction again:
+
+```php
+$connection->transaction($callback, isolation: IsolationLevel::Serializable, retries: 3);
+```
+
+Only deadlocks and serialization failures are retried, and every attempt starts
+from a clean state. **The callback may then run more than once**, so send the
+email or charge the card after `transaction()` returns, never inside it. A level
+the database cannot give is refused, not approximated — see
+[Isolation levels and retrying](../reference/database.md#isolation-levels-and-retrying).
+
+To act once a transaction has committed, listen for
+`database.transaction.committed`; see
+[Watching statements and transactions](../reference/database.md#watching-statements-and-transactions).
+
 ## SQL directly
 
-Reports, imports and anything the query builder does not express go straight to
-the connection, with bindings always separate from the SQL:
+Reports, imports and anything `Query` does not express go to the connection.
+Its query builder covers OR, joins, grouping and aggregates, with every value
+bound and every name checked:
+
+```php
+final class RevenueReport
+{
+    public function __construct(private readonly ConnectionManager $connections) {}
+
+    /** @return list<array<string, mixed>> revenue per region since a date */
+    public function byRegion(\DateTimeImmutable $since): array
+    {
+        return $this->connections->connection()->table('customers AS c')
+            ->select('c.region', Aggregate::sum('o.total', as: 'revenue'))
+            ->join('orders AS o', 'o.customer_id', '=', 'c.id')
+            ->where('o.issued_at', '>=', $since)
+            ->where(fn (QueryBuilder $q) => $q->where('o.status', 'paid')->orWhere('o.status', 'settled'))
+            ->groupBy('c.region')
+            ->orderByDesc('revenue')
+            ->get();
+    }
+}
+```
+
+It writes too — `insert()`, `update()`, `delete()` and, where the database has
+one, `upsert()` — and refuses an `update()` or `delete()` with no `where()`. See
+[The query builder](../reference/database.md#the-query-builder).
+
+For what the builder does not express, write the SQL, with bindings always
+separate from it:
 
 ```php
 $rows = $connections->connection('reports')->select(
@@ -281,6 +377,7 @@ reads data another job may have changed.
   with nothing to install. Boot the application with no database configured and
   seed through your own repository methods.
 - For SQL, configure `sqlite::memory:` — a fresh, empty database per application:
-  `$this->shippedApplication(['database' => ['connections' => ['default' => ['dsn' => 'sqlite::memory:']]]])`.
+  `$this->shippedApplication(['database' => ['connections' => ['default' => ['dsn' => 'sqlite::memory:']]]])`,
+  then `$this->migrate($app)` to create the same tables production has.
 
 See [Testing](testing.md).
