@@ -46,9 +46,9 @@ note.
   and **logging** as a listener, with redaction, retiring writers and file,
   stream and syslog destinations.
 - **Configuration** from defaults, `config/*.php` and the environment, with a
-  cache that notices environment changes; a **cache** with array, file and null
-  stores.
-- **Queue and worker** with sync, memory and file stores, retries with capped
+  cache that notices environment changes; a **cache** with array, file,
+  database and null stores.
+- **Queue and worker** with sync, memory, file and database stores, retries with capped
   exponential backoff and a failed list; a **scheduler** driven by one cron line,
   with overlap locks.
 - **Security**: opt-out CSRF with signed tokens, rate limiting, request size
@@ -148,6 +148,28 @@ note.
   `--module=<id>`, and asks for `--force` in production. Every seeder is loaded
   before any runs, and each runs in its own transaction. Nothing records that a
   seeder ran, so each should look before it inserts.
+- **`migrate` creates the session table.** While `session.store` is
+  `database`, the framework's own migration runs before any module's and makes
+  the table under `session.table`. A table made earlier by hand is kept and
+  recorded. `session:table` and `DatabaseStore::ddl()` are gone. The store now
+  writes through the query builder and runs on all four databases, SQL Server
+  included; its conformance suite runs on each in CI.
+- **Database cache and queue stores.** `CACHE_STORE=database` keeps entries in a
+  table every machine shares, and `QUEUE_STORE=database` keeps jobs in one that
+  workers on any number of machines take from. Their tables come from `migrate`,
+  like the session table: `cache.table` (`cache`) and `queue.table` (`jobs`), on
+  `cache.connection` and `queue.connection`. A job is claimed by a locked read
+  and then an `UPDATE` that repeats "not reserved", so two workers never take the
+  same one. Both are built on the query builder, pass their conformance suites
+  on MySQL, PostgreSQL, SQLite and SQL Server, and run on each in CI.
+  `cache:clear --expired` sweeps the database store as it does the file store,
+  through the new `PrunableStore` interface.
+- **Row locks in the query builder.** `lockForUpdate()` keeps the rows read
+  locked until the transaction ends: `FOR UPDATE` on MySQL and PostgreSQL,
+  `UPDLOCK` on SQL Server, nothing on SQLite. It is refused outside a transaction
+  and on grouped queries.
+- **String keys in the table builder.** `->primary()` makes a column the table's
+  key, for a table whose key is not a counted `id()`.
 - **A table builder.** `$connection->tables()->create('invoices', fn (Table $t) => ...)`
   describes a table once with chained methods (`id`, `integer`, `bigInteger`,
   `decimal`, `string`, `text`, `boolean`, `date`, `dateTime`, `binary`,

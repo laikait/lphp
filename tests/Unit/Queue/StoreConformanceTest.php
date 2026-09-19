@@ -4,11 +4,15 @@ declare(strict_types=1);
 
 namespace App\Tests\Unit\Queue;
 
+use App\Engine\Database\Connection;
 use App\Engine\Queue\QueuedJob;
 use App\Engine\Queue\QueueStore;
+use App\Engine\Queue\QueueTableMigration;
+use App\Engine\Queue\Stores\DatabaseStore;
 use App\Engine\Queue\Stores\FileStore;
 use App\Engine\Queue\Stores\MemoryStore;
 use App\Tests\Support\TestCase;
+use App\Tests\Support\TestDatabases;
 use PHPUnit\Framework\Attributes\DataProvider;
 
 /**
@@ -27,8 +31,14 @@ use PHPUnit\Framework\Attributes\DataProvider;
  */
 final class StoreConformanceTest extends TestCase
 {
+    /** Its own name, so a server's real jobs table is never touched. */
+    private const TABLE = 'laika_test_jobs';
+
     /** @var list<string> */
     private static array $directories = [];
+
+    /** @var list<Connection> */
+    private static array $connections = [];
 
     public static function tearDownAfterClass(): void
     {
@@ -52,6 +62,17 @@ final class StoreConformanceTest extends TestCase
         }
 
         self::$directories = [];
+
+        foreach (self::$connections as $connection) {
+            // A server keeps the table after the test; SQLite in memory does not.
+            if ($connection->driver() !== 'sqlite' && $connection->tables()->exists(self::TABLE)) {
+                $connection->tables()->drop(self::TABLE);
+            }
+
+            $connection->disconnect();
+        }
+
+        self::$connections = [];
     }
 
     /** @return array<string, array{\Closure(): QueueStore}> */
@@ -65,7 +86,40 @@ final class StoreConformanceTest extends TestCase
 
                 return new FileStore($directory);
             }],
+            ...self::databaseStores(),
         ];
+    }
+
+    /**
+     * The database store on every database a run can reach: SQLite always,
+     * and each server TestDatabases names. The table comes from the migration
+     * `migrate` runs, under a name of its own so a real table is never touched.
+     *
+     * @return array<string, array{\Closure(): QueueStore}>
+     */
+    private static function databaseStores(): array
+    {
+        $stores = [];
+
+        foreach (TestDatabases::available() as $driver => [$config]) {
+            $stores['database on ' . $driver] = [static function () use ($config): QueueStore {
+                $connection = new Connection($config);
+                self::$connections[] = $connection;
+
+                $tables = $connection->tables();
+                $migration = new QueueTableMigration(self::TABLE);
+
+                if ($tables->exists(self::TABLE)) {
+                    $migration->down($tables);
+                }
+
+                $migration->up($tables);
+
+                return new DatabaseStore(static fn(): Connection => $connection, self::TABLE);
+            }];
+        }
+
+        return $stores;
     }
 
     private function job(string $id, string $queue = 'default', int $availableAt = 0): QueuedJob

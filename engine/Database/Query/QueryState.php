@@ -24,6 +24,7 @@ final class QueryState
      * @param list<JoinClause>                               $joins
      * @param list<string>                                   $groups
      * @param list<Condition>                                $havings
+     * @param bool                                           $lock    whether the rows read stay locked until the transaction ends
      */
     public function __construct(
         public readonly string $table,
@@ -35,6 +36,7 @@ final class QueryState
         public readonly array $joins = [],
         public readonly array $groups = [],
         public readonly array $havings = [],
+        public readonly bool $lock = false,
     ) {}
 
     /**
@@ -55,6 +57,7 @@ final class QueryState
         ?array $joins = null,
         ?array $groups = null,
         ?array $havings = null,
+        ?bool $lock = null,
     ): self {
         return new self(
             $this->table,
@@ -66,6 +69,7 @@ final class QueryState
             $joins ?? $this->joins,
             $groups ?? $this->groups,
             $havings ?? $this->havings,
+            $lock ?? $this->lock,
         );
     }
 

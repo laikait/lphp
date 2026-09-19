@@ -32,24 +32,33 @@ use App\Engine\Module\ModuleRegistry;
  */
 final class Migrator
 {
+    /** What the framework's own migrations are recorded under, as a module's are under its id. */
+    public const FRAMEWORK = 'framework';
+
     /** The lock every run takes, whichever connection it runs on. */
     public const LOCK = 'laika_migrations';
 
+    /**
+     * @param list<MigrationFile> $framework the framework's own migrations, for
+     *                                        what it stores itself; they run first
+     */
     public function __construct(
         private readonly ConnectionManager $connections,
         private readonly ModuleRegistry $modules,
         private readonly string $table = 'migrations',
         private readonly int $lockWait = 10,
+        private readonly array $framework = [],
     ) {}
 
     /**
-     * Every migration of every enabled module, in the order they run.
+     * Every migration of every enabled module, in the order they run, after
+     * the framework's own.
      *
      * @return list<MigrationFile>
      */
     public function files(): array
     {
-        $files = [];
+        $files = $this->framework;
 
         foreach ($this->modules->definitions() as $module) {
             \array_push($files, ...MigrationFile::in($module));

@@ -175,6 +175,10 @@ class Grammar
      */
     public function compileQuery(QueryState $state): array
     {
+        if ($state->lock && $state->isGrouped()) {
+            throw DatabaseException::lockOnGroups($state->table);
+        }
+
         $columns = $this->compileColumns($state->columns);
         $body = $this->compileBody($state);
 
@@ -185,9 +189,25 @@ class Grammar
 
         return [
             'sql' => 'SELECT ' . $columns['sql'] . $body['sql']
-                . $this->compileOrderAndSlice($order, $state->limit, $state->offset),
+                . $this->compileOrderAndSlice($order, $state->limit, $state->offset)
+                . ($state->lock ? $this->lockClause() : ''),
             'bindings' => [...$columns['bindings'], ...$body['bindings']],
         ];
+    }
+
+    /**
+     * What ends a SELECT whose rows stay locked until the transaction does.
+     * The standard's FOR UPDATE; a dialect that locks another way returns ''.
+     */
+    protected function lockClause(): string
+    {
+        return ' FOR UPDATE';
+    }
+
+    /** What follows the table's name when its rows are locked. Nothing, in the standard. */
+    protected function lockHint(): string
+    {
+        return '';
     }
 
     /**
@@ -235,7 +255,7 @@ class Grammar
      */
     private function compileBody(QueryState $state): array
     {
-        $sql = ' FROM ' . $this->table($state->table);
+        $sql = ' FROM ' . $this->table($state->table) . ($state->lock ? $this->lockHint() : '');
         $bindings = [];
 
         foreach ($state->joins as $join) {
@@ -1182,18 +1202,18 @@ class Grammar
         $sql = $this->identifier($column->name) . ' ' . $this->columnType($column)
             . ($column->isNullable() ? ' NULL' : ' NOT NULL');
 
-        if (!$column->hasDefault()) {
-            return $sql;
+        if ($column->hasDefault()) {
+            $default = $column->defaultValue();
+
+            $sql .= ' DEFAULT ' . match (true) {
+                $default === null => 'NULL',
+                \is_bool($default) => $this->booleanLiteral($default),
+                \is_int($default) => (string) $default,
+                default => $this->stringDefault($column, $literal($default)),
+            };
         }
 
-        $default = $column->defaultValue();
-
-        return $sql . ' DEFAULT ' . match (true) {
-            $default === null => 'NULL',
-            \is_bool($default) => $this->booleanLiteral($default),
-            \is_int($default) => (string) $default,
-            default => $this->stringDefault($column, $literal($default)),
-        };
+        return $column->isPrimary() ? $sql . ' PRIMARY KEY' : $sql;
     }
 
     /** A string default, as the driver quoted it. A dialect that marks its literals says so here. */

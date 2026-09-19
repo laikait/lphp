@@ -5,15 +5,16 @@ declare(strict_types=1);
 namespace App\Tests\Unit\Session;
 
 use App\Engine\Database\Connection;
-use App\Engine\Database\ConnectionConfig;
 use App\Engine\Session\SessionException;
 use App\Engine\Session\SessionId;
 use App\Engine\Session\SessionRecord;
 use App\Engine\Session\SessionStore;
+use App\Engine\Session\SessionTableMigration;
 use App\Engine\Session\Stores\ArrayStore;
 use App\Engine\Session\Stores\DatabaseStore;
 use App\Engine\Session\Stores\FileStore;
 use App\Tests\Support\TestCase;
+use App\Tests\Support\TestDatabases;
 use PHPUnit\Framework\Attributes\DataProvider;
 
 /**
@@ -38,6 +39,9 @@ use PHPUnit\Framework\Attributes\DataProvider;
  */
 final class StoreConformanceTest extends TestCase
 {
+    /** Its own name, so a server's real sessions table is never touched. */
+    private const TABLE = 'laika_test_sessions';
+
     /** @var list<string> */
     private static array $directories = [];
 
@@ -55,6 +59,11 @@ final class StoreConformanceTest extends TestCase
         }
 
         foreach (self::$connections as $connection) {
+            // A server keeps the table after the test; SQLite in memory does not.
+            if ($connection->driver() !== 'sqlite' && $connection->tables()->exists(self::TABLE)) {
+                $connection->tables()->drop(self::TABLE);
+            }
+
             $connection->disconnect();
         }
 
@@ -73,22 +82,41 @@ final class StoreConformanceTest extends TestCase
 
                 return new FileStore($directory);
             }],
-            'database' => [static function (): SessionStore {
-                $connection = new Connection(ConnectionConfig::of('sessions', 'sqlite::memory:'));
+            ...self::databaseStores(),
+        ];
+    }
+
+    /**
+     * The database store on every database a run can reach: SQLite always,
+     * and each server TestDatabases names. The table comes from the migration
+     * `migrate` runs, not from a statement written out again here -- if the
+     * two ever disagreed, production would be the one to find out.
+     *
+     * @return array<string, array{\Closure(): SessionStore}>
+     */
+    private static function databaseStores(): array
+    {
+        $stores = [];
+
+        foreach (TestDatabases::available() as $driver => [$config]) {
+            $stores[$driver === 'sqlite' ? 'database' : 'database on ' . $driver] = [static function () use ($config): SessionStore {
+                $connection = new Connection($config);
                 self::$connections[] = $connection;
 
-                // The statement the session:table command prints, run here
-                // rather than written out again -- if the two ever disagree,
-                // the command is the one that is wrong and this suite says so.
-                foreach (\explode(";\n", DatabaseStore::ddl('sqlite')) as $statement) {
-                    if (\trim($statement) !== '') {
-                        $connection->execute(\rtrim(\trim($statement), ';'));
-                    }
+                $tables = $connection->tables();
+                $migration = new SessionTableMigration(self::TABLE);
+
+                if ($tables->exists(self::TABLE)) {
+                    $migration->down($tables);
                 }
 
-                return new DatabaseStore($connection);
-            }],
-        ];
+                $migration->up($tables);
+
+                return new DatabaseStore($connection, self::TABLE);
+            }];
+        }
+
+        return $stores;
     }
 
     private static function id(): string

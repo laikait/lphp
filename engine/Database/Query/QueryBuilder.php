@@ -234,12 +234,32 @@ final class QueryBuilder
         return $this->with($this->state->with(offset: \max(0, $offset)));
     }
 
+    /**
+     * Lock the rows read until the transaction ends, so that no other
+     * transaction can change them -- or lock them -- in between. For a
+     * read-modify-write:
+     *
+     *     $db->transaction(function (Connection $db) use ($id): void {
+     *         $row = $db->table('accounts')->where('id', $id)->lockForUpdate()->first();
+     *         $db->table('accounts')->where('id', $id)->update(['balance' => $row['balance'] - 10]);
+     *     });
+     *
+     * FOR UPDATE on MySQL and PostgreSQL, UPDLOCK on SQL Server. SQLite has
+     * no row locks and needs none: a write locks the whole database, and one
+     * writer runs at a time. Outside a transaction a lock would end with the
+     * statement that took it, so reading is refused there.
+     */
+    public function lockForUpdate(): self
+    {
+        return $this->with($this->state->with(lock: true));
+    }
+
     // ---- running it -------------------------------------------------------
 
     /** @return list<array<string, mixed>> */
     public function get(): array
     {
-        $compiled = $this->compile();
+        $compiled = $this->compileLocked();
 
         return $this->connection->select($compiled['sql'], $compiled['bindings']);
     }
@@ -247,7 +267,7 @@ final class QueryBuilder
     /** @return array<string, mixed>|null */
     public function first(): ?array
     {
-        $compiled = $this->limit(1)->compile();
+        $compiled = $this->limit(1)->compileLocked();
 
         return $this->connection->selectOne($compiled['sql'], $compiled['bindings']);
     }
@@ -259,9 +279,23 @@ final class QueryBuilder
      */
     public function cursor(): \Generator
     {
-        $compiled = $this->compile();
+        $compiled = $this->compileLocked();
 
         return $this->connection->cursor($compiled['sql'], $compiled['bindings']);
+    }
+
+    /**
+     * compile(), refusing a lock that would not outlive its own statement.
+     *
+     * @return array{sql: string, bindings: list<mixed>}
+     */
+    private function compileLocked(): array
+    {
+        if ($this->state->lock && !$this->connection->inTransaction()) {
+            throw DatabaseException::lockOutsideTransaction($this->state->table);
+        }
+
+        return $this->compile();
     }
 
     /** How many rows match; the order, limit and offset do not change the answer. */

@@ -56,6 +56,17 @@ final class QueueException extends FrameworkException
         ));
     }
 
+    public static function missingTable(string $table, string $connection): self
+    {
+        return new self(\sprintf(
+            'The queue table "%s" does not exist on the "%s" connection. Create it with: '
+            . 'php laika migrate --connection=%s, which adds it while queue.store is "database".',
+            $table,
+            $connection,
+            $connection,
+        ));
+    }
+
     public static function unwritable(string $directory): self
     {
         return new self(\sprintf(

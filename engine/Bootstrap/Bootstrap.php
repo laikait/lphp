@@ -24,7 +24,9 @@ use App\Engine\Auth\TokenProvider;
 use App\Engine\Auth\UserProvider;
 use App\Engine\Cache\Cache;
 use App\Engine\Cache\CacheStore;
+use App\Engine\Cache\CacheTableMigration;
 use App\Engine\Cache\Stores\ArrayStore;
+use App\Engine\Cache\Stores\DatabaseStore as CacheDatabaseStore;
 use App\Engine\Cache\Stores\FileStore;
 use App\Engine\Cache\Stores\NullStore;
 use App\Engine\Cli\CommandDispatcher;
@@ -42,6 +44,7 @@ use App\Engine\Container\Container;
 use App\Engine\Core\Application;
 use App\Engine\Core\ExecutionContext;
 use App\Engine\Core\HttpKernel;
+use App\Engine\Database\Connection;
 use App\Engine\Database\ConnectionManager;
 use App\Engine\Dispatch\Dispatcher;
 use App\Engine\Error\ErrorContext;
@@ -72,6 +75,7 @@ use App\Engine\MCP\Resource\ResourceReader;
 use App\Engine\MCP\Tool\ToolRunner;
 use App\Engine\MCP\Transport\HttpTransport;
 use App\Engine\MCP\Transport\StdioTransport;
+use App\Engine\Migration\MigrationFile;
 use App\Engine\Migration\Migrator;
 use App\Engine\Migration\SeedRunner;
 use App\Engine\Model\ModelManager;
@@ -85,6 +89,8 @@ use App\Engine\Queue\Backoff;
 use App\Engine\Queue\JobRunner;
 use App\Engine\Queue\Queue;
 use App\Engine\Queue\QueueStore;
+use App\Engine\Queue\QueueTableMigration;
+use App\Engine\Queue\Stores\DatabaseStore as QueueDatabaseStore;
 use App\Engine\Queue\Stores\FileStore as QueueFileStore;
 use App\Engine\Queue\Stores\MemoryStore;
 use App\Engine\Queue\Stores\SyncStore;
@@ -108,6 +114,7 @@ use App\Engine\Security\Signer;
 use App\Engine\Session\Session;
 use App\Engine\Session\SessionManager;
 use App\Engine\Session\SessionStore;
+use App\Engine\Session\SessionTableMigration;
 use App\Engine\Session\Stores\ArrayStore as SessionArrayStore;
 use App\Engine\Session\Stores\DatabaseStore as SessionDatabaseStore;
 use App\Engine\Session\Stores\FileStore as SessionFileStore;
@@ -172,7 +179,7 @@ final class Bootstrap
         // configuration is read before this object can exist, and both hold
         // plain data that changes only at deploy time, which is exactly what
         // opcache is better at than anything written here could be.
-        $cache = self::cache($settings, $basePath);
+        $cache = self::cache($settings, $basePath, $container);
 
         // Which template is in use. One name, and it decides both where views
         // are found and which assets the unnamed template namespace points at.
@@ -383,10 +390,14 @@ final class Bootstrap
 
         // Lazy: only a migrate or db:seed command builds these, after every
         // module has registered, so the registry they walk is in load order.
+        //
+        // The framework's own tables come first, and only those of the stores
+        // in use: sessions kept in files need no table.
         $container->singleton(Migrator::class, static fn(Container $container): Migrator => new Migrator(
             $container->get(ConnectionManager::class),
             $container->get(ModuleRegistry::class),
             $settings->string('database.migrations.table', 'migrations') ?? 'migrations',
+            framework: self::frameworkMigrations($settings),
         ));
         $container->singleton(SeedRunner::class, static fn(Container $container): SeedRunner => new SeedRunner(
             $container->get(ConnectionManager::class),
@@ -435,7 +446,7 @@ final class Bootstrap
         // deployment decision.
         $runner = new JobRunner($container, $hooks, $tracer);
         $queue = new Queue(
-            self::queueStore($settings, $basePath, $runner),
+            self::queueStore($settings, $basePath, $runner, $container),
             $runner,
             $hooks,
             $settings->string('queue.queue', Queue::DEFAULT) ?? Queue::DEFAULT,
@@ -791,12 +802,20 @@ final class Bootstrap
      * deployment's configuration should not stop an application from starting,
      * and cache:clear reports which store is actually in use.
      */
-    private static function cache(Config $settings, string $basePath): Cache
+    private static function cache(Config $settings, string $basePath, Container $container): Cache
     {
         $ttl = $settings->int('cache.ttl');
 
         $store = match ($settings->string('cache.store', 'array')) {
             'file' => new FileStore(Path::join($basePath, 'system', 'Cache', 'data')),
+            // The connection is found on first use: the cache is built before
+            // the connections are.
+            'database' => new CacheDatabaseStore(
+                static fn(): Connection => $container->get(ConnectionManager::class)->connection(
+                    $settings->string('cache.connection') ?: null,
+                ),
+                $settings->string('cache.table', CacheDatabaseStore::DEFAULT_TABLE) ?? CacheDatabaseStore::DEFAULT_TABLE,
+            ),
             'null', 'none' => new NullStore(),
             default => new ArrayStore(),
         };
@@ -815,10 +834,16 @@ final class Bootstrap
      * an application that works before anybody has read the deployment notes is
      * worth more than a default that is technically a queue.
      */
-    private static function queueStore(Config $settings, string $basePath, JobRunner $runner): QueueStore
+    private static function queueStore(Config $settings, string $basePath, JobRunner $runner, Container $container): QueueStore
     {
         return match ($settings->string('queue.store', 'sync')) {
             'file' => new QueueFileStore(Path::join($basePath, 'system', 'Queue')),
+            'database' => new QueueDatabaseStore(
+                static fn(): Connection => $container->get(ConnectionManager::class)->connection(
+                    $settings->string('queue.connection') ?: null,
+                ),
+                $settings->string('queue.table', QueueDatabaseStore::DEFAULT_TABLE) ?? QueueDatabaseStore::DEFAULT_TABLE,
+            ),
             'memory', 'array' => new MemoryStore(),
             default => new SyncStore($runner),
         };
@@ -884,6 +909,39 @@ final class Bootstrap
         }
 
         return $roles;
+    }
+
+    /**
+     * The framework's own tables, for the stores configured to keep things in
+     * the database: sessions, the cache and the queue. None while they keep
+     * them elsewhere, so an application on files gets no tables it never uses.
+     *
+     * @return list<MigrationFile>
+     */
+    private static function frameworkMigrations(Config $settings): array
+    {
+        $table = static fn(string $key, string $default): string => $settings->string($key, $default) ?? $default;
+        $migrations = [];
+
+        if ($settings->string('session.store', 'file') === 'database') {
+            $migrations[] = MigrationFile::supplied(Migrator::FRAMEWORK, SessionTableMigration::NAME, new SessionTableMigration(
+                $table('session.table', SessionDatabaseStore::DEFAULT_TABLE),
+            ));
+        }
+
+        if ($settings->string('cache.store', 'array') === 'database') {
+            $migrations[] = MigrationFile::supplied(Migrator::FRAMEWORK, CacheTableMigration::NAME, new CacheTableMigration(
+                $table('cache.table', CacheDatabaseStore::DEFAULT_TABLE),
+            ));
+        }
+
+        if ($settings->string('queue.store', 'sync') === 'database') {
+            $migrations[] = MigrationFile::supplied(Migrator::FRAMEWORK, QueueTableMigration::NAME, new QueueTableMigration(
+                $table('queue.table', QueueDatabaseStore::DEFAULT_TABLE),
+            ));
+        }
+
+        return $migrations;
     }
 
     /**
@@ -1273,10 +1331,16 @@ final class Bootstrap
             ],
             'cache' => [
                 // Memory by default: real within a request, gone after it, and
-                // it writes nothing anywhere. "file" crosses requests, "null"
+                // it writes nothing anywhere. "file" crosses requests,
+                // "database" crosses machines too, "null"
                 // takes the cache out of the picture entirely, which is what
                 // somebody chasing a stale value wants.
                 'store' => Env::string('CACHE_STORE', 'array'),
+                // For the database store only. Empty means the default
+                // connection; `migrate` creates the table while the store is
+                // "database" (see CacheTableMigration).
+                'connection' => Env::string('CACHE_CONNECTION', ''),
+                'table' => 'cache',
                 // The lifetime an entry gets when its caller does not say. An
                 // hour rather than forever, because an entry nobody can name
                 // is an entry nobody will clear.
@@ -1286,10 +1350,14 @@ final class Bootstrap
                 'namespace' => '',
             ],
             'queue' => [
-                // sync, file or memory. See queueStore() for why sync is the
+                // sync, file, database or memory. See queueStore() for why sync is the
                 // default and what the other two cost on a machine with no
                 // worker running.
                 'store' => Env::string('QUEUE_STORE', 'sync'),
+                // For the database store only, as for the cache: `migrate`
+                // creates the table (see QueueTableMigration).
+                'connection' => Env::string('QUEUE_CONNECTION', ''),
+                'table' => 'jobs',
                 'queue' => Env::string('QUEUE_NAME', Queue::DEFAULT),
                 // What queue:work uses when nothing is said on the command line.
                 'tries' => Env::int('QUEUE_TRIES', 3),
@@ -1361,8 +1429,8 @@ final class Bootstrap
                 // memory is gone before the response is. See SessionManager.
                 'store' => Env::string('SESSION_STORE', 'file'),
                 // For the database store only. Empty means the default
-                // connection; the table is created by hand, from the statement
-                // session:table prints.
+                // connection; `migrate` creates the table while the store is
+                // "database" (see SessionTableMigration).
                 'connection' => Env::string('SESSION_CONNECTION', ''),
                 'table' => 'sessions',
                 // Two hours without a request and the session is gone. This is

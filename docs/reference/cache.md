@@ -29,17 +29,28 @@ nothing.
 | `refresh($key, fn() => …)` | compute again and replace |
 | `namespace($name)` | another `Cache` over the same store |
 
-## Stores, and the two that are not here
+## Stores, and the ones that are not here
 
 `CacheStore` is five methods — `describe`, `get`, `put`, `forget`, `flush` — and
-not one of them mentions a file, a socket or a serialisation format. Three
+not one of them mentions a file, a socket or a serialisation format. Four
 implement it:
 
 | | |
 |---|---|
 | `array` | memory, for one process. The default. |
 | `file` | one file per entry under `system/Cache/data`. |
+| `database` | a table every machine shares. |
 | `null` | keeps nothing, and everything still works. |
+
+**The database store** is the shared cache that needs nothing installed beyond
+the database the application already has. Behind a load balancer each host with
+a `file` cache warms and clears its own copy; a table is one copy. It is not a
+fast cache — every hit is a query — so it pays where a value costs much more
+than a query to work out. Its table is made by `php laika migrate` while
+`CACHE_STORE=database`: `cache.table` (`cache`) on `cache.connection` (the
+default connection). The key is a SHA-256 of the cache key, so every database
+compares it byte for byte. Clearing a namespace is one indexed `DELETE`. A
+database the store cannot reach is a miss, not an error, as for any store.
 
 **APCu, Redis and Memcached are not built.** None of the three extensions is
 installed on the machine this was developed on, so every line of them would be
@@ -136,7 +147,8 @@ php laika cache:warm              # then rebuild the production boot path
 `cache:clear` asks the store rather than deleting files, which is the version of
 this that stays correct when the store is not files. `--expired` is a job for a
 nightly schedule rather than a deployment: everything else here has no TTL to
-have passed.
+have passed. The file and database stores both sweep; a store whose backend
+expires entries itself says so instead.
 
 Reading an expired entry deletes it on the way past, so anything still being
 asked for tidies up on its own.

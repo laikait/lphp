@@ -204,6 +204,51 @@ final class DatabaseException extends FrameworkException
         ));
     }
 
+    /**
+     * Whether the database said the table is not there.
+     *
+     * A missing table is a deployment mistake -- `migrate` was not run -- and a
+     * store that uses a table says so in its own words. Each driver phrases it
+     * differently and none keeps an error code that survives PDO, so the
+     * phrasing is what there is: the database's own, in this message and the
+     * one it wraps.
+     */
+    public function meansMissingTable(): bool
+    {
+        $messages = '';
+
+        for ($cause = $this; $cause !== null; $cause = $cause->getPrevious()) {
+            $messages .= ' ' . \strtolower($cause->getMessage());
+        }
+
+        foreach (['no such table', 'base table or view not found', 'does not exist', "doesn't exist", 'invalid object name'] as $phrase) {
+            if (\str_contains($messages, $phrase)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /** A row lock ends with the transaction; with none, it would end before the next statement. */
+    public static function lockOutsideTransaction(string $table): self
+    {
+        return new self(\sprintf(
+            'Rows of "%s" were read with lockForUpdate() outside a transaction, where the lock would be gone '
+            . 'before anything could use it. Read and write inside $connection->transaction().',
+            $table,
+        ));
+    }
+
+    /** A grouped row stands for many rows, and none of them can be locked through it. */
+    public static function lockOnGroups(string $table): self
+    {
+        return new self(\sprintf(
+            'A grouped query on "%s" cannot lock rows: each result stands for many. Lock the rows themselves, ungrouped.',
+            $table,
+        ));
+    }
+
     /** "Every row" has to be said in so many words. */
     public static function writeWithoutConditions(string $table, string $operation): self
     {

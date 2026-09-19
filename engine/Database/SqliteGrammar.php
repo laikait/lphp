@@ -59,6 +59,15 @@ final class SqliteGrammar extends Grammar
         return ['before' => null, 'after' => null, 'reset' => null];
     }
 
+    /**
+     * No row locks. A write locks the whole database and one writer runs at a
+     * time, so what the lock would protect is already protected.
+     */
+    protected function lockClause(): string
+    {
+        return '';
+    }
+
     public function compileTableExists(string $table): array
     {
         return ['sql' => "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = ?", 'bindings' => [$table]];

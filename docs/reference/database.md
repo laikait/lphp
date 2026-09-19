@@ -298,6 +298,23 @@ $db->table('stock')->upsert($rows, uniqueBy: ['sku'], update: ['quantity']);
   fine, but an alias is refused: the databases disagree about where an alias
   goes in UPDATE and DELETE.
 
+**Locking rows for a read-modify-write:**
+
+```php
+$db->transaction(function (Connection $db) use ($sku): void {
+    $row = $db->table('stock')->where('sku', $sku)->lockForUpdate()->first();
+    $db->table('stock')->where('sku', $sku)->update(['quantity' => $row['quantity'] - 1]);
+});
+```
+
+`lockForUpdate()` holds the rows it reads until the transaction ends, so no
+other transaction changes or locks them in between. It is `FOR UPDATE` on MySQL
+and PostgreSQL and `WITH (UPDLOCK, ROWLOCK)` on SQL Server. SQLite writes nothing:
+a write there locks the whole database, one writer at a time. Outside a
+transaction the lock would end with its own statement, so running one is
+refused. A grouped query is refused too, since each result row stands for many.
+The database session store is built on it.
+
 ## Running the data layer on it
 
 `SqlSource` implements `DataSource`, so every repository, query, read model,
@@ -416,6 +433,9 @@ $connection->tables()->drop('invoices');
   hold a value unless they say `nullable()`. `timestamps()` adds nullable
   `created_at` and `updated_at`. For an index over several columns, use
   `$table->index('a', 'b')` or `$table->unique('a', 'b')`.
+- **A table whose key is not a counted id** says so on the column:
+  `$table->string('code', 2)->primary()`. There is one key per table, `id()` or
+  `primary()`. It cannot be NULL, and it cannot be added to a table that exists.
 - **A key that points at an `id()` is a `bigInteger`.** `id()` is a signed
   64-bit integer everywhere, and MySQL refuses a foreign key whose type differs
   from the column it points at. The actions are `cascade`, `restrict`,
@@ -539,6 +559,10 @@ All four take `--connection=<name>`. Migrations are a deployment step: give that
 connection an account with the right to create tables, which the application's
 own account should not have. Nothing creates a table during a request.
 
+- **The framework's own tables come first.** Only the tables of the stores in
+  use: while `session.store` is `database`, that is the session table, recorded
+  as `framework:2026_09_19_000000_create_sessions`. See
+  [Sessions](sessions.md).
 - **Order.** Modules run in the order they load: `shared` first, then each
   module after the modules it `requires()`. Within a module, files run in name
   order. A migration whose foreign key names another module's table belongs to

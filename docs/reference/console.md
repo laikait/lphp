@@ -154,7 +154,6 @@ schedule:unlock  Held schedule locks; release them after a machine died mid-run.
 security:check   Audit what this deployment actually has switched on.
 security:key     Print a new APP_KEY.
 session:gc       Delete sessions past their lifetime.
-session:table    Print the CREATE TABLE the database session store needs.
 system:info      The operating system, kernel, memory, disk and load of this machine.
 system:service:status   Whether a systemd service is running.
 system:service:restart  Restart a service that system.services allows restarting.

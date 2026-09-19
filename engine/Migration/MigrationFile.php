@@ -24,7 +24,18 @@ final class MigrationFile
         public readonly string $module,
         public readonly string $name,
         public readonly string $path,
+        private readonly ?Migration $supplied = null,
     ) {}
+
+    /**
+     * One of the framework's own migrations, which is an object the bootstrap
+     * builds rather than a file -- it takes settings a file could not see, such
+     * as the table's configured name.
+     */
+    public static function supplied(string $module, string $name, Migration $migration): self
+    {
+        return new self($module, $name, '', $migration);
+    }
 
     /** "plugins/Billing:2026_09_19_120000_create_invoices": unique across the application. */
     public function id(): string
@@ -65,6 +76,10 @@ final class MigrationFile
 
     public function load(): Migration
     {
+        if ($this->supplied !== null) {
+            return $this->supplied;
+        }
+
         // A scope of its own, so the file sees no variables but its own.
         /** @var mixed $migration */
         $migration = (static fn(string $path): mixed => require $path)($this->path);

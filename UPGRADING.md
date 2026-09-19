@@ -254,3 +254,17 @@ repository as it stood at that commit, and they become the 0.1.0 notes.
     command or script that made the table;
   - if `migrations` is taken, set `database.migrations.table` in
     `config/database.php`.
+
+### `session:table` is gone; `migrate` creates the session table
+
+- **Removed:** `php laika session:table`, and `DatabaseStore::ddl()`.
+- **Added:** while `session.store` is `database`, `migrate` runs the framework's
+  own migration, `framework:2026_09_19_000000_create_sessions`, before any
+  module's. The store also runs on SQL Server now: its statements go through the
+  query builder, and its row lock through the new `lockForUpdate()`.
+- **Affected:** a deploy script that ran `session:table`. A sessions table made
+  from its statement stays as it is: the migration sees the table and records
+  itself without touching it.
+- **Do:** replace `session:table` in deploy scripts with `migrate`. When
+  `session.connection` names a database other than the default, run
+  `migrate --connection=<that connection>` as well.

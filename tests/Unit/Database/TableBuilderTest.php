@@ -179,6 +179,51 @@ final class TableBuilderTest extends TestCase
         })[0]);
     }
 
+    /** A key that is not a counted id: a session id, a country code. */
+    public function test_a_string_key_in_each_dialect(): void
+    {
+        $key = static function (Table $table): void {
+            $table->string('code', 2)->primary();
+            $table->string('name', 80)->default('');
+        };
+
+        self::assertStringStartsWith('CREATE TABLE `countries` (`code` VARCHAR(2) NOT NULL PRIMARY KEY, ', self::compile('mysql', $key, 'countries')[0]);
+        self::assertStringStartsWith('CREATE TABLE "countries" ("code" VARCHAR(2) NOT NULL PRIMARY KEY, ', self::compile('pgsql', $key, 'countries')[0]);
+        self::assertStringStartsWith('CREATE TABLE "countries" ("code" TEXT NOT NULL PRIMARY KEY, ', self::compile('sqlite', $key, 'countries')[0]);
+        self::assertStringStartsWith('CREATE TABLE [countries] ([code] NVARCHAR(2) NOT NULL PRIMARY KEY, ', self::compile('sqlsrv', $key, 'countries')[0]);
+        self::assertStringContainsString('[name] NVARCHAR(80) NOT NULL DEFAULT N\'\'', self::compile('sqlsrv', $key, 'countries')[0]);
+    }
+
+    /** @return array<string, array{\Closure(Table): mixed, string}> */
+    public static function badKeys(): array
+    {
+        return [
+            'two keys' => [static function (Table $t): void {
+                $t->id();
+                $t->string('code', 2)->primary();
+            }, 'more than one key: id, code'],
+            'a nullable key' => [static fn(Table $t) => $t->string('code', 2)->primary()->nullable(), 'a key cannot be NULL'],
+            'a key on text' => [static fn(Table $t) => $t->text('body')->primary(), 'cannot be indexed'],
+        ];
+    }
+
+    #[DataProvider('badKeys')]
+    public function test_a_key_every_database_could_not_hold_is_refused(\Closure $define, string $message): void
+    {
+        $this->expectException(DatabaseException::class);
+        $this->expectExceptionMessage($message);
+
+        self::compile('pgsql', $define);
+    }
+
+    public function test_a_key_cannot_be_added_to_a_table_that_exists(): void
+    {
+        $this->expectException(DatabaseException::class);
+        $this->expectExceptionMessage('a key cannot be added to a table that exists');
+
+        self::alter('pgsql', static fn(Table $t) => $t->string('code', 2)->nullable()->primary());
+    }
+
     public function test_a_name_too_long_for_postgresql_is_shortened_but_stays_distinct(): void
     {
         $table = new Table('a_rather_long_table_name_for_invoice_lines');

@@ -1580,7 +1580,6 @@ final class ArchitectureTest extends TestCase
             'engine/Cli/Commands/SecurityCheckCommand.php',
             'engine/Cli/Commands/SecurityKeyCommand.php',
             'engine/Cli/Commands/SessionGcCommand.php',
-            'engine/Cli/Commands/SessionTableCommand.php',
             'engine/Cli/Commands/SystemCronInstallCommand.php',
             'engine/Cli/Commands/SystemCronListCommand.php',
             'engine/Cli/Commands/SystemCronRemoveCommand.php',
@@ -1716,7 +1715,6 @@ final class ArchitectureTest extends TestCase
             'auth:access',
             'auth:hash',
             'session:gc',
-            'session:table',
             'asset:list',
             'template:list',
             'log:status',
@@ -2109,7 +2107,10 @@ final class ArchitectureTest extends TestCase
             'engine/Cache/CacheEntry.php',
             'engine/Cache/CacheException.php',
             'engine/Cache/CacheStore.php',
+            'engine/Cache/CacheTableMigration.php',
+            'engine/Cache/PrunableStore.php',
             'engine/Cache/Stores/ArrayStore.php',
+            'engine/Cache/Stores/DatabaseStore.php',
             'engine/Cache/Stores/FileStore.php',
             'engine/Cache/Stores/NullStore.php',
         ];
@@ -2209,6 +2210,11 @@ final class ArchitectureTest extends TestCase
             $exercised[] = (new \ReflectionClass($make[0]()))->getShortName();
         }
 
+        // Building a database store made its table on each server; the suite's
+        // own cleanup drops them. And one store runs on several databases.
+        StoreConformanceTest::tearDownAfterClass();
+        $exercised = \array_values(\array_unique($exercised));
+
         \sort($stores);
         \sort($exercised);
 
@@ -2225,10 +2231,20 @@ final class ArchitectureTest extends TestCase
      * It is handed to the asset manager, the template manager and to modules,
      * and it must not know that any of them exist -- otherwise "which store"
      * stops being a configuration decision and becomes a dependency graph.
+     *
+     * The database is below it, not above: the database store keeps entries in
+     * a table, and its table is a migration. The migration interface is all it
+     * takes of the migration layer, which knows modules.
      */
     public function test_the_cache_layer_depends_on_nothing_above_it(): void
     {
-        $allowed = ['App\\Engine\\Cache', 'App\\Engine\\Support', 'App\\Engine\\Error\\FrameworkException'];
+        $allowed = [
+            'App\\Engine\\Cache',
+            'App\\Engine\\Support',
+            'App\\Engine\\Error\\FrameworkException',
+            'App\\Engine\\Database',
+            'App\\Engine\\Migration\\Reversible',
+        ];
 
         foreach ($this->engineFiles() as $path) {
             $relative = $this->relative($path);
@@ -2272,7 +2288,9 @@ final class ArchitectureTest extends TestCase
             'engine/Queue/Queue.php',
             'engine/Queue/QueueException.php',
             'engine/Queue/QueueStore.php',
+            'engine/Queue/QueueTableMigration.php',
             'engine/Queue/QueuedJob.php',
+            'engine/Queue/Stores/DatabaseStore.php',
             'engine/Queue/Stores/FileStore.php',
             'engine/Queue/Stores/MemoryStore.php',
             'engine/Queue/Stores/SyncStore.php',
@@ -2403,6 +2421,11 @@ final class ArchitectureTest extends TestCase
         foreach (QueueStoreConformanceTest::stores() as $make) {
             $exercised[] = (new \ReflectionClass($make[0]()))->getShortName();
         }
+
+        // Building a database store made its table on each server; the suite's
+        // own cleanup drops them. And one store runs on several databases.
+        QueueStoreConformanceTest::tearDownAfterClass();
+        $exercised = \array_values(\array_unique($exercised));
 
         \sort($stores);
         \sort($exercised);
@@ -3215,6 +3238,11 @@ final class ArchitectureTest extends TestCase
         foreach (SessionStoreConformanceTest::stores() as $make) {
             $exercised[] = (new \ReflectionClass($make[0]()))->getShortName();
         }
+
+        // Building a database store made its table on each server; the suite's
+        // own cleanup drops them. And one store runs on several databases.
+        SessionStoreConformanceTest::tearDownAfterClass();
+        $exercised = \array_values(\array_unique($exercised));
 
         \sort($stores);
         \sort($exercised);

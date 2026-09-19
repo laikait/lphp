@@ -205,6 +205,42 @@ final class QueryBuilderTest extends TestCase
         );
     }
 
+    /** FOR UPDATE where the database has it, a table hint on SQL Server, nothing on SQLite. */
+    public function test_a_row_lock_in_each_dialect(): void
+    {
+        $query = static fn(QueryBuilder $q): QueryBuilder => $q->where('id', 7)->lockForUpdate()->limit(1);
+
+        self::assertSame('SELECT * FROM `users` WHERE `id` = ? LIMIT 1 FOR UPDATE', $query($this->on('mysql'))->compile()['sql']);
+        self::assertSame('SELECT * FROM "users" WHERE "id" = ? LIMIT 1 FOR UPDATE', $query($this->on('pgsql'))->compile()['sql']);
+        self::assertSame('SELECT * FROM "users" WHERE "id" = ? LIMIT 1', $query($this->on('sqlite'))->compile()['sql']);
+        self::assertSame(
+            'SELECT * FROM [users] WITH (UPDLOCK, ROWLOCK) WHERE [id] = ? ORDER BY (SELECT NULL) OFFSET 0 ROWS FETCH NEXT 1 ROWS ONLY',
+            $query($this->on('sqlsrv'))->compile()['sql'],
+        );
+    }
+
+    /** A lock taken outside a transaction would end with its own statement. */
+    public function test_a_row_lock_outside_a_transaction_is_refused(): void
+    {
+        $this->seed();
+
+        $locked = $this->db->transaction(fn(Connection $db): ?array => $db->table('users')->where('id', 1)->lockForUpdate()->first());
+        self::assertSame('Ada', $locked['name'] ?? null);
+
+        $this->expectException(DatabaseException::class);
+        $this->expectExceptionMessage('outside a transaction');
+
+        $this->db->table('users')->where('id', 1)->lockForUpdate()->first();
+    }
+
+    public function test_a_grouped_query_cannot_lock_rows(): void
+    {
+        $this->expectException(DatabaseException::class);
+        $this->expectExceptionMessage('cannot lock rows');
+
+        $this->on('pgsql')->groupBy('status')->lockForUpdate()->compile();
+    }
+
     public function test_a_limit_can_be_removed(): void
     {
         self::assertSame('SELECT * FROM "users"', $this->on('sqlite')->limit(5)->limit(null)->compile()['sql']);

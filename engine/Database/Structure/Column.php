@@ -35,6 +35,8 @@ final class Column
 
     private bool $index = false;
 
+    private bool $primary = false;
+
     public function __construct(
         public readonly string $name,
         public readonly ColumnType $type,
@@ -92,6 +94,27 @@ final class Column
         $this->unique = true;
 
         return $this;
+    }
+
+    /**
+     * The table's key, for a table whose key is not a counted id(): a session
+     * id, a country code. Never NULL, and one per table.
+     */
+    public function primary(): self
+    {
+        if ($this->type === ColumnType::Id) {
+            throw DatabaseException::invalidStructure($this->subject(), 'a generated key is the table\'s key already.');
+        }
+
+        $this->assertIndexable();
+        $this->primary = true;
+
+        return $this;
+    }
+
+    public function isPrimary(): bool
+    {
+        return $this->primary;
     }
 
     /** Looked up by often enough to deserve an index of its own. */

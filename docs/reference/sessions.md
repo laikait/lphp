@@ -21,7 +21,7 @@ slow endpoint blocks every other request from the same browser.
 
 ```bash
 php laika session:gc       # delete what is past its lifetime
-php laika session:table    # print the CREATE TABLE for the database store
+php laika migrate          # creates the table, while session.store is "database"
 ```
 
 ## Nothing is read until something asks
@@ -132,11 +132,19 @@ whoever holds one is the user. A directory listing, a backup manifest or an `ls`
 in a support ticket should not hand over an account, so the id appears only
 inside the file, which needs read permission to reach.
 
-The database store takes a **row lock** — `SELECT ... FOR UPDATE` where the
-driver has it — and **does not create its own table**. A store that issues DDL on
-its first request needs permissions in production that nothing should have, and
-it uses them at the worst available moment. `session:table` prints the statement
-for the configured driver; where it goes is the application's business.
+The database store takes a **row lock** through the query builder's
+`lockForUpdate()` — `FOR UPDATE` on MySQL and PostgreSQL, `UPDLOCK` on SQL
+Server; SQLite locks the whole database for a write — and it runs on all four
+databases. It **does not create its own table** on a request: a store that issues
+DDL on its first request needs permissions in production that nothing should
+have, and it uses them at the worst available moment. Instead, while
+`session.store` is `database`, `php laika migrate` includes the framework's own
+migration, `framework:2026_09_19_000000_create_sessions`, which creates the table
+under `session.table` (`sessions`). The key is the 64-character id, and both
+times are Unix seconds, with `touched_at` indexed for the sweep. A table made
+earlier by hand is kept, and the migration is recorded over it. The table goes
+on the connection `migrate` runs on, so a `session.connection` naming another
+database is migrated with `--connection` set to it.
 
 ## Sweeping
 

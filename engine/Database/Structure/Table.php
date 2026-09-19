@@ -319,7 +319,23 @@ final class Table
             throw DatabaseException::invalidStructure($this->subject(), 'the change changes nothing.');
         }
 
+        $keys = \array_filter($this->columns, static fn(Column $column): bool => $column->type === ColumnType::Id || $column->isPrimary());
+
+        if (\count($keys) > 1) {
+            throw DatabaseException::invalidStructure($this->subject(), \sprintf('it has more than one key: %s.', \implode(', ', \array_keys($keys))));
+        }
+
         foreach ($this->columns as $column) {
+            // SQLite cannot add a key to a table, and elsewhere the rows there
+            // would all need a distinct value at once.
+            if ($column->isPrimary() && $this->altering) {
+                throw DatabaseException::invalidStructure(\sprintf('The column "%s"', $column->name), 'a key cannot be added to a table that exists. Give the table its key when it is created.');
+            }
+
+            if ($column->isPrimary() && $column->isNullable()) {
+                throw DatabaseException::invalidStructure(\sprintf('The column "%s"', $column->name), 'it is the table\'s key, and a key cannot be NULL.');
+            }
+
             if ($column->hasDefault() && $column->defaultValue() === null && !$column->isNullable()) {
                 throw DatabaseException::invalidStructure(
                     \sprintf('The column "%s"', $column->name),

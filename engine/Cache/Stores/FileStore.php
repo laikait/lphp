@@ -7,7 +7,7 @@ namespace App\Engine\Cache\Stores;
 use App\Engine\Cache\Cache;
 use App\Engine\Cache\CacheEntry;
 use App\Engine\Cache\CacheException;
-use App\Engine\Cache\CacheStore;
+use App\Engine\Cache\PrunableStore;
 use App\Engine\Support\Path;
 
 /**
@@ -36,7 +36,7 @@ use App\Engine\Support\Path;
  * under "billing" lives in one subdirectory, so clearing it is removing that
  * directory rather than reading every entry in the cache to see whose it is.
  */
-final class FileStore implements CacheStore
+final class FileStore implements PrunableStore
 {
     public const EXTENSION = '.cache';
 

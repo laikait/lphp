@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Tests\Feature;
 
+use App\Engine\Cache\Cache;
 use App\Engine\Cli\CommandDispatcher;
 use App\Engine\Cli\CommandRegistry;
 use App\Engine\Cli\ConsoleKernel;
@@ -13,6 +14,8 @@ use App\Engine\Core\ExecutionContext;
 use App\Engine\Database\ConnectionManager;
 use App\Engine\Error\ErrorHandler;
 use App\Engine\Hook\HookEngine;
+use App\Engine\Queue\Queue;
+use App\Tests\Fixtures\Queue\RecordingJob;
 use App\Tests\Support\TestCase;
 
 /**
@@ -140,6 +143,47 @@ final class MigrationSliceTest extends TestCase
 
         [$status] = $this->console($app, 'db:seed', '--force');
         self::assertSame(0, $status);
+    }
+
+    /**
+     * Sessions, the cache and the queue all kept in the database: `migrate`
+     * makes their three tables before any module's, and each store works on
+     * what it made -- down to a worker taking a job off the table.
+     */
+    public function test_the_database_stores_get_their_tables_from_migrate(): void
+    {
+        RecordingJob::reset();
+        $app = $this->application([
+            'session' => ['store' => 'database'],
+            'cache' => ['store' => 'database'],
+            'queue' => ['store' => 'database'],
+            'modules' => ['paths' => ['plugins' => 'tests/Fixtures/Modules/Migrations/Plugins']],
+            'database' => ['connections' => ['default' => ['dsn' => 'sqlite::memory:']]],
+        ])->boot();
+
+        [$status, $output] = $this->console($app, 'migrate');
+        self::assertSame(0, $status, $output);
+        self::assertMatchesRegularExpression(
+            '/framework:2026_09_19_000000_create_sessions.*\n.*framework:2026_09_19_000001_create_cache.*\n.*framework:2026_09_19_000002_create_jobs.*\n.*plugins\/Customers/',
+            $output,
+        );
+
+        $cache = $app->container()->get(Cache::class);
+        $cache->set('answer', 42);
+        self::assertSame(42, $cache->get('answer'));
+
+        $queue = $app->container()->get(Queue::class);
+        $queue->push(new RecordingJob('from the table'));
+        self::assertSame(1, $queue->pending());
+
+        [$status, $output] = $this->console($app, 'queue:work', '--drain');
+        self::assertSame(0, $status, $output);
+        self::assertSame(['from the table'], RecordingJob::$ran);
+        self::assertSame(0, $queue->pending());
+
+        $db = $app->container()->get(ConnectionManager::class)->connection();
+        self::assertSame(1, $db->table('cache')->count());
+        self::assertSame(0, $db->table('jobs')->count());
     }
 
     /** Undoing a migration usually drops a table and its data; production has to say so. */

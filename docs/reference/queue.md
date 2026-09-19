@@ -41,6 +41,7 @@ it is **dispatched** instead — loudly, at the line that made the mistake.
 |---|---|
 | `sync` | runs the job where it was dispatched. **The default.** |
 | `file` | one file per job under `system/Queue`; needs `queue:work`. |
+| `database` | a table any machine's worker takes jobs from; needs `queue:work`. |
 | `memory` | one process; for tests and one-off batch commands. |
 
 The default is sync because the alternatives fail quietly on a machine nobody
@@ -54,14 +55,30 @@ change plus a process — not an edit to the line that dispatches it.
 a queue. A job that throws breaks the request that dispatched it, exactly as the
 code would have if it had never been deferred.
 
-**Database and Redis stores are not built**, for the same reason the cache has
-no Redis store: neither extension is installed here, and the one part of a
-database queue that is genuinely hard — claiming a job atomically so that two
-workers never get the same one — is dialect-specific and cannot be written
-blind. What is shipped instead is the thing that makes adding one safe:
-`tests/Unit/Queue/StoreConformanceTest` runs the same twenty assertions against
-every store, and an architecture test fails if a store exists that it does not
-run against.
+**A Redis store is not built**, for the same reason the cache has none: the
+extension is not installed here, and a store written blind would be unverified.
+What makes adding one safe is `tests/Unit/Queue/StoreConformanceTest`: it runs
+the same twenty assertions against every store, and an architecture test fails
+if a store exists that it does not run against.
+
+## How the database store is safe
+
+The hard part of a database queue is claiming a job so that two workers never
+get the same one. Inside a transaction, the next due job is read with the query
+builder's `lockForUpdate()` — `FOR UPDATE` on MySQL and PostgreSQL, `UPDLOCK` on
+SQL Server — and then claimed by an `UPDATE` whose condition repeats "not
+reserved, or its reservation has lapsed". The lock makes a second worker wait;
+the repeated condition makes the claim safe even where a lock would let both
+through, because only one `UPDATE` can change the row from free to reserved. A
+worker whose claim changed nothing gets no job and asks again.
+
+Waiting, reserved and failed jobs share one table, told apart by `failed_at`.
+A reservation lapses as it does in the file store, so a killed worker's job
+comes back with its attempts counted. The table is made by `php laika migrate`
+while `QUEUE_STORE=database`: `queue.table` (`jobs`) on `queue.connection` (the
+default connection). The suite above runs against it on MySQL, PostgreSQL,
+SQLite and SQL Server. Unlike the file store, it serves **any number of machines**
+sharing the database.
 
 ## How the file store is safe
 
@@ -80,8 +97,7 @@ system/Queue/
 
 The due time is in the filename so a directory listing is already in the order a
 worker wants. Ten thousand pending jobs is fine; ten million is where this
-should be a database, and `QueueStore` is the seam for that. **One machine, any
-number of workers** — two machines sharing this over NFS would be trusting a
+should be the database store. **One machine, any number of workers** — two machines sharing this over NFS would be trusting a
 network filesystem's rename semantics, which is a bet worth not making.
 
 ## Retry, backoff, failure

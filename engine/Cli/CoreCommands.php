@@ -32,7 +32,6 @@ use App\Engine\Cli\Commands\ScheduleUnlockCommand;
 use App\Engine\Cli\Commands\SecurityCheckCommand;
 use App\Engine\Cli\Commands\SecurityKeyCommand;
 use App\Engine\Cli\Commands\SessionGcCommand;
-use App\Engine\Cli\Commands\SessionTableCommand;
 use App\Engine\Cli\Commands\SystemCronInstallCommand;
 use App\Engine\Cli\Commands\SystemCronListCommand;
 use App\Engine\Cli\Commands\SystemCronRemoveCommand;
@@ -208,13 +207,6 @@ final class CoreCommands
             ->describe('Delete sessions past their lifetime.')
             ->flag('quiet', 'Say nothing, for a schedule that only needs a failure to be noisy.', shortcut: 'q')
             ->note('Nothing expires because it was swept -- expiry is decided on read. This reclaims the space.');
-
-        $commands->add('session:table', SessionTableCommand::class)
-            ->describe('Print the CREATE TABLE the database session store needs.')
-            ->option('driver', 'Which SQL dialect. Defaults to the configured connection.')
-            ->option('table', 'Table name.', default: 'sessions')
-            ->flag('bare', 'The statement alone, to pipe somewhere.')
-            ->note('It prints and does not run: creating tables is not something an application account should be able to do.');
 
         $commands->add('migrate', MigrateCommand::class)
             ->describe('Run every module\'s pending migrations, in module order, as one batch.')

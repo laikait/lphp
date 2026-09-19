@@ -46,8 +46,6 @@ return new class implements Reversible {
 ```php
 final class StaffProvider implements TokenProvider
 {
-    private const COLUMNS = 'id, email, password_hash, roles, active';
-
     public function __construct(private readonly ConnectionManager $connections) {}
 
     public function describe(): string
@@ -57,31 +55,27 @@ final class StaffProvider implements TokenProvider
 
     public function byId(string $id): ?Account
     {
-        return $this->account($this->connections->connection()->selectOne(
-            'SELECT ' . self::COLUMNS . ' FROM staff WHERE id = ?',
-            [$id],
-        ));
+        return $this->account('id', $id);
     }
 
     public function byLogin(string $login): ?Account
     {
-        return $this->account($this->connections->connection()->selectOne(
-            'SELECT ' . self::COLUMNS . ' FROM staff WHERE email = ?',
-            [$login],
-        ));
+        return $this->account('email', $login);
     }
 
     public function byToken(string $token): ?Account
     {
-        return $this->account($this->connections->connection()->selectOne(
-            'SELECT ' . self::COLUMNS . ' FROM staff WHERE token_fingerprint = ?',
-            [TokenAuthenticator::fingerprint($token)],
-        ));
+        return $this->account('token_fingerprint', TokenAuthenticator::fingerprint($token));
     }
 
-    /** @param array<string, mixed>|null $row */
-    private function account(?array $row): ?Account
+    /** The one row whose $column holds $value, as an Account. */
+    private function account(string $column, string $value): ?Account
     {
+        $row = $this->connections->connection()->table('staff')
+            ->select('id', 'email', 'password_hash', 'roles', 'active')
+            ->where($column, $value)
+            ->first();
+
         if ($row === null) {
             return null;
         }

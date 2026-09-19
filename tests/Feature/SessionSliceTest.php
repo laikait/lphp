@@ -10,13 +10,17 @@ use App\Engine\Cli\ConsoleKernel;
 use App\Engine\Cli\Output;
 use App\Engine\Core\Application;
 use App\Engine\Core\ExecutionContext;
+use App\Engine\Database\ConnectionManager;
 use App\Engine\Error\ErrorHandler;
 use App\Engine\Hook\HookEngine;
 use App\Engine\Http\Request;
 use App\Engine\Security\Csrf;
 use App\Engine\Security\Signer;
 use App\Engine\Session\Session;
+use App\Engine\Session\SessionException;
+use App\Engine\Session\SessionId;
 use App\Engine\Session\SessionManager;
+use App\Engine\Session\SessionRecord;
 use App\Engine\Session\SessionStore;
 use App\Tests\Support\TestCase;
 
@@ -248,13 +252,74 @@ final class SessionSliceTest extends TestCase
         self::assertStringContainsString('expired session', $output);
     }
 
-    public function test_session_table_prints_a_statement_it_does_not_run(): void
+    /** The framework's own migration, under the configured name, before any module's. */
+    public function test_migrate_creates_the_session_table_while_the_store_is_the_database(): void
     {
-        [$status, $output] = $this->console($this->app(), 'session:table', '--driver=mysql');
+        $app = $this->app([
+            'session' => ['store' => 'database', 'table' => 'web_sessions'],
+            'database' => ['connections' => ['default' => ['dsn' => 'sqlite::memory:']]],
+        ]);
 
-        self::assertSame(ConsoleKernel::SUCCESS, $status);
-        self::assertStringContainsString('CREATE TABLE', $output);
-        self::assertStringContainsString('touched_at', $output);
+        [$status, $output] = $this->console($app, 'migrate');
+
+        self::assertSame(ConsoleKernel::SUCCESS, $status, $output);
+        self::assertStringContainsString('ran  framework:2026_09_19_000000_create_sessions', $output);
+
+        $store = $app->container()->get(SessionStore::class);
+        $id = SessionId::generate();
+        $store->commit($id, static fn(): SessionRecord => SessionRecord::fresh($id, ['user' => 7]));
+
+        self::assertSame(['user' => 7], $store->read($id)?->payload);
+        self::assertSame(1, $app->container()->get(ConnectionManager::class)->connection()->table('web_sessions')->count());
+    }
+
+    /** Sessions kept anywhere else need no table, and get none. */
+    public function test_migrate_creates_no_session_table_for_another_store(): void
+    {
+        $app = $this->app(['database' => ['connections' => ['default' => ['dsn' => 'sqlite::memory:']]]]);
+
+        [$status, $output] = $this->console($app, 'migrate');
+
+        self::assertSame(ConsoleKernel::SUCCESS, $status, $output);
+        self::assertStringContainsString('Nothing to migrate.', $output);
+        self::assertFalse($app->container()->get(ConnectionManager::class)->connection()->tables()->exists('sessions'));
+    }
+
+    /**
+     * A table made by hand before there were migrations is kept, and the
+     * migration is recorded over it rather than failing on "already exists".
+     */
+    public function test_a_session_table_made_by_hand_is_adopted(): void
+    {
+        $app = $this->app([
+            'session' => ['store' => 'database'],
+            'database' => ['connections' => ['default' => ['dsn' => 'sqlite::memory:']]],
+        ]);
+        $db = $app->container()->get(ConnectionManager::class)->connection();
+        $db->execute('CREATE TABLE sessions (id TEXT PRIMARY KEY, payload TEXT NOT NULL, created_at INTEGER NOT NULL, touched_at INTEGER NOT NULL, successor TEXT NULL)');
+        $db->table('sessions')->insert(['id' => 'kept', 'payload' => '{}', 'created_at' => 1, 'touched_at' => 1]);
+
+        [$status, $output] = $this->console($app, 'migrate');
+
+        self::assertSame(ConsoleKernel::SUCCESS, $status, $output);
+        self::assertSame(1, $db->table('sessions')->where('id', 'kept')->count());
+
+        [, $output] = $this->console($app, 'migrate:status');
+        self::assertMatchesRegularExpression('/framework:2026_09_19_000000_create_sessions\s+ran\s+1/', $output);
+    }
+
+    /** Before migrate has run, the store says what to run rather than repeating the driver. */
+    public function test_a_missing_session_table_names_the_command_that_makes_it(): void
+    {
+        $app = $this->app([
+            'session' => ['store' => 'database'],
+            'database' => ['connections' => ['default' => ['dsn' => 'sqlite::memory:']]],
+        ]);
+
+        $this->expectException(SessionException::class);
+        $this->expectExceptionMessage('php laika migrate --connection=default');
+
+        $app->container()->get(SessionStore::class)->read(SessionId::generate());
     }
 
     /** In-memory sessions are a failure, and the audit says so. */

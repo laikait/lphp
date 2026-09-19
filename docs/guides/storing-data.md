@@ -102,8 +102,8 @@ return new class implements Seeder {
 ```
 
 Every column type, what each database is sent, and what is refused are in
-[Migrations and seeders](../reference/database.md#migrations-and-seeders). The
-session store's table still comes from `php laika session:table`.
+[Migrations and seeders](../reference/database.md#migrations-and-seeders). With
+`session.store` set to `database`, `migrate` creates the session table too.
 
 ## A model
 

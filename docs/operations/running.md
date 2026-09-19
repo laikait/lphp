@@ -14,7 +14,7 @@ security](deployment.md). Every environment variable, with its default, is in
 |---|---|---|
 | PHP behind a web server | Apache with `.htaccess`, or nginx + PHP-FPM | always |
 | `php laika schedule:run` | cron, every minute, on **one** host | any module declares a schedule (`schedule:list` is not empty) |
-| `php laika queue:work` | a supervisor, restarting it when it exits | `QUEUE_STORE=file` |
+| `php laika queue:work` | a supervisor, restarting it when it exits | `QUEUE_STORE=file` or `database` |
 
 Nothing else is resident. There is no daemon to install and no port besides the
 web server's.
@@ -44,8 +44,8 @@ web server's.
    module's pending migrations, on a connection whose account may create tables
    (the application's own should not). Run it on every deploy; it does nothing
    when nothing is pending, and only one deploy can run it at a time.
-   `migrate --pretend` shows the SQL first. The database session store's table
-   comes from `php laika session:table`.
+   `migrate --pretend` shows the SQL first. The session, cache and queue
+   stores set to `database` have their tables among the migrations.
 5. **Choose where logs go** — nothing is written by default. For daily files
    under `system/Logs`, create `config/logging.php`:
 
@@ -121,8 +121,9 @@ User=www-data
 ```
 
 `--max-jobs` and `--max-time` bound memory growth and make a deployment reach
-every worker. Any number of workers on one host is safe; the `file` store does
-not work across hosts. A worker exits 1 when it gave up on a job.
+every worker. Any number of workers on one host is safe with the `file` store,
+which does not work across hosts; with the `database` store, workers on any
+number of hosts share the queue. A worker exits 1 when it gave up on a job.
 
 | Variable | |
 |---|---|
@@ -157,16 +158,18 @@ All of it is refused by the web server, and none of it belongs in version contro
 
 ## More than one host
 
-Three stores keep their state in files on the host, and become wrong the moment a
+Four stores keep their state in files on the host, and become wrong the moment a
 second host serves the same site:
 
 | Setting | Change to | Otherwise |
 |---|---|---|
 | `SESSION_STORE=file` | `database` | a user reaching the other host is logged out |
 | `security.counters` `file` | nothing yet — no shared counter store is built | each rate limit applies per host |
-| `CACHE_STORE=file` | nothing yet — no shared cache store is built | each host caches, and invalidates, on its own |
+| `CACHE_STORE=file` | `database` | each host caches, and invalidates, on its own |
+| `QUEUE_STORE=file` | `database` | each host's workers see only that host's jobs |
 
-Plus: `schedule:run` on exactly one host, and the `file` queue store on one host.
+`migrate` creates the tables of whichever of these are `database`. Plus:
+`schedule:run` on exactly one host.
 
 ## Watching it
 

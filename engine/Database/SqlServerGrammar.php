@@ -122,6 +122,21 @@ final class SqlServerGrammar extends Grammar
         return $function === 'AVG' ? 'AVG(' . $argument . ' * 1.0)' : parent::aggregateCall($function, $argument);
     }
 
+    /**
+     * SQL Server has no FOR UPDATE; a table hint does it. UPDLOCK holds the
+     * rows read until the transaction ends and lets no other UPDLOCK take
+     * them, ROWLOCK keeps it to those rows.
+     */
+    protected function lockClause(): string
+    {
+        return '';
+    }
+
+    protected function lockHint(): string
+    {
+        return ' WITH (UPDLOCK, ROWLOCK)';
+    }
+
     public function compileSavepoint(string $name): string
     {
         return 'SAVE TRANSACTION ' . $this->plainName($name);

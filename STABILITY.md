@@ -95,7 +95,8 @@ namespace beats a shorter one.
 | `App\Engine\Auth\UserProvider` | Experimental | 1.0 candidate; its method list is frozen by a test |
 | `App\Engine\Bootstrap\Bootstrap` | Experimental | `create()`, `settings()` and `defaults()`, for embedding and tests |
 | `App\Engine\Cache\*` | Experimental | |
-| `App\Engine\Cache\Stores\*` | Internal | selected by name: `CACHE_STORE=array\|file\|null` |
+| `App\Engine\Cache\CacheTableMigration` | Internal | run by `migrate` while `cache.store` is `database` |
+| `App\Engine\Cache\Stores\*` | Internal | selected by name: `CACHE_STORE=array\|file\|database\|null` |
 | `App\Engine\Cli\*` | Internal | |
 | `App\Engine\Cli\Command` | Experimental | what `CommandCollector::add()` returns |
 | `App\Engine\Cli\CommandCollector` | Experimental | |
@@ -172,6 +173,7 @@ namespace beats a shorter one.
 | `App\Engine\Queue\QueueException` | Experimental | |
 | `App\Engine\Queue\QueueStore` | Experimental | a conformance suite defines it |
 | `App\Engine\Queue\QueuedJob` | Experimental | a persisted format — see above |
+| `App\Engine\Queue\QueueTableMigration` | Internal | run by `migrate` while `queue.store` is `database`; its columns are a persisted format too |
 | `App\Engine\Routing\*` | Experimental | |
 | `App\Engine\Routing\MatchStatus` | Internal | |
 | `App\Engine\Routing\RouteMatch` | Internal | |
@@ -194,6 +196,7 @@ namespace beats a shorter one.
 | `App\Engine\Session\*` | Experimental | |
 | `App\Engine\Session\SessionId` | Internal | |
 | `App\Engine\Session\SessionManager` | Internal | |
+| `App\Engine\Session\SessionTableMigration` | Internal | run by `migrate` while `session.store` is `database` |
 | `App\Engine\Session\Stores\*` | Internal | selected by name: `SESSION_STORE=file\|database\|memory` |
 | `App\Engine\Support\*` | Internal | |
 | `App\Engine\System\*` | Experimental | the newest API here; see [System operations](docs/reference/system.md) |
