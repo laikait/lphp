@@ -6,7 +6,7 @@ declare(strict_types=1);
  * The site's replacement for the Example plugin's customer profile.
  *
  * The plugin was not edited, asked, or told. The only thing that makes this
- * file win is where it sits: templates/<active>/views/<namespace>/<path>, which
+ * file win is where it sits: templates/<namespace>/<path>, which
  * the registry searches before the module's own Templates/ directory.
  *
  * @var \App\Engine\Template\TemplateView $view

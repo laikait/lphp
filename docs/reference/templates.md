@@ -3,9 +3,13 @@
 <!-- Twig below: GitHub Pages must not run it as Liquid. {% raw %} -->
 
 ```php
-template()->render('customer/profile', ['customer' => $customer]);
-template()->render('@plugin.Example/invoice', $data);
+template()->render('profile', $data);                          // templates/profile.twig
+template()->render('customer/profile', ['customer' => $customer]); // templates/customer/profile.twig
+template()->render('@plugin.Example/invoice', $data);          // the Example plugin's invoice
 ```
+
+A name is a path under `templates/`, without the extension. Folders are just
+part of the name: `admin/panel/user` is `templates/admin/panel/user.twig`.
 
 **No extension is written at the call site.** That is not a convenience: it is
 what lets a template move from PHP to Twig, or a Twig one be replaced by a PHP
@@ -28,20 +32,20 @@ First hit wins, in this order:
 
 | | Directory |
 |---|---|
-| 1. the active template | `templates/<active>/views/` |
-| 2. the override of a namespace | `templates/<active>/views/<namespace>/` |
+| 1. the application | `templates/` |
+| 2. the override of a namespace | `templates/<namespace>/` |
 | 3. the module itself | `modules/Plugins/Example/Templates/` |
 
 So a site replaces a plugin's invoice by creating
 
 ```
-templates/default/views/plugin.Example/invoice.php
+templates/plugin.Example/invoice.php
 ```
 
 and the plugin is never edited, asked or told. Its own copy stays as the
 fallback, which is what makes it safe for the plugin to keep shipping one.
 
-Only the active template takes part in rule 2. A module must not be able to
+Only `templates/` takes part in rule 2. A module must not be able to
 override another module by guessing a directory name, or which template wins
 would come down to discovery order.
 
@@ -163,10 +167,11 @@ escaped. Every other value in the layout is escaped by Twig.
 ## The default pages
 
 ```
-templates/default/views/layout.twig        shared by every page below
-templates/default/views/home.twig          GET /, declared by modules/Shared
-templates/default/views/errors/404.twig    any path nothing answers
-templates/default/views/errors/error.twig  every other error status
+templates/layout.twig        shared by every page below
+templates/home.twig          GET /, declared by modules/Shared
+templates/errors/404.twig    any path nothing answers
+templates/errors/error.twig  every other error status
+templates/assets/css/theme.css   their stylesheet, /assets/template/css/theme.css
 ```
 
 The front page is an ordinary route in the shared module — there is no global
@@ -180,8 +185,7 @@ It is meant to be replaced, and replacing it needs no edit to the framework:
   shared, and the router keeps the last route declared for a method and path,
   so yours answers. Give it a name other than `home`; route names are unique
   and that one is taken.
-- **Or edit `home.twig`**, or switch `APP_TEMPLATE` to a template of your own
-  that ships one.
+- **Or edit `templates/home.twig`.**
 
 The 404 page is what any unmatched path gets from a browser; a client that
 asks for JSON gets the error document instead, and debug mode shows the
@@ -192,8 +196,10 @@ built-in diagnostic page so a trace is never hidden behind a pretty one.
 `templates/` is outside the document root, alongside `engine/` and `modules/`,
 for exactly the same reason: a PHP view the web server can reach is a
 PHP file it will execute, and a Twig view it can reach is source it will hand
-out. The active template's assets stay reachable as `/assets/template/…` through
-the asset manager, which is the only way in.
+out. `templates/assets/` stays reachable as `/assets/template/…` through the
+asset manager, which is the only way in -- and it is never a view:
+`render('assets/…')` is refused, so a `.php` file among the static files cannot
+run as a template.
 
 A request for `/templates` or anything under it reaches the application like
 any other path, so a module may declare a route there; a path with no route is
@@ -203,7 +209,6 @@ the application's 404, whether or not a file of that name exists.
 
 | Key | Default | |
 |---|---|---|
-| `templates.active` | `default` (or `APP_TEMPLATE`) | The active template. One name, two directories: `templates/<active>/views/` and `templates/<active>/assets/`. It is checked against `[A-Za-z0-9][A-Za-z0-9_-]*` before it becomes a path. |
 | `templates.cache` | `false` | Twig's compilation cache, under `system/Cache/templates`. PHP templates never need it - opcache already has them. |
 
 <!-- {% endraw %} -->

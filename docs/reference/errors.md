@@ -56,8 +56,8 @@ that guess is wrong eventually.
 ## The application's own error page
 
 ```
-templates/default/views/errors/404.twig     a lost visitor
-templates/default/views/errors/error.twig   everything else
+templates/errors/404.twig     a lost visitor
+templates/errors/error.twig   everything else
 ```
 
 A template named for the status wins; `errors/error` catches the rest; with

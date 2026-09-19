@@ -12,7 +12,7 @@ use App\Engine\Support\Path;
  * Two kinds of source are registered:
  *
  *   - **Unnamespaced**, which is what a bare name like "customer/profile"
- *     searches. In practice this is the active template's views/ directory.
+ *     searches. In practice this is the application's templates/ directory.
  *   - **Namespaced**, one per module: "@plugin.Example/invoice" searches the
  *     Example plugin's Templates/ directory.
  *
@@ -21,7 +21,7 @@ use App\Engine\Support\Path;
  * searched for namespaced names, under a directory named after the namespace.**
  * So a site replaces a plugin's invoice by creating
  *
- *     templates/default/views/plugin.Example/invoice.php
+ *     templates/plugin.Example/invoice.php
  *
  * and the plugin never knows. No hook, no registration, no edit to the module.
  * The plugin's own copy is the fallback, which is what makes it safe for the

@@ -22,13 +22,14 @@ use App\Engine\Support\Path;
  *
  * **Resolution order**, first hit wins:
  *
- *   1. the active template's views/ directory
- *   2. for a namespaced name, that same directory under a subdirectory named
- *      after the namespace -- this is the override rule, see TemplateRegistry
+ *   1. templates/ -- "customer/profile" is templates/customer/profile.twig
+ *   2. for a namespaced name, templates/ under a subdirectory named after the
+ *      namespace -- this is the override rule, see TemplateRegistry
  *   3. the module's own Templates/ directory
  *
- * so a site replaces a plugin's markup by adding a file to its own theme, and
- * the plugin's copy is the fallback.
+ * so a site replaces a plugin's markup by adding a file to templates/, and the
+ * plugin's copy is the fallback. templates/assets/ is never searched: it
+ * holds static files.
  *
  * **This class renders; it never responds.** It cannot see Request or Response
  * and an architecture test keeps it that way. A handler wraps the string:
@@ -52,6 +53,9 @@ final class TemplateManager
     private const MAX_DEPTH = 32;
 
     private const SEGMENT_PATTERN = '/^[A-Za-z0-9_][A-Za-z0-9._-]*$/';
+
+    /** The one directory under templates/ that is never a view. */
+    private const ASSETS = 'assets';
 
     public function __construct(
         private readonly TemplateRegistry $registry,
@@ -197,6 +201,15 @@ final class TemplateManager
         }
 
         $this->assertUsableName($name, $relative);
+
+        // templates/assets/ holds the site's static files, served by the asset
+        // layer. Resolving a view there would run a .php among them as code.
+        if ($namespace === null && \explode('/', $relative, 2)[0] === self::ASSETS) {
+            throw TemplateException::unacceptableName(
+                $name,
+                'templates/assets/ holds static files, not views; asset()->template() links to them',
+            );
+        }
 
         foreach ($this->registry->searchPath($namespace) as $directory) {
             foreach ($this->extensions() as $extension) {

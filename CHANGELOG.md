@@ -217,6 +217,12 @@ note.
 
 ### Changed
 
+- **`templates/` is the site's views, with no switchable themes.** A name is a
+  path under it: `render('customer/profile')` is `templates/customer/profile.twig`,
+  and a module override is `templates/plugin.<Name>/…`. The site's static files
+  are `templates/assets/`, still served as `/assets/template/…`, and are never a
+  view. `APP_TEMPLATE` and `templates.active` are gone.
+
 - **The document root is `public/`.** `index.php` and the application's own
   `assets/` moved into it; everything else — `engine/`, `modules/`, `config/`,
   `vendor/`, `.env` — is out of reach of any URL, so the lists of directories and
@@ -314,8 +320,6 @@ note.
   invariant 14 call it optional. The project owner's decision: the default
   template's pages are Twig. PHP templates still render through the same
   manager, and the manager itself does not depend on Twig.
-- **The unnamed template asset namespace is the active template's `assets/`**,
-  not a shared `templates/assets/`, so switching templates switches stylesheets.
 - **`index.php` and the application's `assets/` live in `public/`**, where the
   specification's layout puts them at the project root. The project owner's
   decision: a document root holding nothing but the front controller cannot

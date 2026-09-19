@@ -165,7 +165,7 @@ kind order — shared, plugins, gateways — is never broken.
 
 ## Replace what another module renders or answers
 
-- **Its templates**: copy into `templates/<active>/views/plugin.<Name>/`. See
+- **Its templates**: copy into `templates/plugin.<Name>/`. See
   [Pages and forms](pages-and-forms.md#change-a-page-you-did-not-write).
 - **A route**: the router keeps the last route declared for a method and path,
   and modules register in order — shared, then plugins by directory name, then

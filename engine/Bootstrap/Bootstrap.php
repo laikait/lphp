@@ -183,31 +183,19 @@ final class Bootstrap
         // opcache is better at than anything written here could be.
         $cache = self::cache($settings, $basePath, $container);
 
-        // Which template is in use. One name, and it decides both where views
-        // are found and which assets the unnamed template namespace points at.
-        $template = self::activeTemplate($settings);
-
         // The asset layer. The registry starts with the two sources that are
         // facts about the layout rather than declarations by anybody: the
-        // application's own assets/ and the active template's. Module sources
-        // are published during module registration, because that is when the
-        // set of modules is known.
+        // application's own public/assets/ and templates/assets/. Module
+        // sources are published during module registration, because that is
+        // when the set of modules is known.
         //
-        // asset()->template('css/app.css') means the ACTIVE template, which is
-        // why the unnamed namespace resolves to templates/<active>/assets/
-        // rather than to templates/assets/. A named one, template('admin', ...),
-        // reaches templates/admin/assets/ the same way.
+        // asset()->template('css/app.css') is templates/assets/css/app.css.
         $assets = new AssetRegistry();
         $assets->register(new AssetSource(AssetKind::Core, null, Path::join($basePath, 'public', 'assets')));
         $assets->register(new AssetSource(
             AssetKind::Template,
             null,
-            Path::join($basePath, 'templates', $template, 'assets'),
-        ));
-        $assets->register(new AssetSource(
-            AssetKind::Template,
-            $template,
-            Path::join($basePath, 'templates', $template, 'assets'),
+            Path::join($basePath, 'templates', 'assets'),
         ));
 
         $manager = new AssetManager(
@@ -227,12 +215,13 @@ final class Bootstrap
             $cache->namespace('assets'),
         );
 
-        // The template layer. The active template's views/ is registered at
-        // override precedence, which is what lets a site replace a module's
-        // markup by dropping a file into its own theme; module directories are
-        // registered during module registration, below that.
+        // The template layer. templates/ is registered at override precedence,
+        // which is what lets a site replace a module's markup by dropping a
+        // file into templates/<namespace>/; module directories are registered
+        // during module registration, below that. Its assets/ holds static
+        // files, and the manager refuses it as a view.
         $views = new TemplateRegistry();
-        $views->add(null, Path::join($basePath, 'templates', $template, 'views'), TemplateSource::OVERRIDE);
+        $views->add(null, Path::join($basePath, 'templates'), TemplateSource::OVERRIDE);
 
         // Template resolution is a filesystem search per name, and a page with
         // a layout and six partials does it seven times. The manager memoises
@@ -259,7 +248,7 @@ final class Bootstrap
 
         // The error handler is built here rather than earlier because it
         // renders through the template layer: an application that ships a
-        // views/errors/404 template gets its own page, in its own layout,
+        // templates/errors/404 template gets its own page, in its own layout,
         // instead of the framework's. It is given the real hook engine, because
         // error.reported is how the logging phase will hear about failures and
         // a private engine would fire into nothing.
@@ -1608,9 +1597,6 @@ final class Bootstrap
                 'trust_incoming_ids' => false,
             ],
             'templates' => [
-                // The active template: templates/<active>/views/ and
-                // templates/<active>/assets/. One name, two directories.
-                'active' => Env::string('APP_TEMPLATE', 'default'),
                 // Twig's compilation cache. Off by default, like the module
                 // cache, because a cache with no invalidation story is a
                 // deployment decision rather than a default. PHP templates
@@ -1638,23 +1624,6 @@ final class Bootstrap
         ];
 
         return self::merge($defaults, $overrides);
-    }
-
-    /**
-     * Which template is active.
-     *
-     * Checked rather than trusted: it becomes a directory name, and a
-     * configuration value that becomes a path is worth one regex even when the
-     * only person who can set it already has the config file.
-     */
-    private static function activeTemplate(Config $settings): string
-    {
-        /** @var mixed $name */
-        $name = $settings->get('templates.active', 'default');
-
-        return \is_string($name) && \preg_match('/^[A-Za-z0-9][A-Za-z0-9_-]*$/', $name) === 1
-            ? $name
-            : 'default';
     }
 
     /**

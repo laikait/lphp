@@ -5,8 +5,7 @@ directory, a hash or a manifest.
 
 ```php
 asset()->core('js/app.js');                    // /assets/core/js/app.js?v=9c81f4a2
-asset()->template('css/app.css');              // the active template
-asset()->template('admin', 'css/admin.css');   // a named one
+asset()->template('css/app.css');              // templates/assets/css/app.css
 asset()->plugin('Example', 'js/example.js');   // /assets/plugin/Example/js/example.js?v=...
 asset()->gateway('Stripe', 'js/stripe.js');
 ```
@@ -16,17 +15,13 @@ inside it, and the set of namespaces is finite, enumerable and decided at boot â
 which together are what "assets must never expose physical application
 directories" means in practice.
 
-The unnamed template namespace is the **active** template's `assets/`, not a
-shared `templates/assets/` as the specification's mapping table draws it: the
-stylesheet a page asks for with `asset()->template('css/theme.css')` has to
-change when `APP_TEMPLATE` does, or switching templates would keep the old
-look.
+The template namespace is `templates/assets/`, next to the site's views in
+`templates/`, as the specification's mapping table draws it.
 
 | URL prefix | Directory |
 |---|---|
 | `/assets/core/` | `public/assets/` |
-| `/assets/template/` | `templates/<active>/assets/` |
-| `/assets/template/admin/` | `templates/admin/assets/` |
+| `/assets/template/` | `templates/assets/` |
 | `/assets/plugin/Example/` | `modules/Plugins/Example/assets/` |
 | `/assets/gateway/Stripe/` | `modules/Gateways/Stripe/assets/` |
 

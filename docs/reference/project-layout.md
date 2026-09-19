@@ -19,10 +19,11 @@ engine/                the framework
   Cache/ Queue/ Scheduler/ Security/ Observability/
   System/              commands, processes, cron, services, files on the server
   MCP/                 tools, resources and prompts that modules declare, over STDIO and HTTP
-templates/default/     the active template: views/ and assets/
-  views/layout.twig    the layout every default page extends
-  views/home.twig      the front page until a module claims /
-  views/errors/        the 404 and generic error pages
+templates/             the site's views: render('customer/profile') is customer/profile.twig
+  layout.twig          the layout every default page extends
+  home.twig            the front page until a module claims /
+  errors/              the 404 and generic error pages
+  assets/              the site's static files, /assets/template/... (never a view)
 modules/
   Shared/              cross-module capability, registers first; owns /
     Model/User.php     a shared domain model

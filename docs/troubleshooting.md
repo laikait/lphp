@@ -121,13 +121,12 @@ capability — `php laika auth:access` shows who has what.
 
 ## Templates and assets
 
-**The wrong template renders.** Directories are searched in order — the active
-template, its override of the module, the module — and in each, `.twig` before
-`.php`. `php laika template:list` prints the order.
+**The wrong template renders.** Directories are searched in order — `templates/`,
+its override folder for the module (`templates/plugin.<Name>/`), the module —
+and in each, `.twig` before `.php`. `php laika template:list` prints the order.
 
-**A template "is not found" after switching `APP_TEMPLATE`.** A template does not
-fall back to `default`; copy the pages it needs, including `layout.twig`,
-`home.twig` and `errors/`.
+**A template under `templates/assets/` "is not a plain name".** `assets/` holds
+static files, never views. Move the view anywhere else under `templates/`.
 
 **My error page is not shown.** Debug mode always shows the diagnostic page.
 Turn `APP_DEBUG` off to see yours. An error template that itself throws also

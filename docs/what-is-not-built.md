@@ -40,6 +40,4 @@ oversight — or builds one without reading why it was left out.
   template can ship Twig pages. What survives of the invariant: the manager speaks
   only to `TemplateEngine`, nothing outside `TwigTemplateEngine` mentions Twig,
   and PHP templates render through the same manager.
-- **The unnamed template asset namespace is the active template's**, not a shared
-  `templates/assets/`. See [Assets](reference/assets.md).
 - **No commits per phase** (§56 step 16) — that is the project owner's step.

@@ -1,99 +1,112 @@
 # App Framework
 
-A module-first PHP framework for heavy backend applications — ERP, billing,
-hosting control panels, SaaS backends, administration platforms, API-heavy
-systems.
+A PHP framework for large backend applications: ERP, billing, hosting control
+panels, SaaS backends, admin platforms and API-heavy systems.
 
-It is deliberately **not** an MVC framework, and deliberately not a Laravel,
-Symfony or CodeIgniter clone. Modules are the primary application boundary,
-hooks and filters are the primary extension mechanism, and database access is
-explicit rather than ORM-driven.
+Your application is built from **modules**. A module is one folder under
+`modules/` that brings its own pages, API endpoints, console commands, database
+tables and background jobs. Delete the folder and all of it is gone, because
+nothing outside the folder refers to it.
 
-> **Status: 0.1.0, unreleased.** Every phase of the specification is built except
-> the demo application (Phase 29), which is deferred. Nothing is marked Stable
-> yet — see [API stability](docs/contributing/releases.md), [What is not built](docs/what-is-not-built.md)
-> and [Implementation status](docs/contributing/development.md#implementation-status).
+> **Status: 0.1.0, not released yet.** Everything in the specification is built
+> except the demo application (Phase 29), which is postponed. Nothing is marked
+> Stable yet. See [API stability](docs/contributing/releases.md),
+> [What is not built](docs/what-is-not-built.md) and
+> [Implementation status](docs/contributing/development.md#implementation-status).
 
-## Requirements
+## What you need
 
-- PHP 8.2 or newer, with `ext-intl`, `ext-json`, `ext-mbstring` and `ext-pdo`.
-  XAMPP ships intl switched off: enable `extension=intl` in `php\php.ini`.
-- Composer 2
-- A PDO driver for whichever database you use. `pdo_sqlite` is enough to run
-  the test suite, which includes real database integration tests.
-- `ext-fileinfo` if you accept uploads — `UploadPolicy` uses it to check a
-  file's contents against its name, and says so rather than passing silently.
+- **PHP 8.2 or newer**, with the `intl`, `json`, `mbstring` and `pdo` extensions.
+  On XAMPP, `intl` is switched off: open `php\php.ini` and remove the `;` in front
+  of `extension=intl`.
+- **Composer 2**, PHP's package manager.
+- **A PDO driver for your database**, for example `pdo_mysql`. `pdo_sqlite` is
+  enough to try everything, including the tests.
+- **`fileinfo`**, only if your application accepts file uploads.
 
-`phpstan.neon` analyses across 8.2–8.5, which reports syntax newer than 8.2
-on every run whatever PHP you have, and an architecture test fails if that
-range and `composer.json` ever stop agreeing. CI runs the full gate on 8.2–8.5
-and, separately, installs `--no-dev` on 8.2 to lint, boot and serve a request.
+To see which extensions you have, run `php -m`.
 
-## Quick start
+## Install and run it
 
 ```bash
-composer install
-composer check          # coding standard + static analysis + tests
-composer serve          # http://127.0.0.1:8080
-php laika         # the command list; or: composer console
+composer install     # download the framework's dependencies
+composer serve       # start a development server
 ```
 
-Under XAMPP the application answers at `http://localhost/framework/` with no
-configuration: the base path is derived from `SCRIPT_NAME`, so the same code
-runs unchanged in a subdirectory, at a domain root, and under `php -S`.
+Open `http://127.0.0.1:8080/`. You should see **Your application is running**.
 
-A fresh installation ships one module, `modules/Shared`, and a default template.
-It answers two pages, both rendered by Twig through the default layout:
+On XAMPP you can skip `composer serve`: the application also answers at
+`http://localhost/framework/` without any setup.
+
+Two more commands you will use all the time:
 
 ```bash
-curl -i http://127.0.0.1:8080/               # the default home page
-curl -i http://127.0.0.1:8080/no/such/page   # the default 404 page
-curl -i -H 'Accept: application/json' \
-        http://127.0.0.1:8080/no/such/page   # the same 404, as an error document
+php laika            # list every console command
+composer check       # coding standard + static analysis + tests
 ```
 
-Replace the home page by declaring a `/` route in a module of your own (see
-[The default pages](docs/reference/templates.md#the-default-pages)), and look at what is wired:
+## What a fresh install contains
 
-```bash
-php laika module:list
-php laika route:list
-```
-
-There is no demo application in `modules/`. The plugin and gateway the
-documentation's examples call `Example` exist as a test fixture, under
-`tests/Fixtures/Showcase/`, where the feature tests boot them through every
-subsystem; they are a reference to read, not something an installation carries.
-
-## Architecture
-
-```
-public/index.php
-   -> engine/bootstrap.php        builds the container, picks an execution context
-   -> Application::boot()         discover -> load -> register -> boot -> ready
-   -> HttpKernel::handle()        Request -> Response, pure
-        -> Router                 static hash map, then segment trie
-        -> Dispatcher             resolve handler, inject, convert the result
-        -> Hooks / Filters        the extension points
-```
-
-The same kernel serves browser requests and REST. The console shares the same
-bootstrap with a different execution context.
-
-## Documentation
-
-Everything else is in [`docs/`](docs/README.md), by what you are doing:
-
-| You want to | Start with |
+| Folder | What is in it |
 |---|---|
-| learn the framework | [Getting started](docs/getting-started.md) — a module from nothing, in half an hour |
-| build something | the [guides](docs/README.md#guides): pages and forms, JSON APIs, storing data, background work, users and permissions, extending modules, testing |
-| look up how a part works | the [reference](docs/README.md#reference), one page per subsystem |
-| deploy and run it | [Running in production](docs/operations/running.md), [Deployment and security](docs/operations/deployment.md), [Troubleshooting](docs/troubleshooting.md) |
-| change the framework | [Contributing](docs/contributing/README.md) |
+| `modules/Shared/` | The one module that ships. It owns the home page, `/`. |
+| `modules/Plugins/`, `modules/Gateways/` | Not there yet. You create them for your own modules: a plugin is a feature, a gateway connects to an outside service such as a payment provider. |
+| `templates/` | The site's pages: a layout, the home page and the error pages, as Twig files. |
+| `config/` | Your settings, as PHP files. Empty until you need one. |
+| `engine/` | The framework itself. You do not edit it. |
+| `public/` | The only folder the web server may serve: `index.php` and public assets. |
+| `system/` | Files the framework writes: logs, caches, sessions. |
 
-A fresh installation has no accounts and no login route; add your own — see
+So a fresh install answers two pages:
+
+```bash
+curl -i http://127.0.0.1:8080/               # the home page
+curl -i http://127.0.0.1:8080/no/such/page   # the "not found" page
+curl -i -H 'Accept: application/json' \
+        http://127.0.0.1:8080/no/such/page   # the same error, as JSON
+```
+
+To replace the home page, declare a `/` route in a module of your own. See
+[The default pages](docs/reference/templates.md#the-default-pages).
+
+There is no example application in `modules/`. The documentation's examples use a
+plugin called `Example`, which lives in `tests/Fixtures/Showcase/` as a test
+fixture: worth reading, but not part of an installation.
+
+## Where to go next
+
+| You want to | Read |
+|---|---|
+| learn the framework | [Getting started](docs/getting-started.md): build a small module, step by step, in about half an hour |
+| build something | the [guides](docs/README.md#guides): pages and forms, JSON APIs, storing data, background work, users and permissions, extending modules, testing |
+| look up how one part works | the [reference](docs/README.md#reference), one page per part |
+| put it on a server | [Running in production](docs/operations/running.md), [Deployment and security](docs/operations/deployment.md), [Troubleshooting](docs/troubleshooting.md) |
+| change the framework itself | [Contributing](docs/contributing/README.md) |
+
+A fresh install has no user accounts and no login page. You add your own; see
 [Users and permissions](docs/guides/users-and-permissions.md).
+
+## How it is built
+
+What happens to one request:
+
+```
+public/index.php                the web server hands every request here
+   -> engine/bootstrap.php      sets up the framework
+   -> Application::boot()       finds the modules and lets each one register
+   -> HttpKernel::handle()      turns the Request into a Response
+        -> Router               finds which handler the URL belongs to
+        -> Dispatcher           builds the handler and calls it
+        -> Hooks / Filters      let other modules react or change values
+```
+
+Web pages and JSON APIs go through the same kernel. Console commands
+(`php laika ...`) use the same setup, without the HTTP part.
+
+It is deliberately not MVC, and not a copy of Laravel, Symfony or CodeIgniter.
+Modules are the main way to split an application; hooks and filters are how
+modules extend each other; and database access is written out rather than
+hidden behind an ORM.
 
 ## License
 

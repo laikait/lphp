@@ -281,12 +281,12 @@ It needs `ext-fileinfo`. Store uploads outside the web root, or under
 
 ## Change a page you did not write
 
-**Another module's template.** Copy it into the active template under the
-module's namespace, and edit the copy:
+**Another module's template.** Copy it into `templates/`, in a folder named
+after the module's namespace, and edit the copy:
 
 ```
-modules/Plugins/Billing/Templates/invoice.twig          the module's own
-templates/default/views/plugin.Billing/invoice.twig     yours, which wins
+modules/Plugins/Billing/Templates/invoice.twig   the module's own
+templates/plugin.Billing/invoice.twig            yours, which wins
 ```
 
 The module is never edited. `php laika template:list` prints the search
@@ -295,15 +295,14 @@ order. See [Resolution, and how overriding works](../reference/templates.md#reso
 **The front page.** Declare `/` in your module under a route name other than
 `home`. Every plugin registers after `shared`, so your route answers.
 
-**Error pages.** `templates/default/views/errors/404.twig` is shown for pages
+**Error pages.** `templates/errors/404.twig` is shown for pages
 that do not exist and `errors/error.twig` for everything else. A file named for
 a status, such as `errors/503.twig`, wins for that status. Each gets `error`
 (with `status`, `title`, `message`) and `home`. Error pages are never used in
 debug mode — turn `APP_DEBUG` off to see yours. See
 [The application's own error page](../reference/errors.md#the-applications-own-error-page).
 
-**The whole look.** Copy `templates/default/` to `templates/<name>/` and set
-`APP_TEMPLATE=<name>`. A template has `views/` and `assets/`; anything it does
-not have is not found — there is no fallback to `default`.
+**The whole look.** Edit `templates/layout.twig`, which every default page
+extends, and the stylesheet in `templates/assets/css/theme.css`.
 
 <!-- {% endraw %} -->
