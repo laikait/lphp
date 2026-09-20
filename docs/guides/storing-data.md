@@ -1,22 +1,38 @@
 # Storing data
 
-How to keep application data: connecting a database, creating tables, writing
-models and repositories, reading only what a screen needs, loading related data
-without N+1 queries, changing many rows at once, and transactions.
+This guide shows how to keep your application's data in a database:
 
-The layers are separate on purpose, and each has its own reference page:
-[Models](../reference/models.md) (domain objects),
-[Schemas](../reference/schemas.md) (the shape of data crossing a boundary),
-[Repositories and queries](../reference/data.md) (reading and writing), and
-[The database](../reference/database.md) (connections and SQL).
+1. connect a database,
+2. create tables,
+3. write a **model** (a class for one record) and a **repository** (the class
+   that reads and saves them),
+4. query, page through lists, and load related records,
+5. change many rows at once, and use transactions,
+6. write SQL yourself when you need to.
+
+The examples build a `Contact` plugin that stores messages sent through a contact
+form. Do [Getting started](../getting-started.md) first; it builds a smaller
+version of the same thing.
+
+## The pieces, and why there are several
+
+| Piece | What it is | Reference |
+|---|---|---|
+| **Model** | A class for one record, such as a message, with the rules that keep it valid. | [Models](../reference/models.md) |
+| **Repository** | The class that reads and saves models. Its methods are named after what your application does. | [Repositories and queries](../reference/data.md) |
+| **Schema** | The shape of data that comes in or goes out, such as a form or a JSON body. | [Schemas](../reference/schemas.md) |
+| **Connection** | Your database, for SQL written by you. | [The database](../reference/database.md) |
+
+Most code only touches models and repositories. The connection is for reports
+and anything a repository cannot express.
 
 ## Connect a database
 
-With nothing configured, every repository runs on `ArraySource`: real queries
-against memory that lasts one request. Good for tests; nothing survives.
+Until you configure one, repositories store everything in memory, and it is gone
+after each request. That is useful in tests, but nothing is kept.
 
-For one database, set three variables — in the real environment, or in `.env`
-on a development machine:
+For one database, set three environment variables. On your own machine, put them
+in the `.env` file in the project's root folder:
 
 ```bash
 DB_DSN="mysql:host=127.0.0.1;port=3306;dbname=erp;charset=utf8mb4"
@@ -24,21 +40,30 @@ DB_USERNAME=erp
 DB_PASSWORD=secret
 ```
 
-Any PDO driver works: `pgsql:`, `sqlite:/absolute/path/app.sqlite`, `sqlsrv:`.
-For more than one connection, or to give `host`, `port` and `database` as
-separate keys instead of a DSN, write `config/database.php` — see
+`DB_DSN` says which database and where, in PDO's format. Other examples:
+
+| Database | `DB_DSN` |
+|---|---|
+| MySQL or MariaDB | `mysql:host=127.0.0.1;port=3306;dbname=erp;charset=utf8mb4` |
+| PostgreSQL | `pgsql:host=127.0.0.1;port=5432;dbname=erp` |
+| SQLite | `sqlite:/absolute/path/app.sqlite` (always an absolute path) |
+| SQL Server | `sqlsrv:Server=127.0.0.1,1433;Database=erp` |
+
+For more than one database, or to write `host`, `port` and `database` as separate
+settings, create `config/database.php` instead. See
 [Configuring a connection](../reference/database.md#configuring-a-connection).
 
-The switch from memory to database is made in one place,
-`modules/Shared/module.php`, which binds `DataSource`. Repositories never know
-which they have.
+Your repositories do not change when you switch from memory to a database. The
+choice is made in one place, `modules/Shared/module.php`.
 
 ## Create the tables
 
-Each module owns its tables, as **migrations** in its `Database/Migrations/`
-directory. A migration describes the table with methods, not SQL, so the same
-file creates it on MySQL, PostgreSQL, SQLite and SQL Server.
-`modules/Plugins/Contact/Database/Migrations/2026_09_19_120000_create_messages.php`:
+Each module creates its own tables with **migrations**: files in the module's
+`Database/Migrations/` folder that describe a table with methods, not SQL. The
+framework writes the right SQL for MySQL, PostgreSQL, SQLite or SQL Server, so
+one file works on all four.
+
+Create `modules/Plugins/Contact/Database/Migrations/2026_09_19_120000_create_messages.php`:
 
 ```php
 <?php
@@ -67,28 +92,43 @@ return new class implements Reversible {
 };
 ```
 
+This creates a `messages` table with:
+
+- `id`: a number the database assigns to each row;
+- `email`: text up to 190 characters, with an **index** so searching by email is
+  fast;
+- `body`: text of any length;
+- `spam`: yes or no, `false` unless set.
+
+`up()` makes the change; `down()` undoes it.
+
+Run it:
+
 ```bash
-php laika migrate --pretend   # this database's SQL, run nowhere
-php laika migrate             # everything pending, in module order
-php laika migrate:status
-php laika migrate:rollback    # the last run, undone
+php laika migrate --pretend   # show the SQL for this database, and run nothing
+php laika migrate             # run every migration that has not run yet
+php laika migrate:status      # list migrations, and whether each has run
+php laika migrate:rollback    # undo the last run
 ```
 
-- **The file name is the order:** `YYYY_MM_DD_HHMMSS_what_it_does.php`, in
-  lower case, written by hand. There is no generator. A name that breaks the
-  rule stops the run before anything runs.
-- **Modules run in dependency order.** A table whose foreign key names another
-  module's table belongs to a module that `requires()` that module, and so its
-  migrations run after that module's.
-- **A migration runs once.** What ran is recorded in the `migrations` table. A
-  change to a table that exists is a new migration that calls
-  `$tables->alter(...)`; never edit one that has run.
-- **Column names are the model's constructor parameter names**, exactly, so a
-  camelCase parameter means a camelCase column.
+Rules to know:
 
-Rows a module starts with go in **seeders**, in `Database/Seeders/`. A seeder
-writes through the query builder and runs every time `php laika db:seed` does,
-so it looks before it inserts:
+- **The file name sets the order.** It is `YYYY_MM_DD_HHMMSS_what_it_does.php`,
+  in lower case, and you write it by hand; there is no generator. A wrong name
+  stops the run before anything happens.
+- **A migration runs once.** The framework records what ran in a `migrations`
+  table. To change a table later, write a **new** migration that calls
+  `$tables->alter(...)`. Never edit one that has already run.
+- **Modules run in dependency order.** If your table points at another module's
+  table (a foreign key), your module must `requires()` that module, so its tables
+  exist first.
+- **Column names must equal the model's constructor parameter names**, exactly.
+  A parameter `$createdAt` needs a column `createdAt`.
+
+### Starting data: seeders
+
+Rows a module needs from the start go in a **seeder**, a file in the module's
+`Database/Seeders/` folder:
 
 ```php
 return new class implements Seeder {
@@ -101,11 +141,17 @@ return new class implements Seeder {
 };
 ```
 
-Every column type, what each database is sent, and what is refused are in
-[Migrations and seeders](../reference/database.md#migrations-and-seeders). With
-`session.store` set to `database`, `migrate` creates the session table too.
+`php laika db:seed` runs every seeder, **every time**. That is why this one checks
+the row is not there before inserting it.
+
+Every column type, and the SQL each database gets, is in
+[Migrations and seeders](../reference/database.md#migrations-and-seeders). If you
+keep sessions, the cache, the queue or the log in the database, `migrate` creates
+their tables too.
 
 ## A model
+
+A **model** is one record as an object. `Message`:
 
 ```php
 final class Message extends Model
@@ -144,17 +190,19 @@ final class Message extends Model
 }
 ```
 
-- The constructor is how rows become objects, **by parameter name**, and where a
-  model refuses bad state. A driver that returns `"1"` for an integer column is
-  converted where the conversion is unambiguous.
-- There are no setters and no `save()`. A domain method such as `markAsSpam()`
-  changes state; the model tracks which properties changed, so an update writes
-  only those columns.
-- `identity()` is `null` until the row is stored.
-- Models live in the module that owns them, never in a shared `Models/`
-  directory. `modules/Shared/` holds only models more than one module needs.
+- **Rows become models through the constructor.** Each column goes to the
+  parameter with the same name. This is also where a model refuses bad data, by
+  throwing an exception.
+- **There are no setters and no `save()`.** You change a model with methods that
+  mean something, like `markAsSpam()`. The model remembers what changed, so saving
+  it later updates only those columns.
+- **`identity()`** is the record's id. It is `null` until the record is saved.
+- **Keep a model in the module that owns it.** Put one in `modules/Shared/` only
+  when several modules need it.
 
 ## A repository
+
+A **repository** reads and saves one kind of model:
 
 ```php
 final class MessageRepository extends Repository
@@ -179,21 +227,31 @@ final class MessageRepository extends Repository
 }
 ```
 
-Register it as a singleton in your module, `$services->singleton(MessageRepository::class)`,
-and inject it where it is needed.
+- `model()` says which class a row becomes; `collection()` is the table.
+- `receive()` saves a new message. `persist()` returns the saved model, now with
+  its id.
 
-**The base class gives you plumbing, not an API**: `query()`, `persist()`,
-`remove()`, `hydrate()`, and the bulk operations below, all `protected`. There is
-no inherited `find()`, `all()` or `save()`. Every public method is named after
-something the application does — `receive()`, `inbox()`, `purgeSpam()` — which
-is what keeps a repository from turning into a table with methods.
+Register it in your `module.php`, inside `services()`:
 
-`persist()` inserts a new model and returns it with its identity, or writes the
-changed columns of an existing one.
+```php
+$services->singleton(MessageRepository::class);
+```
+
+Then ask for `MessageRepository` in the constructor of any class that needs it.
+
+**A repository has no ready-made `find()`, `all()` or `save()`.** The base class
+gives you tools, all `protected`: `query()`, `persist()`, `remove()`, `hydrate()`
+and the bulk operations below. You write the public methods, and name them after
+what your application does: `receive()`, `inbox()`, `purgeSpam()`. Reading the
+list of methods then tells you what the application does with messages.
+
+`persist()` inserts a new model, or saves the changed columns of one that already
+exists.
 
 ## Query
 
-Queries are built immutably and run only when a terminal method is called:
+Inside a repository, `$this->query()` starts a query. Each method adds a
+condition, and nothing runs until the last call:
 
 ```php
 $this->query()
@@ -205,23 +263,29 @@ $this->query()
     ->get();                  // ModelCollection of Message
 ```
 
+This reads: messages that are not spam, with an id greater than `$after`, from
+one of these addresses, newest first, at most 50.
+
+The last call decides what you get back:
+
 | To get | Call |
 |---|---|
-| full models | `get()`, `first()`, `stream()` |
+| models | `get()`, `first()`, `stream()` |
 | plain arrays | `rows()`, `firstRow()` |
-| one column / one value | `column('email')`, `value('email')` |
-| a number or a yes/no | `count()`, `exists()` |
-| read models | `into()`, `firstInto()`, `pageInto()` |
-| batches | `page()`, `chunk($size, $callback)` |
+| one column, or one value | `column('email')`, `value('email')` |
+| a number, or yes/no | `count()`, `exists()` |
+| read models (see next section) | `into()`, `firstInto()`, `pageInto()` |
+| results in batches | `page()`, `chunk($size, $callback)` |
 
-Criteria combine with AND; there is **no OR and no join**, because this query
-runs the same on every `DataSource`, memory included. A read that needs either
-is a repository method over SQL — see [SQL directly](#sql-directly).
+Conditions are always combined with AND. **There is no OR and no join** here,
+because this query must work the same way on every kind of storage, memory
+included. For OR or a join, write a repository method with SQL; see
+[SQL directly](#sql-directly).
 
-## Read cheaply
+## Read only what a screen needs
 
-A list screen rarely needs domain objects. A **read model** declares the
-fields a screen shows, and `pageInto()` selects only those columns:
+A list page rarely needs full models. A **read model** is a small class with just
+the fields a screen shows:
 
 ```php
 final class MessageSummary extends ReadModel
@@ -232,6 +296,8 @@ final class MessageSummary extends ReadModel
     ) {}
 }
 ```
+
+`pageInto()` reads only those columns, and one page of rows:
 
 ```php
 /** One screen of the inbox: two columns, no domain objects built. */
@@ -244,18 +310,22 @@ public function inbox(int $page, int $perPage = 20): Page
 }
 ```
 
-A `Page` has `items()`, `total`, `pages()`, `hasMore()` and `meta()` for an API
-response. Read models serialise to JSON as exactly their fields.
+The `Page` it returns has `items()` (the rows), `total` (how many there are in
+all), `pages()`, `hasMore()`, and `meta()` for a JSON response. A read model turns
+into JSON as exactly its fields.
 
-## Related data
+## Load related records
 
-Relations are declared once and loaded explicitly, in a second query:
+Say every customer has an owner, who is a user. You **declare** that relation
+once, in your module's `onBoot()`, where `RelationManager` is passed in:
 
 ```php
 // in onBoot, where RelationManager is injected
 $relations->declare(Customer::class,
     Relation::one('owner', User::class, localKey: 'ownerId', foreignKey: 'id'));
 ```
+
+Then load the related records **in one extra query**, not one per customer:
 
 ```php
 $customers = $this->customers->all();                                   // one query
@@ -265,8 +335,10 @@ $relations->link($customers, 'owner', $owners);                         // none
 $customer->related('owner');   // the User, or null if it has none
 ```
 
-Calling `related()` on something never linked **throws**, so a loop cannot
-quietly issue a query per row.
+`all()` and `findAll()` are methods you write on your own repositories.
+
+Calling `related()` before `link()` **throws an exception**. So a loop can never
+quietly run one query per row, the common mistake known as "N+1 queries".
 
 ## Change many rows at once
 
@@ -278,16 +350,22 @@ public function purgeSpam(): int
 }
 ```
 
-`insertMany($rows)`, `updateWhere($query, $values)` and `deleteWhere($query)`
-issue as few statements as the driver allows and return the number of rows
-affected. A query with no criteria is refused — write `whereNotNull('id')` to
-mean "all of them" on purpose. Models already loaded are forgotten afterwards.
-See [Bulk writes](../reference/data.md#bulk-writes).
+| To | Call |
+|---|---|
+| insert many rows | `insertMany($rows)` |
+| update every row a query matches | `updateWhere($query, $values)` |
+| delete every row a query matches | `deleteWhere($query)` |
+
+Each returns the number of rows changed, and uses as few SQL statements as it
+can. A query with **no condition is refused**, so a slip cannot empty a table.
+To really mean "every row", write `whereNotNull('id')`. See
+[Bulk writes](../reference/data.md#bulk-writes).
 
 ## Transactions
 
-The code that knows what belongs together opens the transaction — not each
-repository method:
+A **transaction** makes several changes happen together, or not at all. Open it
+in the code that knows which changes belong together, not inside each repository
+method:
 
 ```php
 $connection->transaction(function (Connection $db) use ($invoice): void {
@@ -297,32 +375,36 @@ $connection->transaction(function (Connection $db) use ($invoice): void {
 });
 ```
 
-An exception rolls everything back and is rethrown. Nested calls become
-savepoints. Get the `Connection` from an injected `ConnectionManager`:
-`$connections->connection()`, or `connection('reports')` for a named one.
+- If the function throws, everything in it is undone (**rolled back**), and the
+  exception continues up to your code.
+- A transaction inside another becomes a savepoint, so the inner one can fail on
+  its own.
+- Get `$connection` from an injected `ConnectionManager`:
+  `$connections->connection()`, or `connection('reports')` for a named database.
 
-Where two requests can collide on the same rows, choose an isolation level and
-let a deadlock run the transaction again:
+When two requests may change the same rows at the same moment, ask for a stricter
+**isolation level**, and let the framework try again if the database gives up on
+one of them:
 
 ```php
 $connection->transaction($callback, isolation: IsolationLevel::Serializable, retries: 3);
 ```
 
-Only deadlocks and serialization failures are retried, and every attempt starts
-from a clean state. **The callback may then run more than once**, so send the
-email or charge the card after `transaction()` returns, never inside it. A level
-the database cannot give is refused, not approximated — see
-[Isolation levels and retrying](../reference/database.md#isolation-levels-and-retrying).
+> **The function may then run more than once.** Only a deadlock or a
+> serialization failure is retried, and each try starts clean. So send the email
+> or charge the card **after** `transaction()` returns, never inside it.
 
-To act once a transaction has committed, listen for
+A level the database cannot provide is refused, not quietly weakened. See
+[Isolation levels and retrying](../reference/database.md#isolation-levels-and-retrying).
+To run code after a transaction has been saved, listen to
 `database.transaction.committed`; see
 [Watching statements and transactions](../reference/database.md#watching-statements-and-transactions).
 
 ## SQL directly
 
-Reports, imports and anything `Query` does not express go to the connection.
-Its query builder covers OR, joins, grouping and aggregates, with every value
-bound and every name checked:
+Reports, imports and anything a repository query cannot express go straight to
+the connection. Its **query builder** has OR, joins, grouping and totals. Values
+are always sent separately from the SQL, and names are checked:
 
 ```php
 final class RevenueReport
@@ -344,12 +426,16 @@ final class RevenueReport
 }
 ```
 
-It writes too — `insert()`, `update()`, `delete()` and, where the database has
-one, `upsert()` — and refuses an `update()` or `delete()` with no `where()`. See
-[The query builder](../reference/database.md#the-query-builder).
+This reads: for each region, the sum of paid or settled order totals since
+`$since`, biggest first. The function inside `where()` makes the two status
+conditions one group, like brackets in SQL.
 
-For what the builder does not express, write the SQL, with bindings always
-separate from it:
+The builder writes too: `insert()`, `update()`, `delete()`, and `upsert()` where
+the database has one. It refuses an `update()` or `delete()` without a `where()`.
+See [The query builder](../reference/database.md#the-query-builder).
+
+For anything the builder cannot say, write SQL yourself. Put every value in the
+array, never in the SQL string:
 
 ```php
 $rows = $connections->connection('reports')->select(
@@ -362,22 +448,40 @@ $count = $connection->scalar('SELECT COUNT(*) FROM staff');
 $connection->execute('UPDATE staff SET active = 0 WHERE id = ?', [$id]);
 ```
 
-Never build a table or column name from input. Values are bound; names cannot be.
+Each `?` is filled from the array, safely. **Never build a table or column name
+from user input**: values can be sent separately, names cannot.
 
 ## Long-running processes
 
-Within one process the same row loaded twice is the same object. A queue worker
-handles many jobs in one process, so a job that loads models should start clean —
-inject `ModelManager` and call `flush()` at the start of `handle()` when the job
-reads data another job may have changed.
+Within one process, loading the same row twice gives you the same object. A queue
+worker runs many jobs in one process, so a job may see data another job already
+loaded. When a job reads data that others may have changed, inject `ModelManager`
+and call `flush()` at the start of its `handle()`.
 
 ## Testing data code
 
-- Repositories tested against `ArraySource` run the real queries and hydration
-  with nothing to install. Boot the application with no database configured and
-  seed through your own repository methods.
-- For SQL, configure `sqlite::memory:` — a fresh, empty database per application:
-  `$this->shippedApplication(['database' => ['connections' => ['default' => ['dsn' => 'sqlite::memory:']]]])`,
-  then `$this->migrate($app)` to create the same tables production has.
+- **Without a database:** repositories run the same queries against memory, with
+  nothing to install. Start the application with no database configured, and
+  create test data through your own repository methods.
+- **With SQL:** use an in-memory SQLite database, which starts empty for each
+  test, then create the tables:
+
+  ```php
+  $app = $this->shippedApplication(['database' => ['connections' => ['default' => ['dsn' => 'sqlite::memory:']]]])->boot();
+  $this->migrate($app);
+  ```
 
 See [Testing](testing.md).
+
+## If it doesn't work
+
+| What you see | Why | Fix |
+|---|---|---|
+| Data is gone after each request | No database is configured, so memory is used. | Set `DB_DSN` in `.env`. |
+| `could not find driver` | PHP lacks the PDO driver for that database. | Enable it in `php.ini` (`pdo_mysql`, `pdo_pgsql`, ...). Check with `php -m`. |
+| `no such table` / `Table ... doesn't exist` | The migration has not run on this database. | `php laika migrate`. |
+| A model cannot be built from a row, or a property keeps its default | A column name does not match the constructor parameter's name. | Rename the column in a new migration, or the parameter. |
+| "refused" on `update()` or `delete()` | The query has no condition. | Add a `where()`; for every row, `whereNotNull('id')`. |
+| `related()` throws | The relation was never `link()`ed for these models. | Load the related records and call `link()` first. |
+
+More in [Troubleshooting](../troubleshooting.md).

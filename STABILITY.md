@@ -19,11 +19,12 @@ the showcase modules in `tests/Fixtures/Showcase/` — may use an Internal class
 | **Internal** | Wiring. Public only because PHP has no package visibility. | any release, including a patch, with no notice |
 | **Deprecated** | Still works, has a replacement, and names the release that removes it. | removed no earlier than the next minor (before 1.0) or major (after) |
 
-**Nothing is Stable in 0.x.** The framework has not yet been used by an
+**Nothing is Stable yet.** The framework has not yet been used by an
 application that was not written alongside it — the demo application of Phase 29
-is deferred — and a promise made before that is a promise about guesses. 1.0.0 is
-the release that promotes. What is expected to be promoted is marked
-*1.0 candidate* in the notes below; that is an intention, not a guarantee.
+is deferred — and a promise made before that is a promise about guesses. The
+first release that promotes anything will say so. What is expected to be
+promoted is marked *1.0 candidate* in the notes below; that is an intention, not
+a guarantee.
 
 **Nothing is Deprecated yet.** When something is, it gets all four of: a
 `@deprecated` tag naming the replacement and the removal version, a row here, a
@@ -112,7 +113,7 @@ namespace beats a shorter one.
 | `App\Engine\Core\HttpKernel` | Internal | |
 | `App\Engine\Data\*` | Experimental | |
 | `App\Engine\Data\Bulk` | Internal | |
-| `App\Engine\Data\BulkWrites` | Experimental | new in 0.1.0 |
+| `App\Engine\Data\BulkWrites` | Experimental | new in the first release |
 | `App\Engine\Data\Criterion` | Internal | |
 | `App\Engine\Data\Order` | Internal | |
 | `App\Engine\Database\*` | Experimental | |

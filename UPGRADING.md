@@ -9,10 +9,11 @@ format — a queued job, a session record — which always gets one.
 Each entry says **what changed**, **who is affected** and **what to do**, in that
 order. An entry that cannot say who is affected is not finished.
 
-## To the next release, from the tree committed as "Phase 23-25"
+## To 2.1.2, from the tree committed as "Phase 23-25"
 
-No version has been released yet. These notes are for code written against the
-repository as it stood at that commit, and they become the 0.1.0 notes.
+2.1.2 is the first release, so there is no earlier release to upgrade from.
+These notes are for code written against the repository as it stood at that
+commit.
 
 ### templates/ is the site's views; no more APP_TEMPLATE
 

@@ -1,13 +1,15 @@
 # CLI
 
-The console boots the same application HTTP does — same container, same
-modules, same hooks — and then does what the kernel does for a request: look a
-name up in a registry, parse input against what was declared, call a handler
-through the container, and turn the result into something the caller
-understands. `ConsoleKernel` and `HttpKernel` read as mirror images because
-they are.
+`php laika <command>` runs a console command. The console boots the same
+application HTTP does — same container, same modules, same hooks — so a command
+can use everything a page can.
 
-A command is an ordinary object:
+This page covers writing a command, how input is parsed, what the exit codes
+mean, and the commands the framework ships with.
+
+## Write a command
+
+A command is an ordinary class. Nothing to extend, nothing to implement:
 
 ```php
 final class SyncCustomers
@@ -16,22 +18,14 @@ final class SyncCustomers
 
     public function __invoke(Output $output, string $since, int $limit, bool $dryRun): int
     {
-        // ...
+        $output->line('Syncing since ' . $since);
 
         return 0;
     }
 }
 ```
 
-There is **no `Command` base class**, no `$signature` string, no `handle()`
-method the framework insists on, and no `$this->argument('since')`. An
-architecture test asserts that nothing under `engine/Cli/` is abstract, is an
-interface, or has a protected member — because a base class is how a command
-stops being an ordinary object. It arrives with `$this->argument()`, then
-`$this->output`, then `$this->info()`, and after that a module's command can
-only be written one way.
-
-## Commands are declared where routes are
+Then declare it in `module.php`, next to your routes:
 
 ```php
 $module->commands(static function (CommandCollector $commands): void {
@@ -43,15 +37,15 @@ $module->commands(static function (CommandCollector $commands): void {
 });
 ```
 
-Nothing is scanned. A `Commands/` directory is where these classes happen to
-live, not how they are found — a file's mere existence should not change what
-an application does, and what a module contributes stays readable in one file.
+| Declares | Looks like on the command line |
+|---|---|
+| `argument('since', …)` | `php laika customer:sync 2026-01-01` |
+| `option('limit', …, shortcut: 'l')` | `--limit=5`, `--limit 5`, `-l 5`, `-l5` |
+| `flag('dry-run', …, shortcut: 'd')` | `--dry-run`, `-d`, and it is a `bool` |
 
-Arguments and options are declared rather than parsed out of a signature
-string. `"{user : the id} {--queue=}"` is a small language embedded in a
-docblock: invisible to static analysis, checked when somebody runs it. A method
-call per argument is longer to write and is checked by the IDE as it is
-written, and the same declaration generates the help.
+Nothing is scanned. A `Commands/` folder is where these classes happen to live,
+not how they are found. A file's mere existence should not change what an
+application does, and what a module contributes stays readable in one file.
 
 The handler takes the same three forms a route handler does:
 
@@ -61,123 +55,74 @@ $commands->add('customer:show', [ShowCustomer::class, 'show']);     // [class, m
 $commands->add('customer:count', static fn (CustomerQuery $c): string => …);  // closure
 ```
 
-## Input binds the way route parameters do
+## How input reaches your parameters
 
 ```bash
 php laika customer:sync 2026-01-01 --dry-run --limit=5
 php laika customer:sync 2026-01-01 -dl5      # the same thing
 ```
 
-Declared input arrives as **typed parameters, matched by name**; everything
-with a class type comes from the **container, matched by type**. That is the
-console's version of "a route parameter called `request` cannot displace the
-Request": a command that declares an argument called `output` still gets a real
-`Output`.
+Two rules:
+
+- **What you declared arrives by name.** `since`, `limit` and `dry-run` become
+  `$since`, `$limit` and `$dryRun`.
+- **Anything with a class type arrives from the container, by type.** So a
+  command that declares an argument called `output` still gets a real `Output`.
 
 A dash is not legal in a PHP parameter name, so `--dry-run` binds to `$dryRun`.
-The transformation is mechanical, one-way, and only applies to names that
-contain a dash.
+That rename is mechanical, one-way, and applies only to names containing a dash.
 
-Coercion goes through the same `Support\Coercion` routing uses, so `"1"` means
-the same thing on the command line as it does in a URL, and `--times=lots` for
-an `int $times` is a usage error with the synopsis rather than a `TypeError`.
+Values are converted the same way route parameters are, so `"1"` means the same
+thing on the command line as it does in a URL, and `--times=lots` for an
+`int $times` is a usage error printed with the synopsis, not a `TypeError`.
 
-What the parser accepts, and what it does not:
+What the parser accepts, and what it refuses:
 
-| | |
+| Written | Result |
 |---|---|
-| `--flag` `--limit=50` `--limit 50` | declared options |
-| `-l 50` `-l50` `-abc` | shortcut, attached value, bundled flags |
-| `--` | everything after is positional |
-| `--lim` for `--limit` | **not** accepted — see below |
+| `--flag`, `--limit=50`, `--limit 50` | declared options |
+| `-l 50`, `-l50`, `-abc` | shortcut, attached value, bundled flags |
+| `--` | everything after it is positional |
+| `--lim` for `--limit` | **refused** |
+| `--limit --dry-run` | **refused** |
 
-Abbreviation is refused because the abbreviation that is unique today becomes
-ambiguous the day somebody adds an option, and a script written against it
-breaks at a distance. Nor is a suggested name ever run in place of what was
-typed: a typo gets `Did you mean "customer:sync"?` and exit 127, and a command
-that deletes something is never reachable by a name its author did not write.
+**Abbreviation is refused** because the abbreviation that is unique today
+becomes ambiguous the day somebody adds an option, and a script written against
+it breaks at a distance. For the same reason a suggested name is never run in
+place of what you typed: a typo gets `Did you mean "customer:sync"?` and exit
+127, so a command that deletes something is never reachable by a name its author
+did not write.
 
-`--limit --dry-run` is refused too. Reading `--dry-run` as the value would hide
-a forgotten argument behind a nonsensical limit, and the run would look like it
-worked.
+**`--limit --dry-run` is refused** because reading `--dry-run` as the value would
+hide a forgotten argument behind a nonsensical limit, and the run would look
+like it worked.
 
-## Exit codes mean what a shell expects
+## What to return, and what a shell sees
 
-| | |
+Return an `int` for the exit code, a `string` to print, or nothing for success.
+
+**A `bool` is refused.** PHP's convention says `true` is success; the shell's
+says `0` is. An exit code that gets it backwards turns a failed job into a green
+tick.
+
+| Code | Means |
 |---|---|
 | `0` | it worked |
 | `1` | it ran and failed, or something threw |
 | `2` | the command line was wrong — missing argument, unknown option |
 | `127` | no such command |
 
-The 2/127 split earns its keep: a deployment script that mistypes a command
-name and one that forgets an argument are different bugs, and a wrapper that
-retries on one should not retry on the other.
-
-A command returns `int` for the code, a `string` to print, or nothing for
-success. **A `bool` is refused**: PHP's convention says `true` is success, the
-shell's says `0` is, and an exit code that gets it backwards turns a failed job
-into a green tick.
+The 2-versus-127 split earns its keep: a deployment script that mistypes a
+command name and one that forgets an argument are different bugs, and a wrapper
+that retries on one should not retry on the other.
 
 Results go to standard output and complaints go to standard error, so
-`laika route:list | grep customers` carries no warnings and
+`laika route:list | grep customers` carries no warnings, and
 `laika customer:sync 2>errors.log` separates the two.
 
-## The framework's own commands are not special
+## Help is generated
 
-```
-about            Summarise this application: version, modules, routes, connections.
-help             List the available commands, or explain one of them.
-asset:list       Every published asset directory and the URL prefix it answers on.
-auth:access      Every capability, every role, and which routes check them.
-auth:hash        Hash a password, for seeding the first account.
-cache:clear      Delete the configuration, module, template and application caches.
-cache:warm       Build the production boot path: the configuration and discovery caches.
-config:cache     Compile config/ and the defaults into one cached file.
-config:list      The configuration this process actually resolved to.
-db:seed          Run every module's seeders, in module order, or one module's.
-log:status       Where records go, and whether they are getting there.
-mcp:list         Every MCP tool, resource and prompt, its module and who may use it.
-migrate          Run every module's pending migrations, in module order, as one batch.
-migrate:status   Every migration, whether it ran and in which batch.
-migrate:rollback Undo the last batch of migrations, newest first.
-mcp:stdio        Serve MCP over stdin and stdout, as a user, for a local client.
-module:list      Discovered modules, in the order they load.
-nginx:make       Write the nginx server block for this application to nginx.conf.
-queue:failed     The jobs that gave up; retry or discard them.
-queue:status     What is waiting on each queue, and what has failed.
-queue:work       Run queued jobs until told to stop.
-route:list       Every registered route and its owning module.
-schedule:list    Every scheduled task, when it next runs, and what is running now.
-schedule:run     Run whatever is due this minute. This is what cron calls.
-schedule:unlock  Held schedule locks; release them after a machine died mid-run.
-security:check   Audit what this deployment actually has switched on.
-security:key     Print a new APP_KEY.
-session:gc       Delete sessions past their lifetime.
-system:info      The operating system, kernel, memory, disk and load of this machine.
-system:service:status   Whether a systemd service is running.
-system:service:restart  Restart a service that system.services allows restarting.
-system:cron:list        The jobs this application owns in the crontab.
-system:cron:install     Install the crontab line that runs schedule:run every minute.
-system:cron:remove      Remove this application's crontab jobs.
-template:list    The template search path, highest precedence first.
-```
-
-They are registered through the same `CommandCollector` a module uses, under
-the module name `engine`, and the kernel has no idea they exist. Delete
-`CoreCommands` and the console still works with fewer commands.
-
-Every one of them answers a question that is otherwise expensive to answer.
-**None of them generates code**, and an architecture test pins the list.
-`nginx:make` writes a file, but it is web server configuration that nothing in
-the framework reads. A
-`make:something` command writes a file whose shape the framework then quietly
-depends on, and the shape is undocumented because the generator *is* the
-documentation — that is how a framework stops being a library you call and
-becomes a thing you live inside.
-
-Help is generated from the declaration, so there is no second description of
-the interface to fall out of date:
+There is no second description of the interface to fall out of date:
 
 ```
 $ php laika customer:sync --help
@@ -194,18 +139,138 @@ Options:
 Declared by module plugins/Example.
 ```
 
-## Errors on a terminal
+`php laika help` lists everything; `php laika help <name>` explains one.
+
+## The framework's own commands are not special
+
+Every one of these is registered through the same `CommandCollector` your module
+uses, under the module name `engine`. The kernel has no idea they exist: delete
+`CoreCommands` and the console still works, with fewer commands.
+
+**Getting your bearings**
+
+| Command | Does |
+|---|---|
+| `about` | Summarise this application: version, modules, routes, connections. |
+| `help` | List the available commands, or explain one of them. |
+| `module:list` | Discovered modules, in the order they load. |
+| `route:list` | Every registered route and its owning module. |
+| `asset:list` | Every published asset folder and the URL prefix it answers on. |
+| `template:list` | The template search path, highest precedence first. |
+| `config:list` | The configuration this process actually resolved to. |
+| `system:info` | The operating system, kernel, memory, disk and load of this machine. |
+
+**Databases**
+
+| Command | Does |
+|---|---|
+| `migrate` | Run every module's pending migrations, in module order, as one batch. |
+| `migrate:status` | Every migration, whether it ran, and in which batch. |
+| `migrate:rollback` | Undo the last batch of migrations, newest first. |
+| `db:seed` | Run every module's seeders, in module order, or one module's. |
+
+**Caches**
+
+| Command | Does |
+|---|---|
+| `cache:clear` | Delete the configuration, module, template and application caches. |
+| `cache:warm` | Build the production boot path: the configuration and discovery caches. |
+| `config:cache` | Compile `config/` and the defaults into one cached file. |
+
+**Background work**
+
+| Command | Does |
+|---|---|
+| `queue:work` | Run queued jobs until told to stop. |
+| `queue:status` | What is waiting on each queue, and what has failed. |
+| `queue:failed` | The jobs that gave up; retry or discard them. |
+| `schedule:run` | Run whatever is due this minute. This is what cron calls. |
+| `schedule:list` | Every scheduled task, when it next runs, and what is running now. |
+| `schedule:unlock` | Release a schedule lock held after a machine died mid-run. |
+
+**Security and accounts**
+
+| Command | Does |
+|---|---|
+| `security:check` | Audit what this deployment actually has switched on. |
+| `security:key` | Print a new `APP_KEY`. |
+| `auth:access` | Every capability, every role, and which routes check them. |
+| `auth:hash` | Hash a password, for seeding the first account. |
+| `session:gc` | Delete sessions past their lifetime. |
+
+**Running a server**
+
+| Command | Does |
+|---|---|
+| `nginx:make` | Write the nginx server block for this application to `nginx.conf`. |
+| `log:status` | Where records go, and whether they are getting there. |
+| `system:cron:install` | Install the crontab line that runs `schedule:run` every minute. |
+| `system:cron:list` | The jobs this application owns in the crontab. |
+| `system:cron:remove` | Remove this application's crontab jobs. |
+| `system:service:status` | Whether a systemd service is running. |
+| `system:service:restart` | Restart a service that `system.services` allows restarting. |
+
+**MCP**
+
+| Command | Does |
+|---|---|
+| `mcp:list` | Every MCP tool, resource and prompt, its module and who may use it. |
+| `mcp:stdio` | Serve MCP over stdin and stdout, as a user, for a local client. |
+
+**None of them generates code**, and an architecture test pins that list.
+`nginx:make` writes a file, but it is web server configuration that nothing in
+the framework reads.
+
+A `make:something` command writes a file whose shape the framework then quietly
+depends on, and that shape is undocumented because the generator *is* the
+documentation. It is how a framework stops being a library you call and becomes
+a thing you live inside.
+
+## If it doesn't work
+
+| What you see | Why | Fix |
+|---|---|---|
+| `Did you mean …?` and exit 127 | The command name is wrong; nothing was run | Type the full name |
+| Exit 2 with a synopsis | A missing argument, an unknown option, or a value of the wrong type | The message names it |
+| `--lim` is not accepted | Abbreviations are refused on purpose | Write the option in full |
+| A new command is missing | A module cache from `cache:warm` is in use | `php laika cache:clear` |
+| An error says only "Set APP_DEBUG=1…" | The message was withheld, as it is on the web | Rerun with `APP_DEBUG=1 php laika …` |
+
+## Why it works this way
+
+### No `Command` base class
+
+An architecture test asserts that nothing under `engine/Cli/` is abstract, is an
+interface, or has a protected member — because a base class is how a command
+stops being an ordinary object. It arrives with `$this->argument()`, then
+`$this->output`, then `$this->info()`, and after that a module's command can
+only be written one way.
+
+`ConsoleKernel` and `HttpKernel` read as mirror images because they do the same
+job: look a name up in a registry, parse input against what was declared, call a
+handler through the container, and turn the result into something the caller
+understands.
+
+### Declarations, not a signature string
+
+`"{user : the id} {--queue=}"` is a small language embedded in a docblock:
+invisible to static analysis, and checked only when somebody runs it. A method
+call per argument is longer to write, is checked by your editor as you write it,
+and generates the help from the same declaration.
+
+### Errors on a terminal
 
 `command.matched`, `command.finished` and `command.failed` are the CLI's
-lifecycle hooks. There is deliberately **no filter over parsed input**: a
-filter carries a value so that a module can change it, and a module silently
-rewriting another module's arguments is worse than the flexibility is worth.
+lifecycle hooks. There is deliberately **no filter over parsed input**: a filter
+carries a value so a module can change it, and a module silently rewriting
+another module's arguments is worse than the flexibility is worth.
 
-An exception's message obeys the same disclosure rule the web does — an
-`HttpException` message is written by this framework and survives, anything
-else is replaced wholesale outside debug mode. The console was the one place
-that did not, and a `DatabaseException` carrying `dsn=…` into a cron log is
-exactly what that rule exists to prevent. What the console adds is a way
-forward: when a message is withheld it says `Set APP_DEBUG=1 for the full
-message and a stack trace`, because the person reading a console error is the
-person who can turn debug on.
+An exception's message obeys the same rule the web does — an `HttpException`
+message is written by this framework and survives, anything else is replaced
+outside debug mode. The console was the one place that did not, and a
+`DatabaseException` carrying `dsn=…` into a cron log is exactly what that rule
+exists to prevent.
+
+What the console adds is a way forward: when a message is withheld it says
+`Set APP_DEBUG=1 for the full message and a stack trace`, because the person
+reading a console error is the person who can turn debug on.

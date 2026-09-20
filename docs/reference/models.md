@@ -1,8 +1,13 @@
 # Models
 
-A model is domain state and the behaviour that guards it. It is **not** an
-active record: there is no `save()`, no `delete()`, no static `find()`, no query
-builder and no lazy relationship property.
+A *model* is one record in your domain — a customer, an invoice — together with
+the behaviour that keeps it valid.
+
+It is **not** an active record. There is no `save()`, no `delete()`, no static
+`find()`, no query builder on it, and no lazy relationship property. Saving is
+the [repository's](data.md) job.
+
+## Write a model
 
 ```php
 final class Customer extends Model
@@ -21,19 +26,33 @@ final class Customer extends Model
 }
 ```
 
-Ordinary typed properties, a constructor that can refuse bad state, domain
-methods instead of setters. What the engine adds is the part persistence cannot
-infer:
+Ordinary typed properties, a constructor that can refuse bad state, and domain
+methods instead of setters. `identity()` is the only method the base class
+requires.
 
-**Change tracking.** `markClean()` snapshots the declared properties; `changes()`
-reports what has diverged. A repository writes the changed columns rather than
-every column, and it gets that from `deactivate()` without a single setter —
-tracking reads the properties instead of intercepting the writes. A model that
-has never been clean reports all of its attributes, so `changes()` serves an
-insert and an update alike.
+What the engine adds is the part persistence cannot work out for itself:
+tracking changes, loading related records, and keeping one object per row.
 
-**Explicit relations.** A `Relation` is a declaration and nothing more. Loading
-is written out where it can be seen:
+## Change tracking
+
+| Call | Does |
+|---|---|
+| `markClean()` | take a snapshot of the declared properties |
+| `changes()` | what has changed since that snapshot |
+| `isDirty($name = null)` | whether anything, or one property, has changed |
+| `isNew()` | whether it has ever been clean |
+
+A repository writes the changed columns rather than every column, and it learns
+that from `deactivate()` without a single setter: tracking reads the properties
+rather than intercepting writes.
+
+A model that has never been clean reports all of its attributes, so `changes()`
+serves an insert and an update alike.
+
+## Related records are loaded on purpose
+
+A `Relation` is a declaration and nothing more. Loading is written out where you
+can see it:
 
 ```php
 $relations->declare(Customer::class,
@@ -44,24 +63,33 @@ $owners = $users->findAll($relations->keysFor($customers, 'owner')); // one more
 $relations->link($customers, 'owner', $owners);                    // none
 ```
 
-`$customer->related('owner')` returns what was attached and **throws** if
-nothing was. There is no lazy loader to trigger by accident, so a loop over ten
-thousand customers cannot quietly become ten thousand queries. A relation that
-was loaded and found nothing is attached as `null` or an empty collection, so
-"empty" and "never loaded" stay distinguishable.
+`Relation::one(...)` and `Relation::many(...)` are the two kinds.
 
-**Identity.** `ModelManager` hydrates rows by matching them to the model's
-constructor **by parameter name**, converting only where the conversion is
-unambiguous — which matters because a driver may return every column as a
-string. Within one unit of work the same row hydrated twice is the same object,
-so a change made through one reference is visible through the other.
+`$customer->related('owner')` returns what was attached, and **throws if nothing
+was**. There is no lazy loader to trigger by accident, so a loop over ten
+thousand customers cannot quietly become ten thousand queries.
 
-> The identity map is memory. A long-running worker must call
+A relation that was loaded and found nothing is attached as `null` or an empty
+collection, so "empty" and "never loaded" stay different answers.
+`hasRelated()` asks which one you have.
+
+## One object per row
+
+`ModelManager` builds models from rows by matching columns to the constructor's
+**parameter names**, converting only where the conversion is unambiguous — which
+matters, because a driver may hand every column back as a string.
+
+Within one unit of work, the same row built twice is the same object, so a
+change made through one reference is visible through the other.
+
+> **The identity map is memory.** A long-running worker must call
 > `ModelManager::flush()` between units of work, or state from one job is
-> visible to the next.
+> visible in the next.
 
-**Read models.** Domain models are deliberately not serialisable — a domain
-entity is not an API representation. A list endpoint projects instead:
+## Read models
+
+Domain models are deliberately not serialisable: a domain entity is not an API
+representation. A list endpoint projects into a read model instead:
 
 ```php
 final class CustomerListRecord extends ReadModel
@@ -74,9 +102,22 @@ final class CustomerListRecord extends ReadModel
 }
 ```
 
-Three columns, no tracking, no relations. The fields in the payload are the ones
-someone chose to put there.
+Three columns, no tracking, no relations — and `Query::into()` selects only
+those columns. The fields in the payload are the ones somebody chose to put
+there.
+
+## Where models live
 
 Business models never live in `engine/Model/`, which holds infrastructure only.
 They belong to the module that owns the capability, or to `modules/Shared/` when
-genuinely more than one module needs them. Both rules are enforced by tests.
+more than one module genuinely needs them. Both rules are enforced by tests.
+
+## If it doesn't work
+
+| What you see | Why | Fix |
+|---|---|---|
+| A property is never filled | Column names must match the constructor's parameter names exactly, including case | Rename one or the other |
+| `related()` throws | Nothing was attached; there is no lazy loading | Load with `keysFor()` and `link()` first |
+| A worker sees stale data | The identity map holds rows for the life of the process | `ModelManager::flush()` between jobs |
+| An update writes every column | The model was never `markClean()`ed, so it counts as new | That is correct for an insert |
+| A model cannot be turned into JSON | Domain models are not serialisable on purpose | Project into a `ReadModel` |

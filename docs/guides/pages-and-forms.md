@@ -2,22 +2,30 @@
 
 <!-- Twig below: GitHub Pages must not run it as Liquid. {% raw %} -->
 
-How to put HTML in front of people: pages rendered from a module, layouts and
-partials, styles and scripts, forms that survive CSRF checks and bad input,
-uploads, and changing the look of pages you did not write.
+This guide shows how to put HTML pages in your application:
 
-Assumes you have done [Getting started](../getting-started.md). The full rules
-are in [Templates](../reference/templates.md) and [Assets](../reference/assets.md).
+- render a page from your module,
+- put it inside the site's layout, and reuse small pieces (partials),
+- add stylesheets, scripts and images,
+- build a form that validates its input,
+- accept file uploads,
+- change pages that another module or the framework made.
+
+Do [Getting started](../getting-started.md) first: this guide assumes you have a
+module with a route. The examples use a plugin called `Desk`, in
+`modules/Plugins/Desk/`. Replace `Desk` with your own module's name.
 
 ## Render a page
 
-Three pieces, all inside your module:
+A page needs three things, all in your module:
 
-| | |
-|---|---|
-| `Templates/profile.twig` | the markup; its name is `@plugin.<Name>/profile` |
-| a handler | renders it and wraps the string in a `Response` |
-| a route | in `module.php` |
+| What | Where | Does |
+|---|---|---|
+| a template | `Templates/profile.twig` | the HTML. Its name is `@plugin.Desk/profile`. |
+| a handler | a class in `Http/` | renders the template and returns a `Response` |
+| a route | `module.php` | connects a URL to the handler |
+
+The handler's method looks like this:
 
 ```php
 public function __invoke(Request $request): Response
@@ -31,18 +39,25 @@ public function __invoke(Request $request): Response
 }
 ```
 
-`TemplateManager` is injected. Never write the extension: `render('x')` finds
-`x.twig` or `x.php`, so a template can change engine without its callers
-changing. Pass `home` if the page uses the default layout, so its home link
-works when the application lives in a subdirectory.
+- `$this->templates` is a `TemplateManager`. Ask for it in the handler's
+  constructor, and the framework passes it in.
+- **Never write the file extension.** `render('x')` finds `x.twig` or `x.php`, so
+  you can switch a template from PHP to Twig without changing any code that uses
+  it.
+- The array is the data the template can print.
+- **Pass `home`** when the page uses the site's layout, so its home link works
+  even when the application runs in a subfolder, as on XAMPP.
 
-In `module.php` and in templates there is no constructor, so the global
-`template()` helper returns the same manager: `template()->render(...)`.
+Where there is no constructor, such as in `module.php` or inside a template, the
+function `template()` gives you the same manager: `template()->render(...)`.
 
-## Use the layout
+## Put the page inside the layout
 
-The default template's `layout.twig` has three blocks: `title`, `content` and
-`footer`. A Twig page extends it:
+The **layout** is the template every page shares: the `<head>`, header and
+footer. The site's layout is `templates/layout.twig`. It has three **blocks**,
+places a page can fill: `title`, `content` and `footer`.
+
+A Twig page fills them like this:
 
 ```twig
 {% extends "layout.twig" %}
@@ -54,22 +69,29 @@ The default template's `layout.twig` has three blocks: `title`, `content` and
 {% endblock %}
 ```
 
-Twig escapes every value it prints. To print markup you already trust, write
-`{{ value|raw }}` — and let that word stand out in review.
+Twig **escapes** every value it prints: a `<` in the data is shown as `<`, and
+never becomes HTML. That is what stops a visitor from putting a script into your
+page. If a value is HTML you trust, print it with `{{ value|raw }}`. The word
+`raw` then stands out when someone reviews the code.
 
-A **PHP** template cannot extend anything. Render the page to a string, then hand
-it to the layout as `content`:
+A **PHP** template cannot extend a layout. Render the page first, then pass the
+result to the layout as `content`:
 
 ```php
 $content = $this->templates->render('@plugin.Desk/legacy', ['rows' => $rows]);
 $html = $this->templates->render('layout', ['title' => 'Legacy', 'content' => $content]);
 ```
 
-## Partials
+## Reuse a piece of a page (partials)
+
+A **partial** is a small template used inside other templates, such as a message
+box. In Twig:
 
 ```twig
 {% include "@plugin.Desk/partials/message.twig" with {message: message} only %}
 ```
+
+`only` means the partial sees just the values you pass, here `message`.
 
 In a PHP template:
 
@@ -77,12 +99,13 @@ In a PHP template:
 <?= $view->render('@plugin.Desk/partials/message', ['message' => $message]) ?>
 ```
 
-A PHP partial sees only what it is passed, never its parent's variables.
+A PHP partial always sees only what it is passed, never its parent's variables.
 
 ## Escaping in PHP templates
 
-PHP templates escape nothing on their own. Every template gets `$e`, and the
-escape depends on where the value goes:
+Twig escapes for you. **PHP templates escape nothing by themselves**, so every
+value needs escaping by hand. Every PHP template gets a helper called `$e`, and
+which method to use depends on where the value goes:
 
 ```php
 <p><?= $e($message->body()) ?></p>
@@ -91,19 +114,27 @@ escape depends on where the value goes:
 <?= $e->raw($trustedHtml) ?>
 ```
 
-Prefer Twig for anything new; this is the reason. See
-[What a PHP template gets](../reference/templates.md#what-a-php-template-gets).
+| Where the value goes | Use |
+|---|---|
+| between tags | `$e($value)` |
+| inside an attribute | `$e->attr($value)` |
+| in a URL | `$e->url($value)` |
+| inside `<script>` | `$e->js($value)` |
+| HTML you trust | `$e->raw($value)` |
+
+Forgetting `$e` once is a security hole. That is why new templates should be
+Twig. See [What a PHP template gets](../reference/templates.md#what-a-php-template-gets).
 
 ## Stylesheets, scripts and images
 
-Put them in your module's `assets/` directory. It is published because it
-exists — nothing to declare:
+Put them in an `assets/` folder in your module. There is nothing to register:
+the folder is published because it exists.
 
 ```
 modules/Plugins/Desk/assets/css/desk.css   →   /assets/plugin/Desk/css/desk.css?v=…
 ```
 
-In Twig:
+Link to a file with `asset()`, never with a hand-written URL. In Twig:
 
 ```twig
 {% block content %}
@@ -111,23 +142,37 @@ In Twig:
 {% endblock %}
 ```
 
-In PHP, `$view->asset()->plugin('Desk', 'css/desk.css')`; in `module.php`,
-`asset()->plugin(...)`. The `?v=` is a hash of the file's contents, so browsers
-may cache it for a year and still see every change. Files for the whole
-application go in `public/assets/` and are addressed with
-`asset()->core('css/app.css')`.
+| From | Write |
+|---|---|
+| a Twig template | `view.asset().plugin('Desk', 'css/desk.css')` |
+| a PHP template | `$view->asset()->plugin('Desk', 'css/desk.css')` |
+| `module.php` | `asset()->plugin('Desk', 'css/desk.css')` |
 
-`modules/` is outside the document root; the URL works because the framework
-serves those files itself, after checking the path. See
+- **The `?v=…` part** is made from the file's contents. When the file changes,
+  the URL changes, so browsers can cache it for a long time and still get every
+  new version.
+- **Files for the whole site** go in `templates/assets/` and are linked with
+  `asset()->template('css/theme.css')`. Files that are not about the look, such
+  as a favicon, go in `public/assets/`, linked with `asset()->core(...)`.
+
+`modules/` is not reachable from the web. The URL works because the framework
+serves those files itself, after checking the path is safe. See
 [Why PHP serves them at all](../reference/assets.md#why-php-serves-them-at-all).
 
 ## A form
 
-A form needs four things the framework is strict about: the CSRF token, a schema
-for the input, a way to show errors, and a redirect when it worked. This one is
-complete.
+A form that works properly needs four things:
 
-The schema — `Schema/MessageSchema.php`:
+1. a **CSRF token**, a hidden value that proves the form came from your site;
+2. a **schema** that says what valid input looks like;
+3. a way to **show the errors** next to the fields;
+4. a **redirect** after it worked, so reloading the page does not send it twice.
+
+Here is a complete contact form. It has four files.
+
+### 1. The schema: `Schema/MessageSchema.php`
+
+A **schema** lists the fields a form accepts and the rules for each:
 
 ```php
 final class MessageSchema
@@ -146,7 +191,11 @@ final class MessageSchema
 }
 ```
 
-The handler — `Http/ContactForm.php`:
+- `email` must be a string, and the `check()` function must answer `true` for
+  it. `'an email address'` is what the error message says was expected.
+- `body` must be between 1 and 2000 characters long.
+
+### 2. The handler: `Http/ContactForm.php`
 
 ```php
 final class ContactForm
@@ -205,7 +254,31 @@ final class ContactForm
 }
 ```
 
-The template — `Templates/contact.twig`:
+What happens, step by step:
+
+1. **`show()`** displays the empty form. `$session->get('status')` picks up the
+   "thank you" message if the visitor was just redirected here.
+2. **`send()`** receives the submitted form. It collects the two fields and
+   validates them with the schema.
+3. **If anything is wrong**, it shows the form again with the errors and with
+   what the visitor typed (`old`), and status `422` ("the input was refused").
+4. **If it is valid**, `deserialize()` keeps only the fields the schema lists. A
+   visitor cannot sneak in a field you did not put on the form.
+5. It saves the message, and queues a job to answer it later. See
+   [Background work](background-work.md).
+6. **`flash()`** stores the "thank you" for the next request only.
+7. It **redirects** with status `303` to the form page. Reloading that page just
+   reloads it, instead of sending the form again.
+
+`page()` renders the template with the form's URL (`action`) and the CSRF
+`token`. `$this->router->url('contact.send')` builds the URL from the route's
+name, so it is always right.
+
+> **`Session` is a parameter of the method, not of the constructor.** It is this
+> request's session, and the framework passes it in per request. Never ask for it
+> in a constructor.
+
+### 3. The template: `Templates/contact.twig`
 
 ```twig
 {% extends "layout.twig" %}
@@ -231,7 +304,12 @@ The template — `Templates/contact.twig`:
 {% endblock %}
 ```
 
-The routes:
+- The hidden `_token` field carries the CSRF token.
+- `old.email|default('')` refills the field after an error, or leaves it empty.
+- `errors.email` holds every message for that field, so all problems show at
+  once.
+
+### 4. The routes, in `module.php`
 
 ```php
 $routes->get('/contact', [ContactForm::class, 'show'])->name('contact.show');
@@ -240,30 +318,24 @@ $routes->post('/contact', [ContactForm::class, 'send'])
     ->meta(['rate_limit' => '5/1m']);
 ```
 
-What each part is doing:
+The same URL, `/contact`, shows the form on `GET` and receives it on `POST`.
+`'rate_limit' => '5/1m'` accepts at most five messages a minute from one IP
+address; the sixth is refused with `429`.
 
-- **CSRF is already on.** Every `POST`, `PUT`, `PATCH` and `DELETE` is refused
-  with 403 unless it echoes the token from the `XSRF-TOKEN` cookie as `_token`
-  (or an `X-CSRF-TOKEN` header). `Csrf::token()` is the value to print.
-- **`validate()` collects every problem**, keyed by field, so the form shows all
-  of them at once. 422 tells the browser the page is a refusal, not a success.
-- **`deserialize()` drops keys the schema does not declare**, so a visitor cannot
-  set a field you did not put on the form.
-- **Redirect after a successful post**, with 303, so reloading the next page does
-  not submit again. The flash message lives for exactly one more request.
-- **`Session` is a handler parameter**, not a constructor argument: it is this
-  request's session. Never inject it into a singleton.
+### How CSRF protection works
 
-> **Known issue in 0.1.0:** on a browser's *first* visit — before it holds an
-> `XSRF-TOKEN` cookie — the token `Csrf::token()` returns and the cookie the
-> framework sets are generated separately and do not match, so that first submit
-> is refused with 403. From the second page view on they agree. A fix belongs in
-> the framework, not in your form.
+CSRF is an attack where another website makes your visitor's browser submit a
+form to your site. The framework blocks it **automatically**:
 
-See [CSRF is opt-out](../reference/security.md#csrf-is-opt-out) and
-[Flash data is ordinary data](../reference/sessions.md#flash-data-is-ordinary-data).
+- Every `POST`, `PUT`, `PATCH` and `DELETE` request is refused with `403`, unless
+  it sends back the right token as a `_token` field (or an `X-CSRF-TOKEN`
+  header).
+- `Csrf::token()` gives you the value to put in the form, as above.
 
-## Uploads
+You do not switch it on. See [CSRF is opt-out](../reference/security.md#csrf-is-opt-out)
+and [Flash data is ordinary data](../reference/sessions.md#flash-data-is-ordinary-data).
+
+## Accept a file upload
 
 ```php
 $policy = UploadPolicy::images();
@@ -274,35 +346,64 @@ if ($problems === []) {
 }
 ```
 
-Nothing is checked automatically, because only the endpoint knows what it
-accepts. `check()` returns every problem; `store()` generates the stored name.
-It needs `ext-fileinfo`. Store uploads outside the web root, or under
-`system/`. See [Uploads](../reference/security.md#uploads).
+- **`UploadPolicy::images()`** accepts images only, up to a size limit.
+- **`check()`** returns a list of every problem, or an empty list when the file
+  is fine.
+- **`store()`** saves the file under a new, safe name that it generates, and
+  returns the path.
+
+Nothing is checked unless you call `check()`, because only your code knows what a
+form should accept. It needs PHP's `fileinfo` extension. Store uploads outside
+`public/`, for example under `system/`, so nobody can open them by URL. See
+[Uploads](../reference/security.md#uploads).
 
 ## Change a page you did not write
 
-**Another module's template.** Copy it into `templates/`, in a folder named
-after the module's namespace, and edit the copy:
+**A template of another module.** Copy it into `templates/`, into a folder named
+after the module's template namespace, and edit your copy:
 
 ```
 modules/Plugins/Billing/Templates/invoice.twig   the module's own
-templates/plugin.Billing/invoice.twig            yours, which wins
+templates/plugin.Billing/invoice.twig            your copy, which is used instead
 ```
 
-The module is never edited. `php laika template:list` prints the search
-order. See [Resolution, and how overriding works](../reference/templates.md#resolution-and-how-overriding-works).
+You never edit the other module. `php laika template:list` shows the order in
+which folders are searched. See
+[Resolution, and how overriding works](../reference/templates.md#resolution-and-how-overriding-works).
 
-**The front page.** Declare `/` in your module under a route name other than
-`home`. Every plugin registers after `shared`, so your route answers.
+**The home page.** Declare a `/` route in your module, with any route name except
+`home`. Your module loads after `shared`, so your route wins.
 
-**Error pages.** `templates/errors/404.twig` is shown for pages
-that do not exist and `errors/error.twig` for everything else. A file named for
-a status, such as `errors/503.twig`, wins for that status. Each gets `error`
-(with `status`, `title`, `message`) and `home`. Error pages are never used in
-debug mode — turn `APP_DEBUG` off to see yours. See
-[The application's own error page](../reference/errors.md#the-applications-own-error-page).
+**The error pages.** `templates/errors/404.twig` is shown for pages that do not
+exist, and `templates/errors/error.twig` for every other error. To change one
+status only, add a file named after it, such as `templates/errors/503.twig`. Each
+error page receives `error` (with `status`, `title` and `message`) and `home`.
+
+In **debug mode** (`APP_DEBUG=true`) the framework always shows its own detailed
+error page instead, so you can see what went wrong. Turn debug off to see yours.
+See [The application's own error page](../reference/errors.md#the-applications-own-error-page).
 
 **The whole look.** Edit `templates/layout.twig`, which every default page
-extends, and the stylesheet in `templates/assets/css/theme.css`.
+extends, and the stylesheet `templates/assets/css/theme.css`.
+
+## If it doesn't work
+
+| What you see | Why | Fix |
+|---|---|---|
+| `403` when a form is submitted | The CSRF token is missing or wrong. | Print `Csrf::token()` into a hidden `_token` field, as in the form above. |
+| A template "was not found" | Wrong name, or the extension was written. | Use `@plugin.<Name>/path` without `.twig`; check with `php laika template:list`. |
+| HTML shows as text, with `<` visible | Twig escaped it, as it should for data. | If the HTML is yours and trusted, print it with `\|raw`. |
+| The stylesheet is a 404 | The file is not in the module's `assets/` folder, or the path is wrong. | Check the file exists; `php laika asset:list` shows what is published. |
+| Your error page is not shown | Debug mode is on. | Set `APP_DEBUG=false`. |
+| `422` with no errors on the page | The template does not print `errors`. | Loop over `errors.<field>` next to each field, as above. |
+
+More in [Troubleshooting](../troubleshooting.md).
+
+## Read more
+
+- [Templates](../reference/templates.md): how templates are found, and everything
+  a template can use.
+- [Assets](../reference/assets.md): URLs, versions and caching.
+- [Security](../reference/security.md): CSRF, rate limits, uploads.
 
 <!-- {% endraw %} -->

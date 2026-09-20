@@ -96,6 +96,27 @@ write are withheld outside debug; a factory that quotes another exception's
 message must call `withheld()`, and a test checks. Secrets travel as `Secret`.
 Anything that turns a path into a file goes through the one class responsible.
 
+## Where the design decisions are written down
+
+Each reference page ends with the reasoning behind its subsystem, so a change
+that contradicts one is a discussion rather than a surprise. The ones most often
+argued with:
+
+| Decision | Written up in |
+|---|---|
+| No service providers; registration cannot read from the container | [Modules](../reference/modules.md#why-this-is-not-a-service-provider) |
+| No middleware; security is listeners on lifecycle hooks | [Security](../reference/security.md#why-there-is-no-middleware) · [Routing](../reference/routing.md#there-is-no-middleware) |
+| No gates or policies; grants are data, and a filter may only refuse | [Auth](../reference/auth.md#why-this-is-not-a-gate) |
+| No `Command` base class | [CLI](../reference/console.md#no-command-base-class) |
+| Ten global helpers, and why they are not facades | [Hooks and filters](../reference/hooks-and-filters.md#helpers-are-not-facades) |
+| Rendering and recording errors are separate layers | [Logging](../reference/logging.md#error-rendering-does-not-know-this-layer-exists) |
+| Building an asset URL and serving the file are separate | [Assets](../reference/assets.md#building-a-url-and-delivering-a-file-are-separate-jobs) |
+| An asset request loads no module | [Assets](../reference/assets.md#an-asset-request-loads-no-module) |
+| SQL is built in one place, and only names are interpolated | [Database](../reference/database.md#the-injection-boundary-is-one-file-wide) |
+| Profiling costs nothing when it is off | [Observability](../reference/observability.md#how-off-costs-nothing) |
+| Routes and dependency resolution are not cached | [Performance](../reference/performance.md#what-is-deliberately-not-cached) |
+| A session writes what it changed, not what it read | [Sessions](../reference/sessions.md#the-request-writes-what-it-changed-not-what-it-read) |
+
 ## Checklists
 
 When you add…
