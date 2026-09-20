@@ -3,7 +3,7 @@
 Start with the section that matches what you are doing. If a word is new to you,
 look it up in the [glossary](#glossary) at the bottom of this page.
 
-Everything here describes version 2.1.2. What is public, and how stable it is,
+Everything here describes version 2.1.4. What is public, and how stable it is,
 is listed in [`STABILITY.md`](../STABILITY.md).
 
 ## New to the framework

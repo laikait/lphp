@@ -8,8 +8,8 @@ Your application is built from **modules**. A module is one folder under
 tables and background jobs. Delete the folder and all of it is gone, because
 nothing outside the folder refers to it.
 
-> **Status: 2.1.2, the first release.** Everything in the specification is built
-> except the demo application (Phase 29), which is postponed. Every public API is
+> **Status: 2.1.4.** Everything in the specification is built except the demo
+> application (Phase 29), which is postponed. Every public API is
 > **Experimental**; nothing is marked Stable yet. See
 > [API stability](docs/contributing/releases.md),
 > [What is not built](docs/what-is-not-built.md) and

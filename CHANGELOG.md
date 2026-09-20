@@ -13,6 +13,32 @@ public, is in [`STABILITY.md`](STABILITY.md).
 
 Nothing yet.
 
+## [2.1.4] - 2026-09-20
+
+### Fixed
+
+- **The version an application reports.** 2.1.3 was tagged without bumping
+  `Application::VERSION`, so `about` and `help` printed 2.1.2 from a 2.1.3
+  install, and this file listed 2.1.3's fixes under `[2.1.2]` — a release that
+  did not contain them. Both are corrected here, and 2.1.3 has its own section
+  below. `DocumentationTest` compares the changelog with `Application::VERSION`
+  and never with the git tags, which is why nothing caught it.
+
+## [2.1.3] - 2026-09-20
+
+### Fixed
+
+- **`about` died on the state it exists to report.** With `queue.store` set to
+  `database` and no `jobs` table yet — a fresh installation, before the first
+  `migrate` — counting what was waiting threw, so the one command that would
+  have named the problem produced a stack trace instead. It now prints the
+  store, and beside it the reason it could not be counted, and the rest of the
+  screen still renders. A message the framework did not write is not repeated,
+  so a database that is down does not put its DSN on the line.
+- **The routing reference showed a global `url()`.** There is none: the ten
+  global helpers are fixed, and building a URL from a route name is
+  `Router::url()`, injected. Three examples told readers otherwise.
+
 ## [2.1.2] - 2026-09-20
 
 The first release. Every public API in it is **Experimental**: a minor release
@@ -271,13 +297,6 @@ may change it, always with an upgrade note. Nothing is Stable yet — see
 
 ### Fixed
 
-- **`about` died on the state it exists to report.** With `queue.store` set to
-  `database` and no `jobs` table yet — a fresh installation, before the first
-  `migrate` — counting what was waiting threw, so the one command that would
-  have named the problem produced a stack trace instead. It now prints the
-  store, and beside it the reason it could not be counted, and the rest of the
-  screen still renders. A message the framework did not write is not repeated,
-  so a database that is down does not put its DSN on the line.
 - **Binary data could not be written on SQL Server.** A stream was sent as
   text, and SQL Server refuses text in a `VARBINARY` column. It is now bound
   with the driver's binary encoding, and comes back byte for byte, as on the
@@ -338,5 +357,7 @@ may change it, always with an upgrade note. Nothing is Stable yet — see
   expose source through a forgotten deny rule, and a server that cannot change its
   document root still works through the forwarding `.htaccess`.
 
-[Unreleased]: https://github.com/laikait/lphp/compare/v2.1.2...main
+[Unreleased]: https://github.com/laikait/lphp/compare/v2.1.4...main
+[2.1.4]: https://github.com/laikait/lphp/compare/v2.1.3...v2.1.4
+[2.1.3]: https://github.com/laikait/lphp/compare/v2.1.2...v2.1.3
 [2.1.2]: https://github.com/laikait/lphp/releases/tag/v2.1.2
