@@ -86,14 +86,14 @@ final class TemplateSliceTest extends TestCase
         }
     }
 
-    public function test_the_active_template_is_registered_above_every_module(): void
+    public function test_the_templates_directory_is_registered_above_every_module(): void
     {
         $views = $this->booted()->container()->get(TemplateRegistry::class);
         self::assertInstanceOf(TemplateRegistry::class, $views);
 
         $path = $views->searchPath('plugin.Example');
 
-        self::assertStringEndsWith('templates/default/views/plugin.Example', $path[0]);
+        self::assertStringEndsWith('templates/plugin.Example', $path[0]);
         self::assertStringEndsWith(self::SHOWCASE . '/Plugins/Example/Templates', $path[1]);
     }
 
@@ -224,31 +224,17 @@ final class TemplateSliceTest extends TestCase
 
     // ---- configuration ----------------------------------------------------
 
-    /**
-     * One config value moves both the views and the assets, because "the active
-     * template" is one thing rather than two that have to be kept in step.
-     */
-    public function test_the_active_template_decides_views_and_assets_together(): void
+    /** templates/ is the site's views, and its assets/ the site's static files. */
+    public function test_templates_holds_the_views_and_its_assets_folder_the_static_files(): void
     {
-        $application = $this->booted(['templates' => ['active' => 'admin']]);
+        $application = $this->booted();
 
         $views = $application->container()->get(TemplateRegistry::class);
         $assets = $application->container()->get(AssetRegistry::class);
         self::assertInstanceOf(TemplateRegistry::class, $views);
         self::assertInstanceOf(AssetRegistry::class, $assets);
 
-        self::assertStringEndsWith('templates/admin/views', $views->searchPath(null)[0]);
-        self::assertStringEndsWith('templates/admin/assets', $assets->source(AssetKind::Template)->root);
-        self::assertTrue($assets->has(AssetKind::Template, 'admin'));
-    }
-
-    /** A name that becomes a directory is checked, not trusted. */
-    public function test_a_hostile_template_name_falls_back_to_the_default(): void
-    {
-        $views = $this->booted(['templates' => ['active' => '../../etc']])
-            ->container()->get(TemplateRegistry::class);
-        self::assertInstanceOf(TemplateRegistry::class, $views);
-
-        self::assertStringEndsWith('templates/default/views', $views->searchPath(null)[0]);
+        self::assertStringEndsWith('/templates', $views->searchPath(null)[0]);
+        self::assertStringEndsWith('templates/assets', $assets->source(AssetKind::Template)->root);
     }
 }

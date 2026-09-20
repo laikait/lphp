@@ -1124,7 +1124,7 @@ final class ArchitectureTest extends TestCase
 
         self::assertArrayHasKey('twig/twig', $manifest['require']);
         self::assertArrayNotHasKey('twig/twig', $manifest['require-dev'] ?? []);
-        self::assertNotEmpty(\glob($this->basePath('templates/default/views/*.twig')) ?: []);
+        self::assertNotEmpty(\glob($this->basePath('templates/*.twig')) ?: []);
     }
 
     /**

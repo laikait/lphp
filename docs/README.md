@@ -1,39 +1,43 @@
 # Documentation
 
-Pick the part that matches what you are doing. Everything here describes version
-0.1.0; what is public and how stable it is, is in
-[`STABILITY.md`](../STABILITY.md).
+Start with the section that matches what you are doing. If a word is new to you,
+look it up in the [glossary](#glossary) at the bottom of this page.
+
+Everything here describes version 2.1.2. What is public, and how stable it is,
+is listed in [`STABILITY.md`](../STABILITY.md).
 
 ## New to the framework
 
-- **[Getting started](getting-started.md)** — build a small module from nothing:
-  a model, a page, a JSON endpoint, commands, a filter, a hook, configuration and
-  a test. About half an hour.
-- **[What is not built](what-is-not-built.md)** — the deliberate omissions, so you
-  do not go looking for them.
+1. **[Getting started](getting-started.md).** Build a small module from nothing,
+   one step at a time: a page, a JSON endpoint, a console command, a database
+   table and a test. About half an hour.
+2. **[What is not built](what-is-not-built.md).** Things the framework leaves
+   out on purpose, so you do not spend time looking for them.
 
 ## Guides
 
-For building an application on the framework, one task at a time.
+Each guide walks through one task in your own application.
 
-- **[Pages and forms](guides/pages-and-forms.md)** — templates, layouts, assets,
-  forms with CSRF and validation, uploads, overriding pages you did not write.
-- **[JSON APIs](guides/json-apis.md)** — versioned routes, validation, one error
-  shape, pagination, deprecation.
-- **[Storing data](guides/storing-data.md)** — connections, tables, models,
-  repositories, read models, relations, bulk writes, transactions.
-- **[Background work](guides/background-work.md)** — jobs, queue workers,
-  retries, scheduled tasks.
-- **[Users and permissions](guides/users-and-permissions.md)** — your own
-  accounts, logging in, protecting routes, capabilities and roles, API tokens.
-- **[Extending other modules](guides/extending-other-modules.md)** — hooks,
-  filters, cross-cutting rules without middleware, module dependencies.
-- **[Testing](guides/testing.md)** — booting the application in a test, requests,
-  forms, databases, jobs and commands.
+- **[Pages and forms](guides/pages-and-forms.md)**: templates, layouts,
+  stylesheets, forms with validation, file uploads, and changing pages you did
+  not write.
+- **[JSON APIs](guides/json-apis.md)**: API routes, versions, validating input,
+  errors, pagination.
+- **[Storing data](guides/storing-data.md)**: connecting to a database, creating
+  tables, reading and saving records, transactions.
+- **[Background work](guides/background-work.md)**: jobs that run later, queue
+  workers, retries, tasks on a schedule.
+- **[Users and permissions](guides/users-and-permissions.md)**: your own user
+  accounts, logging in, protecting pages, roles, API tokens.
+- **[Extending other modules](guides/extending-other-modules.md)**: changing what
+  another module does with hooks and filters, and depending on another module.
+- **[Testing](guides/testing.md)**: testing pages, forms, databases, jobs and
+  commands.
 
 ## Reference
 
-How each part works, and why it is built that way.
+How each part of the framework works, one page per part. Read a page here when
+a guide links to it, or when you need the details.
 
 | Area | Pages |
 |---|---|
@@ -46,22 +50,54 @@ How each part works, and why it is built that way.
 | Security | [Security](reference/security.md) · [Sessions](reference/sessions.md) · [Authentication and authorization](reference/auth.md) |
 | Operations | [Performance](reference/performance.md) · [Observability](reference/observability.md) · [System operations](reference/system.md) · [MCP](reference/mcp.md) |
 
-## Operating an application
+## Running an application
 
-- **[Deployment and security](operations/deployment.md)** — web server
-  configuration, what must be refused, the production boot path.
-- **[Running in production](operations/running.md)** — processes, environment,
-  every-deployment steps, cron, workers, `system/`, several hosts, monitoring.
-- **[Troubleshooting](troubleshooting.md)** — symptoms, causes and fixes.
+- **[Deployment and security](operations/deployment.md)**: setting up the web
+  server, and what it must never serve.
+- **[Running in production](operations/running.md)**: the steps for a first
+  deployment and for every deployment after it, cron, queue workers, and
+  running on several servers.
+- **[Troubleshooting](troubleshooting.md)**: symptoms, their causes, and fixes.
 
-## Working on the framework
+## Working on the framework itself
 
-- **[Contributing](contributing/README.md)** — the gate, the rules engine code
-  follows, and what to update alongside a change.
-- **[Development](contributing/development.md)** — tooling and implementation
-  status.
-- **[API stability and releases](contributing/releases.md)** — what the stability
-  levels promise, versioning, and the release checklist.
+- **[Contributing](contributing/README.md)**: the checks every change must pass,
+  and the rules framework code follows.
+- **[Development](contributing/development.md)**: tooling, and what is built so
+  far.
+- **[API stability and releases](contributing/releases.md)**: what each stability
+  level promises, and how a release is made.
 
-Also at the project root: [`CHANGELOG.md`](../CHANGELOG.md) and
-[`UPGRADING.md`](../UPGRADING.md).
+Also in the project root: [`CHANGELOG.md`](../CHANGELOG.md), what changed in
+each version, and [`UPGRADING.md`](../UPGRADING.md), what to change in your
+application when you upgrade.
+
+## Glossary
+
+The words these pages use, in plain terms, each linked to where it is explained
+in full.
+
+| Word | Meaning |
+|---|---|
+| **Module** | A folder under `modules/` holding one part of your application: its pages, commands, tables and jobs. There are three kinds: `Shared` (exactly one, loaded first), `Plugins/<Name>` (your features) and `Gateways/<Name>` (usually a connection to an outside service, such as payments). See [Modules](reference/modules.md). |
+| **`module.php`** | The one file that tells the framework what a module adds: its routes, commands, services, hooks and settings. See [Modules](reference/modules.md). |
+| **Module id** | A module's name, taken from where its folder is: `modules/Plugins/Notes/` is `plugins/Notes`. |
+| **Route** | A rule that connects a URL and an HTTP method, such as `GET /notes`, to the code that answers it. See [Routing](reference/routing.md). |
+| **Handler** | The class or method a route calls. It receives the request, and returns a response, a string (HTML) or an array (JSON). See [Routing](reference/routing.md). |
+| **Request, Response** | The framework's objects for what the browser sent and what goes back to it. |
+| **Template** | A file that produces HTML, written in Twig (`.twig`) or PHP (`.php`). The site's templates live in `templates/`, and a module's in its `Templates/` folder. See [Templates](reference/templates.md). |
+| **Twig** | The default template language. It escapes everything it prints, so text from a user cannot become HTML. |
+| **Layout** | The template that holds what every page shares, such as the header and footer. `templates/layout.twig` is the default one. |
+| **Asset** | A static file for the browser: a stylesheet, script or image. You link to one with `asset()`. See [Assets](reference/assets.md). |
+| **Service** | An object your code needs, such as a repository. A module registers its services in `module.php`. |
+| **Container** | The part of the framework that builds services and hands them to the classes that ask for them in their constructors. That handing-over is called *injection*. |
+| **Model** | A class for one thing your application knows about, such as a note or an invoice, with the rules that keep it valid. It does not save itself. See [Models](reference/models.md). |
+| **Repository** | The class that reads models from storage and saves them. You name its methods after what your application does, such as `latest()`. See [Repositories and queries](reference/data.md). |
+| **Migration** | A file that creates or changes a database table. `php laika migrate` runs the ones that have not run yet. See [The database](reference/database.md). |
+| **Command** | Something you run in a terminal, such as `php laika migrate`. A module can add its own. See [CLI](reference/console.md). |
+| **Hook** | A named moment, such as `note.added`, that one module announces and other modules can react to. See [Hooks and filters](reference/hooks-and-filters.md). |
+| **Filter** | A named value that other modules may change before it is used, such as a page title. See [Hooks and filters](reference/hooks-and-filters.md). |
+| **Configuration** | Settings: the framework's defaults, then a module's defaults, then your files in `config/`, with environment variables where a file reads them. See [Configuration](reference/configuration.md). |
+| **`.env`** | An optional file of environment variables for your own machine, such as a database password. It is never committed to git. See [Configuration](reference/configuration.md). |
+| **Job, queue, worker** | A job is work to do later, such as sending an email. It waits in a queue until a worker process runs it. See [Queue and worker](reference/queue.md). |
+| **Debug mode** | `APP_DEBUG=true`: errors show full details. Only for your own machine, never for a live site. |

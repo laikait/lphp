@@ -136,7 +136,6 @@ final class BootstrapTest extends TestCase
             'assets.versioning',
             'assets.manifests',
             'assets.max_age',
-            'templates.active',
             'templates.cache',
             'modules.paths',
             'modules.disabled',

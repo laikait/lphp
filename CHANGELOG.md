@@ -11,9 +11,13 @@ public, is in [`STABILITY.md`](STABILITY.md).
 
 ## [Unreleased]
 
-The first release, 0.1.0, will contain everything below. Every public API in it
-is **Experimental**: 0.x minor releases may change it, always with an upgrade
-note.
+Nothing yet.
+
+## [2.1.2] - 2026-09-20
+
+The first release. Every public API in it is **Experimental**: a minor release
+may change it, always with an upgrade note. Nothing is Stable yet — see
+[`STABILITY.md`](STABILITY.md) for why, and for what is expected to be promoted.
 
 ### Added
 
@@ -34,14 +38,15 @@ note.
 - **Assets** through four URL namespaces, served from inside the denied module
   tree with traversal, extension and symlink checks, content-hash versioning and
   manifests; an asset request boots no module.
-- **Templates**, engine-neutral, with Twig and PHP engines, a theme override rule
-  and module namespaces. The default template ships a Twig layout, a home page for
+- **Templates**, engine-neutral, with Twig and PHP engines, module namespaces
+  and a site override rule. `templates/` ships a Twig layout, a home page for
   `/` and error pages for 404 and every other status.
 - **REST** conventions on the same kernel: content negotiation with quality
-  values, one JSON error document, `ApiResponse`, prefix versioning with
-  `Deprecation`/`Sunset` headers.
+  values, one JSON error document, `ApiResponse`, and prefix versioning whose
+  route metadata an application's own `dispatch.response` filter turns into
+  `Deprecation` and `Sunset` headers.
 - **Console** with declared arguments and options, typed binding, meaningful exit
-  codes and generated help; 32 framework commands, none of which writes code.
+  codes and generated help; 35 framework commands, none of which writes code.
 - **Errors** rendered by audience (browser, API, console) with disclosure rules,
   and **logging** as a listener, with redaction, retiring writers and file,
   stream, syslog and database destinations.
@@ -217,6 +222,12 @@ note.
 
 ### Changed
 
+- **`templates/` is the site's views, with no switchable themes.** A name is a
+  path under it: `render('customer/profile')` is `templates/customer/profile.twig`,
+  and a module override is `templates/plugin.<Name>/…`. The site's static files
+  are `templates/assets/`, still served as `/assets/template/…`, and are never a
+  view. `APP_TEMPLATE` and `templates.active` are gone.
+
 - **The document root is `public/`.** `index.php` and the application's own
   `assets/` moved into it; everything else — `engine/`, `modules/`, `config/`,
   `vendor/`, `.env` — is out of reach of any URL, so the lists of directories and
@@ -314,12 +325,11 @@ note.
   invariant 14 call it optional. The project owner's decision: the default
   template's pages are Twig. PHP templates still render through the same
   manager, and the manager itself does not depend on Twig.
-- **The unnamed template asset namespace is the active template's `assets/`**,
-  not a shared `templates/assets/`, so switching templates switches stylesheets.
 - **`index.php` and the application's `assets/` live in `public/`**, where the
   specification's layout puts them at the project root. The project owner's
   decision: a document root holding nothing but the front controller cannot
   expose source through a forgotten deny rule, and a server that cannot change its
   document root still works through the forwarding `.htaccess`.
 
-[Unreleased]: https://github.com/laikait/lphp/commits/main
+[Unreleased]: https://github.com/laikait/lphp/compare/v2.1.2...main
+[2.1.2]: https://github.com/laikait/lphp/releases/tag/v2.1.2

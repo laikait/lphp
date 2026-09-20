@@ -1,5 +1,23 @@
 # Project layout
 
+Where everything lives, and which folder your own code goes in.
+
+## Where your code goes
+
+| You are writing | It goes in |
+|---|---|
+| A feature: pages, commands, jobs | `modules/Plugins/<Name>/` |
+| A payment or delivery integration | `modules/Gateways/<Name>/` |
+| Something two modules both need | `modules/Shared/` |
+| The look of the site | `templates/` |
+| This installation's settings | `config/` |
+| Your own stylesheets and scripts | `public/assets/` |
+
+You never edit `engine/` — that is the framework — and nothing your application
+writes goes in `system/`, which the framework manages.
+
+## The whole tree
+
 ```
 public/                the document root, and nothing else is web-reachable
   index.php            front controller
@@ -19,10 +37,11 @@ engine/                the framework
   Cache/ Queue/ Scheduler/ Security/ Observability/
   System/              commands, processes, cron, services, files on the server
   MCP/                 tools, resources and prompts that modules declare, over STDIO and HTTP
-templates/default/     the active template: views/ and assets/
-  views/layout.twig    the layout every default page extends
-  views/home.twig      the front page until a module claims /
-  views/errors/        the 404 and generic error pages
+templates/             the site's views: render('customer/profile') is customer/profile.twig
+  layout.twig          the layout every default page extends
+  home.twig            the front page until a module claims /
+  errors/              the 404 and generic error pages
+  assets/              the site's static files, /assets/template/... (never a view)
 modules/
   Shared/              cross-module capability, registers first; owns /
     Model/User.php     a shared domain model
@@ -45,11 +64,13 @@ tests/
                        one application, booted by the feature tests
 ```
 
-Directories are created when they are used, never in advance.
+**Folders are created when they are used, never in advance.** A fresh
+installation has no `config/` and no `modules/Plugins/`; they appear when you
+make the first one.
 
 ## Autoloading
 
-| Directory | Namespace |
+| Folder | Namespace |
 |---|---|
 | `engine/` | `App\Engine\` |
 | `modules/` | `App\Modules\` — so `modules/Shared/`, `modules/Plugins/` and `modules/Gateways/` hold `App\Modules\Shared\`, `…\Plugins\` and `…\Gateways\` |
@@ -58,13 +79,13 @@ A new module autoloads with no `composer.json` change and no custom autoloader:
 `modules/Plugins/Billing/Api/Invoices.php` declares
 `App\Modules\Plugins\Billing\Api\Invoices` and simply works.
 
-Two consequences:
+Two consequences worth knowing:
 
-- **Directory casing under `modules/` is load-bearing on Linux.** Windows will
-  not catch a mismatch between a directory name and its namespace segment, so an
-  architecture test compares the names as stored on disk, and the Linux CI job
-  backs it up. Renaming only the case of a directory on Windows or macOS needs
+- **Upper and lower case in folder names matters on Linux.** Windows and macOS
+  will not catch a mismatch between a folder name and its namespace segment, so
+  an architecture test compares the names as stored on disk, and the Linux CI
+  job backs it up. Renaming only the case of a folder on Windows or macOS needs
   two `git mv` steps (`shared` → `_Shared` → `Shared`), or git records nothing.
-- **Never use `composer dump-autoload --classmap-authoritative` in production.**
-  It disables the PSR-4 fallback and breaks any module added after the dump.
-  `--optimize` alone is fine and recommended.
+- **Never run `composer dump-autoload --classmap-authoritative` in
+  production.** It switches off the PSR-4 fallback and breaks any module added
+  after the dump. `--optimize` alone is fine, and recommended.

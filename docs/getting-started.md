@@ -2,17 +2,34 @@
 
 <!-- Twig below: GitHub Pages must not run it as Liquid. {% raw %} -->
 
-This tutorial builds one small module from nothing: **Notes**, which keeps short
-notes in a database, shows them on a page, lists them as JSON, and adds them
-from the command line. On the way it touches the pieces every module is made of —
-`module.php`, a model, a repository, a migration, a route, a template, a
-command, a filter, a hook, configuration and a test.
+In this tutorial you build one small module, **Notes**, from nothing. When you
+finish, you will have:
 
-It assumes you know PHP and Composer, and nothing about this framework. Every
-file below is complete, and the whole module has been run exactly as written.
+- a page at `/notes` that lists notes,
+- a JSON endpoint at `/api/notes`,
+- a console command, `php laika notes:add "Buy milk"`, that writes a note,
+- a database table for the notes,
+- and a test that checks all of it.
 
-> **Before you start:** PHP 8.2 or newer with `pdo_sqlite`, and Composer 2.
-> `php -m | grep -i sqlite` should print `pdo_sqlite`.
+It takes about half an hour. You need to know PHP and Composer, and nothing about
+this framework. Every file below is complete: copy it as it is. The whole
+tutorial has been run exactly as written.
+
+New words are explained as they come up. They are also in the
+[glossary](README.md#glossary).
+
+## Before you start
+
+You need **PHP 8.2 or newer** with SQLite support, and **Composer 2**. Check both:
+
+```bash
+php -v                     # PHP 8.2 or newer
+php -m | grep -i sqlite    # must print pdo_sqlite
+composer --version         # Composer version 2...
+```
+
+On Windows, `grep` may not exist; run `php -m` and look for `pdo_sqlite` in the
+list.
 
 ## 1. Install and run
 
@@ -21,24 +38,26 @@ composer install
 composer serve
 ```
 
-Open `http://127.0.0.1:8080/`. You should see **Your application is running**.
-Under XAMPP the same application also answers at `http://localhost/framework/`
-with no configuration.
+**You should see:** open `http://127.0.0.1:8080/` in a browser, and the page says
+**Your application is running**. (On XAMPP, `http://localhost/framework/` works
+too.)
 
-A fresh install has one module, `shared`, and nothing else:
+Leave `composer serve` running in this terminal. Open a second terminal in the
+same folder for every command below.
+
+See what is there so far:
 
 ```bash
-php laika module:list
-php laika route:list
+php laika module:list    # the modules: only "shared"
+php laika route:list     # the URLs: only "/"
 ```
-
-Leave `composer serve` running in its own terminal and use a second one for the
-commands below.
 
 ## 2. Create the module
 
-A module is a directory with a `module.php` in it. Create
-`modules/Plugins/Notes/module.php`:
+**Goal:** a module the framework finds on its own.
+
+A **module** is a folder with a `module.php` file in it. Create the folders
+`modules/Plugins/Notes/`, then the file `modules/Plugins/Notes/module.php`:
 
 ```php
 <?php
@@ -62,32 +81,37 @@ return static function (ModuleContext $module): void {
 php laika module:list
 ```
 
+**You should see** your module in the list:
+
 ```
   ID             KIND     NAME    VERSION  ROUTES  COMMANDS  HOOKS  FILTERS  REQUIRES
   shared         shared   Shared  0.1.0    1       0         0      0        -
   plugins/Notes  plugins  Notes   0.1.0    0       0         0      0        shared ^0.1
 ```
 
-Nothing was registered anywhere. The framework found the directory, and the
-module's id, `plugins/Notes`, comes from where it lives.
+What just happened:
 
-Three things worth knowing now:
+- **You registered nothing.** The framework found the folder by itself. The
+  module's id, `plugins/Notes`, comes from where the folder is.
+- **`requires('shared', '^0.1')`** says this module needs the `shared` module,
+  version 0.1 or newer. `shared` provides the storage your notes will be saved
+  through.
+- **The file returns a function.** The framework calls it with a
+  `ModuleContext`, and everything a module can declare is a method on that
+  object. See [Modules](reference/modules.md) for the full list.
 
-- **The closure only records.** When it returns, nothing has been bound, routed
-  or hooked. The framework replays every module's declarations afterwards, in a
-  fixed order, which is why the order modules run in never depends on the
-  filesystem.
-- **Classes autoload from the directory name.** `modules/Plugins/Notes/Model/Note.php`
-  is `App\Modules\Plugins\Notes\Model\Note`, with no `composer.json` change. The
-  case must match exactly — Windows will not tell you when it does not, Linux
-  will.
-- **There is nothing to extend.** `ModuleContext` is the whole API. See
-  [Modules](reference/modules.md) for everything it can declare.
+> **Folder names are part of class names.** A class in
+> `modules/Plugins/Notes/Model/Note.php` is `App\Modules\Plugins\Notes\Model\Note`,
+> with no `composer.json` change. The upper and lower case must match exactly:
+> Windows forgives a mistake, Linux does not.
 
 ## 3. A model and a repository
 
-A **model** is domain state with the rules that protect it. It does not save
-itself. Create `modules/Plugins/Notes/Model/Note.php`:
+**Goal:** a class for a note, and a class that stores notes.
+
+A **model** is a class for one thing your application knows about, with the rules
+that keep it valid. Here the rule is: a note cannot be empty. Create
+`modules/Plugins/Notes/Model/Note.php`:
 
 ```php
 <?php
@@ -121,12 +145,14 @@ final class Note extends Model
 }
 ```
 
-Rows become models by matching columns to the **constructor's parameter names**,
-so the table below has the columns `id` and `body`.
+A model does not save itself. When a note is read from the database, the
+framework matches each column to the **constructor parameter of the same name**:
+the `id` column goes to `$id`, the `body` column to `$body`. So the table in the
+next step has exactly those two columns.
 
-A **repository** is where storage is reached. It inherits no `find()` or `save()`:
-every public method is one you name after something the application does.
-Create `modules/Plugins/Notes/Data/NoteRepository.php`:
+A **repository** is the class that reads and saves models. It has no built-in
+`find()` or `save()`: you write the methods your application needs, and name them
+after what they do. Create `modules/Plugins/Notes/Data/NoteRepository.php`:
 
 ```php
 <?php
@@ -175,27 +201,39 @@ final class NoteRepository extends Repository
 }
 ```
 
-`persist()` returns the stored note, because a new note has no id until the
-database gives it one. More in [Models](reference/models.md) and
+- `model()` says which class a row becomes, and `collection()` which table it is
+  in.
+- `latest()` reads the newest notes first.
+- `write()` saves a new note. `persist()` gives back the saved note, because a
+  new note has no id until the database assigns one.
+
+More in [Models](reference/models.md) and
 [Repositories and queries](reference/data.md).
 
-## 4. A database, a migration and a command
+## 4. A database, a table and a command
 
-Without a database, repositories run against memory that lasts for one request —
-useful in tests, useless for notes you want to keep. Create a `.env` file in the
-project root with an **absolute** path to a SQLite file:
+**Goal:** notes that are kept, and a command that writes one.
+
+### Point the application at a database
+
+Without a database, repositories keep data in memory for one request only. For
+notes you want to keep, use a SQLite file. Create a file named `.env` in the
+project's root folder, with an **absolute** path:
 
 ```bash
 # .env  (Windows: DB_DSN=sqlite:C:/xampp/htdocs/framework/system/Runtime/notes.sqlite)
 DB_DSN=sqlite:/path/to/framework/system/Runtime/notes.sqlite
 ```
 
-`.env` is ignored by git, and `system/` is refused by the web server. A real
-environment variable always beats the file.
+Replace `/path/to/framework` with the real path to your project. `.env` holds
+settings for your machine only. Git ignores it, and the web server never serves
+`system/`.
 
-The module brings its own table, as a **migration**: a file in its
-`Database/Migrations/` directory, named for when it was written and what it
-does. Create
+### Create the table with a migration
+
+A **migration** is a file that creates or changes a table. The module keeps its
+migrations in its `Database/Migrations/` folder, and each file name starts with
+the date and time it was written. Create
 `modules/Plugins/Notes/Database/Migrations/2026_01_01_000000_create_notes.php`:
 
 ```php
@@ -223,10 +261,13 @@ return new class implements Reversible {
 };
 ```
 
-The table is described once, with methods rather than SQL, and each database
-gets its own dialect: this file makes the same table on SQLite, MySQL,
-PostgreSQL and SQL Server. `down()` undoes `up()`, so the migration can be
-rolled back. Nothing registers it; being in that directory is enough.
+- `up()` creates the table: an `id` that counts up by itself, and a `body` for
+  the text.
+- `down()` undoes `up()`, so the migration can be rolled back.
+- You describe the table with methods, not SQL. The framework writes the right
+  SQL for SQLite, MySQL, PostgreSQL or SQL Server.
+
+Run it:
 
 ```bash
 php laika migrate --pretend    # the SQL it would run on this database, and nothing run
@@ -234,7 +275,14 @@ php laika migrate
 php laika migrate:status
 ```
 
-Now a command to write notes. Create `modules/Plugins/Notes/Commands/AddNote.php`:
+**You should see:** `--pretend` prints a `CREATE TABLE "notes" ...` statement,
+`migrate` says `1 migration(s) ran.`, and `migrate:status` lists the migration as
+`ran`.
+
+### Add a command
+
+A **command** is something you run in the terminal. Create
+`modules/Plugins/Notes/Commands/AddNote.php`:
 
 ```php
 <?php
@@ -273,12 +321,21 @@ final class AddNote
 }
 ```
 
-A command is an ordinary class. Its collaborators arrive in the constructor; what
-the user typed arrives as `__invoke()` parameters, matched **by name** to what the
-module declares. The line `$this->hooks->do('note.added', $note)` announces that
-a note exists — step 7 uses it.
+How a command gets what it needs:
 
-Now tell the module about all of this. Replace `module.php` with:
+- **The constructor** asks for the classes it uses, here the repository and the
+  hook engine. The framework creates them and passes them in. This is called
+  **injection**.
+- **`__invoke()`** receives what the user typed. `$body` is filled from the
+  argument named `body`, which you declare next.
+- **The return value** is the exit code: `0` means it worked, `2` means the
+  command was used wrongly.
+- `$this->hooks->do('note.added', $note)` announces that a note was added. Step 7
+  explains what that is for.
+
+### Tell the module about them
+
+Replace `module.php` with:
 
 ```php
 <?php
@@ -313,6 +370,14 @@ return static function (ModuleContext $module): void {
 };
 ```
 
+- **`services()`** lists the classes the framework may create for you.
+  `singleton()` means one shared object for the whole request; `bind()` means a
+  new one each time.
+- **`commands()`** gives the command its name, `notes:add`, a description, and
+  one argument, `body`.
+
+Try it:
+
 ```bash
 php laika notes:add "Buy milk"
 php laika notes:add "Call Ada"
@@ -320,18 +385,22 @@ php laika notes:add --help
 php laika notes:add ""; echo $?     # 2: the command line was wrong
 ```
 
-`singleton()` shares one repository; `bind()` builds a fresh command each time.
-The registrar can only **write** to the container, never read from it, so a module
-cannot go looking for services while it is still being registered. The help text
-is generated from the declaration. Exit codes follow the shell: `0` worked, `1`
-failed, `2` was used wrongly, `127` no such command — see
-[CLI](reference/console.md).
+**You should see:** `Note 1 written.` and `Note 2 written.`, then a help text
+built from your declaration, then an error and the exit code `2`. (In
+PowerShell, `""` passes no argument at all; you get "needs the <body> argument"
+and still `2`.)
+
+More in [CLI](reference/console.md).
 
 ## 5. A page
 
-A module's `Templates/` directory becomes a template namespace on its own:
-`modules/Plugins/Notes/Templates/` is `@plugin.Notes`. Create
-`modules/Plugins/Notes/Templates/index.twig`:
+**Goal:** an HTML page that lists the notes.
+
+### The template
+
+A module's `Templates/` folder is found automatically, and its templates are
+named with `@plugin.<Name>/`: `modules/Plugins/Notes/Templates/index.twig` is
+`@plugin.Notes/index`. Create that file:
 
 ```twig
 {% extends "layout.twig" %}
@@ -349,12 +418,15 @@ A module's `Templates/` directory becomes a template namespace on its own:
 {% endblock %}
 ```
 
-`layout.twig` is the default template's layout, the one the home page uses.
-Twig escapes everything it prints, so a note containing `<script>` shows up as
-text.
+- `{% extends "layout.twig" %}` puts this page inside the site's layout,
+  `templates/layout.twig`, the same one the home page uses.
+- `{{ ... }}` prints a value. Twig escapes it, so a note containing `<script>`
+  shows as text instead of running.
 
-A handler turns a request into a response. There is no controller base class.
-Create `modules/Plugins/Notes/Http/NotesPage.php`:
+### The handler
+
+A **handler** is the code a URL runs. It is an ordinary class; there is no
+controller base class. Create `modules/Plugins/Notes/Http/NotesPage.php`:
 
 ```php
 <?php
@@ -407,29 +479,72 @@ final class NotesPage
 }
 ```
 
-Rendering returns a string, never a response, so the same template could go into
-an email. `home` is handed to the layout so its home link is right even when the
-application lives in a subdirectory.
+What each part does:
 
-The handler reads two things this tutorial has not declared yet — the
-`notes.title` filter and the `page_size` setting — and works without either:
-`apply()` returns `'Notes'` when nobody filters it, and `int()` falls back to 20.
+- **`__invoke()`** answers `/notes`. It renders the template with three values
+  and wraps the HTML in a `Response`.
+- **`json()`** answers `/api/notes`. It returns an array, and the framework turns
+  an array into a JSON response.
+- **`home`** is passed so the layout's home link works even when the application
+  runs in a subfolder, as on XAMPP.
+- **`'notes.title'`** and **`page_size`** are two things you have not set up yet.
+  The page works without them: `apply()` returns `'Notes'` when nothing changes
+  it, and `int()` falls back to `20`. Steps 7 and 8 use them.
 
 ## 6. Routes
 
-Add the handler to `services()` and declare the routes. In `module.php`, add
-`use App\Engine\Routing\RouteCollector;` and
-`use App\Modules\Plugins\Notes\Http\NotesPage;` to the imports, add
-`$services->bind(NotesPage::class);` inside `services()`, and add after it:
+**Goal:** connect the URLs to the handler.
+
+A **route** connects a URL to a handler. Replace `module.php` with this complete
+version. It adds the `NotesPage` service and a `routes()` block:
 
 ```php
+<?php
+
+declare(strict_types=1);
+
+use App\Engine\Cli\CommandCollector;
+use App\Engine\Container\ServiceRegistrar;
+use App\Engine\Module\ModuleContext;
+use App\Engine\Routing\RouteCollector;
+use App\Modules\Plugins\Notes\Commands\AddNote;
+use App\Modules\Plugins\Notes\Data\NoteRepository;
+use App\Modules\Plugins\Notes\Http\NotesPage;
+
+return static function (ModuleContext $module): void {
+    $module
+        ->name('Notes')
+        ->version('0.1.0')
+        ->description('Short notes, on a page and on the command line.');
+
+    // The DataSource every repository writes through is bound by shared.
+    $module->requires('shared', '^0.1');
+
+    $module->services(static function (ServiceRegistrar $services): void {
+        $services->singleton(NoteRepository::class);
+        $services->bind(AddNote::class);
+        $services->bind(NotesPage::class);
+    });
+
     $module->routes(static function (RouteCollector $routes): void {
         $routes->get('/notes', NotesPage::class)->name('notes.index');
         $routes->get('/api/notes', [NotesPage::class, 'json'])->name('notes.api');
     });
+
+    $module->commands(static function (CommandCollector $commands): void {
+        $commands->add('notes:add', AddNote::class)
+            ->describe('Write a note.')
+            ->argument('body', 'What the note says.');
+    });
+};
 ```
 
-Open `http://127.0.0.1:8080/notes`, then:
+- `get('/notes', NotesPage::class)` calls the class's `__invoke()` method.
+- `get('/api/notes', [NotesPage::class, 'json'])` calls its `json()` method.
+- `name(...)` gives each route a name, so other code can build its URL.
+
+**You should see:** open `http://127.0.0.1:8080/notes`: a heading **Notes** and
+your two notes, newest first. Then:
 
 ```bash
 curl http://127.0.0.1:8080/api/notes
@@ -437,50 +552,61 @@ curl http://127.0.0.1:8080/api/notes
 php laika route:list
 ```
 
-The first route uses the class's `__invoke()`; the second names a method. A
-handler that returns an array gets a JSON response; a string, HTML; `null`, a
-204. The route belongs to `plugins/Notes` — `route:list` says so — because there
-is no global routes file for it to live in. See [Routing](reference/routing.md).
+`route:list` shows both routes, and that they belong to `plugins/Notes`. There
+is no central routes file: each module declares its own. A handler can return a
+`Response`, a string (sent as HTML), an array (sent as JSON), or `null` (an empty
+`204` response). See [Routing](reference/routing.md).
 
 ## 7. A filter and a hook
 
-These are how modules change each other without depending on each other.
+**Goal:** see how modules change each other without depending on each other.
 
-A **filter** passes a value through every listener and uses what comes back. The
-page title went through `notes.title`. Add this at the end of the closure in
-`module.php`:
+### A filter changes a value
+
+A **filter** is a named value that any module may change before it is used. The
+page title goes through the filter `notes.title`. Add this line to `module.php`,
+just before the closing `};`:
 
 ```php
     $module->filter('notes.title', static fn(string $title): string => $title . ' for ' . date('l'));
 ```
 
-Reload `/notes`: the heading reads *Notes for Tuesday*, or whichever day it is.
-Any module could have declared that line — this one, a plugin written by
-someone else, or a gateway — and `NotesPage` would not change.
+**You should see:** reload `/notes`, and the heading reads *Notes for Tuesday*, or
+whichever day it is.
 
-A **hook** announces that something happened and ignores what listeners return.
-`AddNote` fires `note.added` with the note. Another module listens by declaring:
+That line could live in any module: this one, a plugin written by someone else,
+or a gateway. `NotesPage` would not change.
+
+### A hook announces an event
+
+A **hook** is a named moment that other modules can react to. What they return is
+ignored. `AddNote` fires the hook `note.added` with the new note. Another module
+would react to it by declaring:
 
 ```php
 $module->hook('note.added', [NoteMailer::class, 'onAdded']);
 ```
 
-where `NoteMailer::onAdded(Note $note)` is a **static** method. To listen with
-an object that needs dependencies, register from `onBoot()` instead, where they
-are injected. The next step proves the hook fires. See
+where `NoteMailer::onAdded(Note $note)` is a **static** method, for example one
+that emails the note. (To react with an object that needs other services, register
+the listener from `onBoot()` instead, where services are injected.) You will not
+build `NoteMailer`; the test in step 9 proves the hook fires. See
 [Hooks and filters](reference/hooks-and-filters.md).
 
 ## 8. Configuration
 
-`NotesPage` reads `plugins/Notes.page_size`. Give the module a default, next to
-its other declarations:
+**Goal:** a setting with a default that each installation can change.
+
+`NotesPage` reads the setting `plugins/Notes.page_size`: how many notes a page
+shows. Give it a default in `module.php`, again just before the closing `};`:
 
 ```php
     $module->config(['page_size' => 20]);
 ```
 
-That is the **module's** default. The **installation's** decision goes in a file
-named after the module's id — `config/plugins/Notes.php`:
+That is the module's **default**. Whoever runs the application can change it
+without touching the module, in a file named after the module's id. Create
+`config/plugins/Notes.php`:
 
 ```php
 <?php
@@ -488,14 +614,18 @@ named after the module's id — `config/plugins/Notes.php`:
 return ['page_size' => 1];
 ```
 
-Reload `/notes` and only the newest note is left. The file wins over the module,
-always: whoever runs the application decides, whoever wrote the module suggests.
-`php laika config:list` shows what resolved and from where. Delete the file
-when you are done. See [Configuration](reference/configuration.md).
+**You should see:** reload `/notes`, and only the newest note is left.
+
+The file in `config/` always beats the module's default: the module suggests, the
+installation decides. `php laika config:list` shows every setting and where it
+came from. Delete `config/plugins/Notes.php` when you are done. See
+[Configuration](reference/configuration.md).
 
 ## 9. A test
 
-Tests boot the real application. Create `tests/Feature/NotesTest.php`:
+**Goal:** a test that checks the command, the page, the hook and the API.
+
+Tests start the real application. Create `tests/Feature/NotesTest.php`:
 
 ```php
 <?php
@@ -584,37 +714,37 @@ final class NotesTest extends TestCase
 vendor/bin/phpunit tests/Feature/NotesTest.php
 ```
 
-`shippedApplication()` boots everything in `modules/`, with the settings you pass
-layered on top — here an in-memory database, so every test starts empty and
-nothing touches your notes file. No request goes over the network:
-`$app->handle()` runs the kernel directly.
+**You should see:** `OK (3 tests, 10 assertions)`.
 
-> Name your helper something other than `output()`. PHPUnit's `TestCase` already
-> has a final method by that name, and PHP refuses to load the test.
+How the test works:
 
-The module's own code is checked by the same tools the framework uses:
+- **`shippedApplication()`** starts everything in `modules/`, with the settings
+  you pass on top. Here that is an in-memory database, so every test starts empty
+  and never touches your notes file.
+- **`$this->migrate($app)`** runs the migrations, so the `notes` table exists.
+- **`$app->handle(...)`** sends a request straight to the application. Nothing
+  goes over the network, and no server needs to be running.
+
+> **Never name a test helper `output()`.** PHPUnit's `TestCase` already has a
+> method with that name, and PHP refuses to load the test.
+
+Check your module with the same tools the framework uses:
 
 ```bash
 vendor/bin/phpstan analyse modules/Plugins/Notes tests/Feature/NotesTest.php
 vendor/bin/php-cs-fixer fix --dry-run --diff --path-mode=override modules/Plugins/Notes
 ```
 
-`composer check` runs both over `engine/` and `tests/` only, plus the whole test
-suite. That suite is the **framework's**, and one of its tests describes the
-framework exactly as distributed:
-`DefaultPagesSliceTest::test_the_framework_ships_the_shared_module_and_nothing_else`
-fails as soon as `modules/` holds anything but `shared` — and the front page
-tests beside it fail once a module of yours claims `/`. Neither means your module
-is wrong. An application built on the framework adapts or removes the tests that
-describe a fresh install.
+PHPStan finds type mistakes; php-cs-fixer checks the coding style and shows a diff
+of anything to change. Drop `--dry-run` to let it make the changes.
 
 ## What you built
 
 ```
 modules/Plugins/Notes/
-  module.php                 everything the module contributes, in one file
+  module.php                 everything the module adds, in one file
   Model/Note.php             a note, and the rule that it cannot be empty
-  Data/NoteRepository.php    latest() and write(), and nothing inherited
+  Data/NoteRepository.php    latest() and write()
   Database/Migrations/2026_01_01_000000_create_notes.php
                              the notes table, on any database
   Commands/AddNote.php       notes:add, which fires note.added
@@ -623,17 +753,37 @@ modules/Plugins/Notes/
 tests/Feature/NotesTest.php
 ```
 
-Deleting `modules/Plugins/Notes/` removes all of it — routes, commands, the
-filter, the template namespace. Nothing outside the directory knew it existed.
+Deleting the folder `modules/Plugins/Notes/` removes all of it: the routes, the
+command, the filter and the templates. Nothing outside the folder knew it
+existed. (Only the `notes` table stays in the database; roll it back first with
+`php laika migrate:rollback` if you want it gone too.)
+
+## If it doesn't work
+
+A page that fails shows only "500 Internal Server Error" until you turn on
+**debug mode**: add `APP_DEBUG=true` to `.env`, and the page shows the real
+message, like the ones below. Console commands show the message either way.
+
+| What you see | Why | Fix |
+|---|---|---|
+| `could not find driver` | PHP has no SQLite support. | Enable `extension=pdo_sqlite` in `php.ini`, then check with `php -m`. |
+| `no such table: notes` | The migration has not run on this database. | Run `php laika migrate`. If you changed `DB_DSN`, run it again for the new file. |
+| The notes are gone after every command | `DB_DSN` is missing or relative, so each run uses a different database, or none. | Put an **absolute** path in `.env`, as in step 4. |
+| `Class "App\Modules\Plugins\Notes\..." not found` | A folder or file name's case does not match the namespace. | Compare each folder name with the `namespace` line, letter by letter. |
+| `Unable to find template "layout.twig"` | `templates/layout.twig` was moved or renamed. | Put it back, or extend a layout that exists. |
+| php-cs-fixer changes the `use` lines | Imports must be in alphabetical order. | Run it without `--dry-run`, or copy the files from this page as they are. |
+| `composer check` fails `DefaultPagesSliceTest` | Those tests describe a fresh install with only `shared`, and a module of yours changes that. | Nothing is wrong with your module. An application adapts or removes the framework's tests that describe a fresh install. |
+
+More symptoms and fixes are in [Troubleshooting](troubleshooting.md).
 
 ## Where next
 
-- **Build something real:** the [guides](README.md#guides) — pages and forms, a
-  JSON API, storing data, background work, logins and permissions.
-- **Look something up:** the [reference](README.md#reference), one page per
-  subsystem.
-- **See a larger module:** `tests/Fixtures/Showcase/Plugins/Example/` uses every
-  subsystem at once. It is a test fixture rather than an application, and reading
-  its `module.php` is the fastest tour there is.
+- **Build something real:** the [guides](README.md#guides), for pages and forms,
+  a JSON API, storing data, background work, logins and permissions.
+- **Look something up:** the [reference](README.md#reference), one page per part
+  of the framework.
+- **See a bigger module:** `tests/Fixtures/Showcase/Plugins/Example/` uses every
+  part of the framework at once. It is a test fixture, not an application;
+  reading its `module.php` is the fastest tour there is.
 
 <!-- {% endraw %} -->

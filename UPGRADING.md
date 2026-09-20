@@ -9,10 +9,28 @@ format — a queued job, a session record — which always gets one.
 Each entry says **what changed**, **who is affected** and **what to do**, in that
 order. An entry that cannot say who is affected is not finished.
 
-## To the next release, from the tree committed as "Phase 23-25"
+## To 2.1.2, from the tree committed as "Phase 23-25"
 
-No version has been released yet. These notes are for code written against the
-repository as it stood at that commit, and they become the 0.1.0 notes.
+2.1.2 is the first release, so there is no earlier release to upgrade from.
+These notes are for code written against the repository as it stood at that
+commit.
+
+### templates/ is the site's views; no more APP_TEMPLATE
+
+- **Changed:** views are found in `templates/` itself, not in
+  `templates/<name>/views/`. `render('customer/profile')` is
+  `templates/customer/profile.twig`. The site's static files are
+  `templates/assets/`, still served as `/assets/template/…`.
+  `APP_TEMPLATE` and `templates.active` are gone, and so is
+  `asset()->template('<name>', …)` reaching `templates/<name>/assets/`.
+- **Affected:** every application with its own pages in `templates/default/`
+  or another template directory; a module override in
+  `templates/<name>/views/plugin.<Name>/`.
+- **Do:** move everything in `templates/<name>/views/` up into `templates/`, and
+  `templates/<name>/assets/` to `templates/assets/`. Delete `templates/<name>/`
+  and `APP_TEMPLATE` from `.env`. Names in `render()` and in Twig's
+  `extends` and `include` do not change. Keep views out of `templates/assets/`: a name
+  starting `assets/` is refused.
 
 ### PHP 8.2 is the minimum
 

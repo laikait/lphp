@@ -120,6 +120,40 @@ final class TemplateManagerTest extends TestCase
         self::assertSame('php', $manager->locate('page')->extension);
     }
 
+    /** A folder under templates/ is part of the name, whatever it is called. */
+    public function test_a_name_with_folders_is_a_path_under_the_templates_directory(): void
+    {
+        \mkdir($this->root . '/theme/admin/panel', 0o777, true);
+        $this->write('theme/admin/panel/user.php', 'the user panel');
+
+        self::assertSame('the user panel', $this->manager()->render('admin/panel/user'));
+    }
+
+    /**
+     * templates/assets/ is the site's static files. A .php among them must
+     * not be reachable as a view, and the refusal says where assets go.
+     */
+    public function test_the_assets_folder_is_not_a_view(): void
+    {
+        \mkdir($this->root . '/theme/assets', 0o777, true);
+        $this->write('theme/assets/tool.php', 'ran as a view');
+        $manager = $this->manager();
+
+        self::assertFalse($manager->exists('assets/tool'));
+
+        $this->expectException(TemplateException::class);
+        $this->expectExceptionMessage('templates/assets/ holds static files, not views');
+        $manager->render('assets/tool');
+    }
+
+    public function test_a_module_may_still_have_a_folder_called_assets(): void
+    {
+        \mkdir($this->root . '/module/assets', 0o777, true);
+        $this->write('module/assets/row.php', 'a module view');
+
+        self::assertSame('a module view', $this->manager()->render('@Example/assets/row'));
+    }
+
     public function test_a_namespaced_name_reaches_a_module(): void
     {
         self::assertSame('module only', $this->manager()->render('@Example/only-in-module'));

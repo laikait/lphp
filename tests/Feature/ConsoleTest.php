@@ -153,11 +153,9 @@ final class ConsoleTest extends TestCase
         self::assertSame(0, $status);
         self::assertStringContainsString('/assets/core', $output);
 
-        // The active template appears twice on purpose: unnamed, which is what
-        // asset()->template('...') reaches, and by its own name.
+        // templates/assets/, which is what asset()->template('...') reaches.
         self::assertStringContainsString('/assets/template', $output);
-        self::assertStringContainsString('/assets/template/default', $output);
-        self::assertStringContainsString('templates/default/assets', $output);
+        self::assertStringContainsString('templates/assets', $output);
     }
 
     public function test_template_list_reports_the_search_path_in_order(): void
