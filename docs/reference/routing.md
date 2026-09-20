@@ -18,11 +18,27 @@ $module->routes(static function (RouteCollector $routes): void {
 | `get` · `post` · `put` · `patch` · `delete` | one route |
 | `any($path, $handler)` | the same handler for every method |
 | `group($prefix, $routes, $name, $meta)` | a prefix, a name prefix and shared meta |
-| `->name(…)` | the name `url()` uses. Names must be unique |
+| `->name(…)` | the name `Router::url()` builds from. Names must be unique |
 | `->where($param, $regex)` · `->whereMany([...])` | what a parameter may contain |
 | `->meta([...])` | `auth`, `can`, `csrf`, `rate_limit`, and anything of your own |
 
 `php laika route:list` prints every route, its module and its access.
+
+## Building a URL from a route's name
+
+Ask for the `Router` wherever you need one — in a handler's constructor, or as a
+parameter — and call `url()`:
+
+```php
+public function __construct(private readonly Router $router) {}
+
+$this->router->url('customers.show', ['id' => 42]);   // /customers/42
+```
+
+**There is no global `url()` function.** The ten global helpers are listed in
+[Hooks and filters](hooks-and-filters.md#helpers-are-not-facades), and this is
+not one of them: a name that resolves against the router has to reach the
+router, and injecting it says where it came from.
 
 ## Handlers
 
@@ -60,7 +76,7 @@ $routes->get('/পণ্য/{slug}', ProductPage::class)
     ->where('slug', '[\p{L}\p{M}\p{N}-]+')
     ->name('products.show');
 
-url('products.show', ['slug' => 'ঢাকা-শহর']);
+$router->url('products.show', ['slug' => 'ঢাকা-শহর']);
 // /%E0%A6%AA%E0%A6%A3%E0%A7%8D%E0%A6%AF/%E0%A6%A2%E0%A6%BE…
 ```
 
@@ -75,9 +91,9 @@ url('products.show', ['slug' => 'ঢাকা-শহর']);
   `ঢাকা` fails a letters-only pattern at its `া`. A segment that is not valid
   UTF-8 fails every constraint; an unconstrained parameter still receives it as
   it arrived.
-- **`url()` percent-encodes both parameters and fixed segments**, but in a fixed
-  segment only the bytes outside ASCII, so `/v1:batch` is written exactly as
-  declared.
+- **`Router::url()` percent-encodes both parameters and fixed segments**, but in
+  a fixed segment only the bytes outside ASCII, so `/v1:batch` is written
+  exactly as declared.
 - An encoded slash, `%2F`, is decoded before matching and separates segments the
   way `/` does, so a parameter can never contain one.
 

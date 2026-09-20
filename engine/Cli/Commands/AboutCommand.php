@@ -13,6 +13,7 @@ use App\Engine\Config\Config;
 use App\Engine\Config\ConfigCache;
 use App\Engine\Core\Application;
 use App\Engine\Database\ConnectionManager;
+use App\Engine\Error\FrameworkException;
 use App\Engine\Filter\FilterEngine;
 use App\Engine\Hook\HookEngine;
 use App\Engine\Logging\LogManager;
@@ -133,18 +134,37 @@ final class AboutCommand
      *
      * A queue nobody is draining looks exactly like an empty one from inside
      * the application, so the number is worth more here than the store name.
+     *
+     * Counting is the one thing on this screen that asks a store a question it
+     * can refuse to answer: a database queue on an application that has not run
+     * `migrate` yet has no table to count, and a database that is down has
+     * nothing at all. This command is what somebody runs to find out why the
+     * application is not working, so it reports that instead of becoming the
+     * failure -- the store still names itself, and the reason goes beside it.
+     * A message the framework did not write is not repeated, for the same
+     * reason it is not repeated anywhere else: a driver's connection failure
+     * quotes the DSN back.
      */
     private function describeQueue(): string
     {
-        $waiting = 0;
+        $store = $this->queue->store()->describe();
 
-        foreach ($this->queue->queues() as $queue) {
-            $waiting += $this->queue->pending($queue);
+        try {
+            $waiting = 0;
+
+            foreach ($this->queue->queues() as $queue) {
+                $waiting += $this->queue->pending($queue);
+            }
+
+            $failed = \count($this->queue->failed());
+        } catch (FrameworkException $e) {
+            return $store . \sprintf(
+                ' (%s)',
+                $e->disclosesMessage() ? $e->getMessage() : 'cannot be read',
+            );
         }
 
-        $failed = \count($this->queue->failed());
-
-        return $this->queue->store()->describe()
+        return $store
             . ($waiting === 0 ? '' : \sprintf(', %d waiting', $waiting))
             . ($failed === 0 ? '' : \sprintf(', %d failed', $failed));
     }

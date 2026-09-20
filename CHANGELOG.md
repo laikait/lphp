@@ -271,6 +271,13 @@ may change it, always with an upgrade note. Nothing is Stable yet — see
 
 ### Fixed
 
+- **`about` died on the state it exists to report.** With `queue.store` set to
+  `database` and no `jobs` table yet — a fresh installation, before the first
+  `migrate` — counting what was waiting threw, so the one command that would
+  have named the problem produced a stack trace instead. It now prints the
+  store, and beside it the reason it could not be counted, and the rest of the
+  screen still renders. A message the framework did not write is not repeated,
+  so a database that is down does not put its DSN on the line.
 - **Binary data could not be written on SQL Server.** A stream was sent as
   text, and SQL Server refuses text in a `VARBINARY` column. It is now bound
   with the driver's binary encoding, and comes back byte for byte, as on the

@@ -76,6 +76,28 @@ final class ConsoleTest extends TestCase
         self::assertStringContainsString('Commands', $output);
     }
 
+    /**
+     * `about` is what somebody runs when the application is not working, so it
+     * must survive the states it exists to report.
+     *
+     * A database queue on an application that has not run `migrate` has no
+     * table to count. Before this, counting threw, and the one command that
+     * would have named the problem died of it -- on a fresh installation, which
+     * is exactly when somebody is looking.
+     */
+    public function test_about_reports_a_queue_it_cannot_count_rather_than_failing(): void
+    {
+        [$status, $output] = $this->console([
+            'queue' => ['store' => 'database'],
+            'database' => ['connections' => ['default' => ['dsn' => 'sqlite::memory:']]],
+        ], 'about');
+
+        self::assertSame(ConsoleKernel::SUCCESS, $status, 'about must still answer');
+        self::assertStringContainsString('Queue', $output);
+        self::assertStringContainsString('migrate', $output, 'it should say what to run');
+        self::assertStringContainsString('Sessions', $output, 'the rest of the screen still prints');
+    }
+
     public function test_no_arguments_lists_the_commands(): void
     {
         [$status, $output] = $this->invoke();
