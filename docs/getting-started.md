@@ -48,7 +48,7 @@ same folder for every command below.
 See what is there so far:
 
 ```bash
-php laika module:list    # the modules: only "shared"
+php laika module:list    # the modules: only "Shared"
 php laika route:list     # the URLs: only "/"
 ```
 
@@ -57,7 +57,7 @@ php laika route:list     # the URLs: only "/"
 **Goal:** a module the framework finds on its own.
 
 A **module** is a folder with a `module.php` file in it. Create the folders
-`modules/Plugins/Notes/`, then the file `modules/Plugins/Notes/module.php`:
+`modules/Notes/`, then the file `modules/Notes/module.php`:
 
 ```php
 <?php
@@ -72,8 +72,8 @@ return static function (ModuleContext $module): void {
         ->version('0.1.0')
         ->description('Short notes, on a page and on the command line.');
 
-    // The DataSource every repository writes through is bound by shared.
-    $module->requires('shared', '^0.1');
+    // The DataSource every repository writes through is bound by Shared.
+    $module->requires('Shared', '^0.1');
 };
 ```
 
@@ -84,24 +84,24 @@ php laika module:list
 **You should see** your module in the list:
 
 ```
-  ID             KIND     NAME    VERSION  ROUTES  COMMANDS  HOOKS  FILTERS  REQUIRES
-  shared         shared   Shared  0.1.0    1       0         0      0        -
-  plugins/Notes  plugins  Notes   0.1.0    0       0         0      0        shared ^0.1
+  ID      KIND    NAME    VERSION  ROUTES  COMMANDS  HOOKS  FILTERS  REQUIRES
+  Shared  shared  Shared  0.1.0    1       0         0      0        -
+  Notes   module  Notes   0.1.0    0       0         0      0        Shared ^0.1
 ```
 
 What just happened:
 
 - **You registered nothing.** The framework found the folder by itself. The
-  module's id, `plugins/Notes`, comes from where the folder is.
-- **`requires('shared', '^0.1')`** says this module needs the `shared` module,
-  version 0.1 or newer. `shared` provides the storage your notes will be saved
+  module's id, `Notes`, is the folder's name. Call yours whatever you like.
+- **`requires('Shared', '^0.1')`** says this module needs the `Shared` module,
+  version 0.1 or newer. `Shared` provides the storage your notes will be saved
   through.
 - **The file returns a function.** The framework calls it with a
   `ModuleContext`, and everything a module can declare is a method on that
   object. See [Modules](reference/modules.md) for the full list.
 
 > **Folder names are part of class names.** A class in
-> `modules/Plugins/Notes/Model/Note.php` is `App\Modules\Plugins\Notes\Model\Note`,
+> `modules/Notes/Model/Note.php` is `App\Modules\Notes\Model\Note`,
 > with no `composer.json` change. The upper and lower case must match exactly:
 > Windows forgives a mistake, Linux does not.
 
@@ -111,14 +111,14 @@ What just happened:
 
 A **model** is a class for one thing your application knows about, with the rules
 that keep it valid. Here the rule is: a note cannot be empty. Create
-`modules/Plugins/Notes/Model/Note.php`:
+`modules/Notes/Model/Note.php`:
 
 ```php
 <?php
 
 declare(strict_types=1);
 
-namespace App\Modules\Plugins\Notes\Model;
+namespace App\Modules\Notes\Model;
 
 use App\Engine\Model\Model;
 
@@ -152,17 +152,17 @@ next step has exactly those two columns.
 
 A **repository** is the class that reads and saves models. It has no built-in
 `find()` or `save()`: you write the methods your application needs, and name them
-after what they do. Create `modules/Plugins/Notes/Data/NoteRepository.php`:
+after what they do. Create `modules/Notes/Data/NoteRepository.php`:
 
 ```php
 <?php
 
 declare(strict_types=1);
 
-namespace App\Modules\Plugins\Notes\Data;
+namespace App\Modules\Notes\Data;
 
 use App\Engine\Data\Repository;
-use App\Modules\Plugins\Notes\Model\Note;
+use App\Modules\Notes\Model\Note;
 
 final class NoteRepository extends Repository
 {
@@ -234,7 +234,7 @@ settings for your machine only. Git ignores it, and the web server never serves
 A **migration** is a file that creates or changes a table. The module keeps its
 migrations in its `Database/Migrations/` folder, and each file name starts with
 the date and time it was written. Create
-`modules/Plugins/Notes/Database/Migrations/2026_01_01_000000_create_notes.php`:
+`modules/Notes/Database/Migrations/2026_01_01_000000_create_notes.php`:
 
 ```php
 <?php
@@ -282,18 +282,18 @@ php laika migrate:status
 ### Add a command
 
 A **command** is something you run in the terminal. Create
-`modules/Plugins/Notes/Commands/AddNote.php`:
+`modules/Notes/Commands/AddNote.php`:
 
 ```php
 <?php
 
 declare(strict_types=1);
 
-namespace App\Modules\Plugins\Notes\Commands;
+namespace App\Modules\Notes\Commands;
 
 use App\Engine\Cli\Output;
 use App\Engine\Hook\HookEngine;
-use App\Modules\Plugins\Notes\Data\NoteRepository;
+use App\Modules\Notes\Data\NoteRepository;
 
 final class AddNote
 {
@@ -345,8 +345,8 @@ declare(strict_types=1);
 use App\Engine\Cli\CommandCollector;
 use App\Engine\Container\ServiceRegistrar;
 use App\Engine\Module\ModuleContext;
-use App\Modules\Plugins\Notes\Commands\AddNote;
-use App\Modules\Plugins\Notes\Data\NoteRepository;
+use App\Modules\Notes\Commands\AddNote;
+use App\Modules\Notes\Data\NoteRepository;
 
 return static function (ModuleContext $module): void {
     $module
@@ -354,8 +354,8 @@ return static function (ModuleContext $module): void {
         ->version('0.1.0')
         ->description('Short notes, on a page and on the command line.');
 
-    // The DataSource every repository writes through is bound by shared.
-    $module->requires('shared', '^0.1');
+    // The DataSource every repository writes through is bound by Shared.
+    $module->requires('Shared', '^0.1');
 
     $module->services(static function (ServiceRegistrar $services): void {
         $services->singleton(NoteRepository::class);
@@ -399,8 +399,8 @@ More in [CLI](reference/console.md).
 ### The template
 
 A module's `Templates/` folder is found automatically, and its templates are
-named with `@plugin.<Name>/`: `modules/Plugins/Notes/Templates/index.twig` is
-`@plugin.Notes/index`. Create that file:
+named with `@<Name>/`: `modules/Notes/Templates/index.twig` is
+`@Notes/index`. Create that file:
 
 ```twig
 {% extends "layout.twig" %}
@@ -426,22 +426,22 @@ named with `@plugin.<Name>/`: `modules/Plugins/Notes/Templates/index.twig` is
 ### The handler
 
 A **handler** is the code a URL runs. It is an ordinary class; there is no
-controller base class. Create `modules/Plugins/Notes/Http/NotesPage.php`:
+controller base class. Create `modules/Notes/Http/NotesPage.php`:
 
 ```php
 <?php
 
 declare(strict_types=1);
 
-namespace App\Modules\Plugins\Notes\Http;
+namespace App\Modules\Notes\Http;
 
 use App\Engine\Config\Config;
 use App\Engine\Filter\FilterEngine;
 use App\Engine\Http\Request;
 use App\Engine\Http\Response;
 use App\Engine\Template\TemplateManager;
-use App\Modules\Plugins\Notes\Data\NoteRepository;
-use App\Modules\Plugins\Notes\Model\Note;
+use App\Modules\Notes\Data\NoteRepository;
+use App\Modules\Notes\Model\Note;
 
 final class NotesPage
 {
@@ -454,7 +454,7 @@ final class NotesPage
 
     public function __invoke(Request $request): Response
     {
-        $html = $this->templates->render('@plugin.Notes/index', [
+        $html = $this->templates->render('@Notes/index', [
             'title' => $this->filters->apply('notes.title', 'Notes'),
             'notes' => $this->notes->latest($this->pageSize()),
             'home' => $request->basePath() . '/',
@@ -474,7 +474,7 @@ final class NotesPage
 
     private function pageSize(): int
     {
-        return $this->config->int('plugins/Notes.page_size', 20) ?? 20;
+        return $this->config->int('Notes.page_size', 20) ?? 20;
     }
 }
 ```
@@ -507,9 +507,9 @@ use App\Engine\Cli\CommandCollector;
 use App\Engine\Container\ServiceRegistrar;
 use App\Engine\Module\ModuleContext;
 use App\Engine\Routing\RouteCollector;
-use App\Modules\Plugins\Notes\Commands\AddNote;
-use App\Modules\Plugins\Notes\Data\NoteRepository;
-use App\Modules\Plugins\Notes\Http\NotesPage;
+use App\Modules\Notes\Commands\AddNote;
+use App\Modules\Notes\Data\NoteRepository;
+use App\Modules\Notes\Http\NotesPage;
 
 return static function (ModuleContext $module): void {
     $module
@@ -517,8 +517,8 @@ return static function (ModuleContext $module): void {
         ->version('0.1.0')
         ->description('Short notes, on a page and on the command line.');
 
-    // The DataSource every repository writes through is bound by shared.
-    $module->requires('shared', '^0.1');
+    // The DataSource every repository writes through is bound by Shared.
+    $module->requires('Shared', '^0.1');
 
     $module->services(static function (ServiceRegistrar $services): void {
         $services->singleton(NoteRepository::class);
@@ -552,7 +552,7 @@ curl http://127.0.0.1:8080/api/notes
 php laika route:list
 ```
 
-`route:list` shows both routes, and that they belong to `plugins/Notes`. There
+`route:list` shows both routes, and that they belong to `Notes`. There
 is no central routes file: each module declares its own. A handler can return a
 `Response`, a string (sent as HTML), an array (sent as JSON), or `null` (an empty
 `204` response). See [Routing](reference/routing.md).
@@ -574,8 +574,8 @@ just before the closing `};`:
 **You should see:** reload `/notes`, and the heading reads *Notes for Tuesday*, or
 whichever day it is.
 
-That line could live in any module: this one, a plugin written by someone else,
-or a gateway. `NotesPage` would not change.
+That line could live in any module: this one, or a module written by someone
+else. `NotesPage` would not change.
 
 ### A hook announces an event
 
@@ -597,7 +597,7 @@ build `NoteMailer`; the test in step 9 proves the hook fires. See
 
 **Goal:** a setting with a default that each installation can change.
 
-`NotesPage` reads the setting `plugins/Notes.page_size`: how many notes a page
+`NotesPage` reads the setting `Notes.page_size`: how many notes a page
 shows. Give it a default in `module.php`, again just before the closing `};`:
 
 ```php
@@ -606,7 +606,7 @@ shows. Give it a default in `module.php`, again just before the closing `};`:
 
 That is the module's **default**. Whoever runs the application can change it
 without touching the module, in a file named after the module's id. Create
-`config/plugins/Notes.php`:
+`config/Notes.php`:
 
 ```php
 <?php
@@ -618,7 +618,7 @@ return ['page_size' => 1];
 
 The file in `config/` always beats the module's default: the module suggests, the
 installation decides. `php laika config:list` shows every setting and where it
-came from. Delete `config/plugins/Notes.php` when you are done. See
+came from. Delete `config/Notes.php` when you are done. See
 [Configuration](reference/configuration.md).
 
 ## 9. A test
@@ -638,8 +638,8 @@ use App\Engine\Cli\Output;
 use App\Engine\Core\Application;
 use App\Engine\Http\JsonResponse;
 use App\Engine\Http\Request;
-use App\Modules\Plugins\Notes\Commands\AddNote;
-use App\Modules\Plugins\Notes\Model\Note;
+use App\Modules\Notes\Commands\AddNote;
+use App\Modules\Notes\Model\Note;
 use App\Tests\Support\TestCase;
 
 final class NotesTest extends TestCase
@@ -731,8 +731,8 @@ How the test works:
 Check your module with the same tools the framework uses:
 
 ```bash
-vendor/bin/phpstan analyse modules/Plugins/Notes tests/Feature/NotesTest.php
-vendor/bin/php-cs-fixer fix --dry-run --diff --path-mode=override modules/Plugins/Notes
+vendor/bin/phpstan analyse modules/Notes tests/Feature/NotesTest.php
+vendor/bin/php-cs-fixer fix --dry-run --diff --path-mode=override modules/Notes
 ```
 
 PHPStan finds type mistakes; php-cs-fixer checks the coding style and shows a diff
@@ -741,7 +741,7 @@ of anything to change. Drop `--dry-run` to let it make the changes.
 ## What you built
 
 ```
-modules/Plugins/Notes/
+modules/Notes/
   module.php                 everything the module adds, in one file
   Model/Note.php             a note, and the rule that it cannot be empty
   Data/NoteRepository.php    latest() and write()
@@ -749,11 +749,11 @@ modules/Plugins/Notes/
                              the notes table, on any database
   Commands/AddNote.php       notes:add, which fires note.added
   Http/NotesPage.php         GET /notes and GET /api/notes
-  Templates/index.twig       @plugin.Notes/index
+  Templates/index.twig       @Notes/index
 tests/Feature/NotesTest.php
 ```
 
-Deleting the folder `modules/Plugins/Notes/` removes all of it: the routes, the
+Deleting the folder `modules/Notes/` removes all of it: the routes, the
 command, the filter and the templates. Nothing outside the folder knew it
 existed. (Only the `notes` table stays in the database; roll it back first with
 `php laika migrate:rollback` if you want it gone too.)
@@ -769,10 +769,10 @@ message, like the ones below. Console commands show the message either way.
 | `could not find driver` | PHP has no SQLite support. | Enable `extension=pdo_sqlite` in `php.ini`, then check with `php -m`. |
 | `no such table: notes` | The migration has not run on this database. | Run `php laika migrate`. If you changed `DB_DSN`, run it again for the new file. |
 | The notes are gone after every command | `DB_DSN` is missing or relative, so each run uses a different database, or none. | Put an **absolute** path in `.env`, as in step 4. |
-| `Class "App\Modules\Plugins\Notes\..." not found` | A folder or file name's case does not match the namespace. | Compare each folder name with the `namespace` line, letter by letter. |
+| `Class "App\Modules\Notes\..." not found` | A folder or file name's case does not match the namespace. | Compare each folder name with the `namespace` line, letter by letter. |
 | `Unable to find template "layout.twig"` | `templates/layout.twig` was moved or renamed. | Put it back, or extend a layout that exists. |
 | php-cs-fixer changes the `use` lines | Imports must be in alphabetical order. | Run it without `--dry-run`, or copy the files from this page as they are. |
-| `composer check` fails `DefaultPagesSliceTest` | Those tests describe a fresh install with only `shared`, and a module of yours changes that. | Nothing is wrong with your module. An application adapts or removes the framework's tests that describe a fresh install. |
+| `composer check` fails `DefaultPagesSliceTest` | Those tests describe a fresh install with only `Shared`, and a module of yours changes that. | Nothing is wrong with your module. An application adapts or removes the framework's tests that describe a fresh install. |
 
 More symptoms and fixes are in [Troubleshooting](troubleshooting.md).
 

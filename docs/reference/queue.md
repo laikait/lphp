@@ -9,7 +9,7 @@ page is the details.
 ## Write a job
 
 ```php
-// modules/Plugins/Example/Jobs/WelcomeCustomer.php
+// modules/Example/Jobs/WelcomeCustomer.php
 final class WelcomeCustomer implements Job
 {
     public function __construct(private readonly int $customerId) {}

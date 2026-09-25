@@ -4,13 +4,49 @@ A *module* is a folder under `modules/` that adds a capability to the
 application: pages, commands, jobs, services, or anything else. It declares
 itself in one file, `module.php`.
 
+```
+modules/
+  Shared/       the one shared module: always there, always first
+  Billing/      any other folder with a module.php is a module
+  Stripe/
+```
+
+**The folder name is the module's id**, and you choose it: `Billing`, `Crm`,
+`Stripe_Gateway`. It starts with a capital letter and holds only letters,
+digits and underscores, because it is also the PHP namespace segment
+(`App\Modules\Billing`). The id names the module everywhere else:
+
+| Where | For `modules/Billing/` |
+|---|---|
+| dependencies | `$module->requires('Billing')` |
+| templates | `@Billing/invoice` |
+| translations | `'Billing.invoice_created'` |
+| assets | `/assets/module/Billing/…`, `asset()->module('Billing', …)` |
+| configuration | `config/Billing.php` |
+
+`Shared` is the only fixed name. Every application has it; it registers before
+every other module and may depend on none of them. Put in it only what more
+than one module really needs.
+
+Modules outside `modules/` are added through `modules.paths`, a list of places
+to look. An entry is either a folder of modules or, if it has a `module.php` of
+its own, a single module:
+
+```php
+// config/modules.php
+return ['paths' => ['modules', 'vendor/acme/crm-module']];
+```
+
+A folder name that cannot be a module name is refused at boot, and so is the
+same name in two of those places.
+
 **There is nothing to extend and nothing to implement.** `ModuleContext` is the
 whole API a module author learns.
 
 ## A module declares itself
 
 ```php
-<?php // modules/Plugins/Customer/module.php
+<?php // modules/Customer/module.php
 
 return static function (ModuleContext $module): void {
     $module->name('Customers')->version('1.0.0');
@@ -75,10 +111,9 @@ all config is merged before any service factory is defined, and every service is
 bound before any route is registered. That removes the ordering bugs service
 providers are known for.
 
-Module order is `shared` → `plugins/*` → `gateways/*`, and within a kind by
-folder name — adjusted only where a dependency forces it. Never filesystem
-order. **`shared` always registers first**, which is what makes it genuinely
-shared.
+Module order is `Shared` first, then every other module by folder name —
+adjusted only where a dependency forces it. Never filesystem order. **`Shared`
+always registers first**, which is what makes it genuinely shared.
 
 ## Depending on another module
 
@@ -86,13 +121,13 @@ shared.
 return static function (ModuleContext $module): void {
     $module->name('Payment')->version('1.3.0');
 
-    $module->requires('plugins/Billing', '^1.2')
-           ->optionally('plugins/Crm', '^2.0');
+    $module->requires('Billing', '^1.2')
+           ->optionally('Crm', '^2.0');
 };
 ```
 
-Modules are named **by id** — `plugins/Billing`, not `Billing` — because a
-plugin and a gateway may share a folder name.
+Modules are named **by id**, which is the folder name: `Billing` for
+`modules/Billing/`.
 
 Declaring it in the module's own file means installing a module brings its
 requirements with it, and a reviewer sees them beside the routes that rely on
@@ -105,7 +140,7 @@ them.
 | **missing** | required and not installed — with a "did you mean" when it is plausibly a typo |
 | **disabled** | installed, but listed in `modules.disabled`. A different fix from "missing", so a different message |
 | **version conflict** | installed, and its `version()` does not fit the constraint |
-| **circular** | no order exists; the circle is printed: `plugins/A -> plugins/B -> plugins/A` |
+| **circular** | no order exists; the circle is printed: `A -> B -> A` |
 
 A web client sees a generic 500; an operator at the console sees the whole
 message, because the framework wrote every word of it. A dependency problem
@@ -118,10 +153,10 @@ An optional dependency that is present and enabled is held to its constraint,
 and orders registration exactly like a required one. Only its **absence** is
 forgiven.
 
-The showcase gateway uses one honestly: it listens to `customer.created`, which
-only `plugins/Example` fires. Without that plugin the listener is never called —
-but a `plugins/Example` 1.0 that changed the event's payload should stop the
-application rather than surprise the listener.
+The showcase's `ExampleGateway` uses one honestly: it listens to
+`customer.created`, which only `Example` fires. Without `Example` the listener
+is never called — but an `Example` 1.0 that changed the event's payload should
+stop the application rather than surprise the listener.
 
 To act on whether an optional partner is there, listen for its hooks: they
 simply never fire without it, and need no check. When that is not enough, inject
@@ -130,8 +165,8 @@ simply never fire without it, and need no check. When that is not enough, inject
 ### The order changes only where a dependency forces it
 
 Resolution is a stable topological sort: at each step it takes, of the modules
-whose dependencies are all placed, the one that came first in kind-then-name
-order.
+whose dependencies are all placed, the one that came first in the default
+order (`Shared`, then by name).
 
 An application that declares nothing registers exactly as before, and one
 declaration moves exactly one module — the one that has to wait. Within each
@@ -139,12 +174,12 @@ registration category a module is registered after everything it requires, which
 is visible from inside a module: two listeners at the same priority run in that
 order.
 
-**Kind order is never broken**, and that is a fifth refusal rather than a hope.
-A plugin depending on a gateway, or `shared` depending on anything, would either
-reorder across kinds — breaking "every module may rely on `shared` without
-saying so" for modules that never mentioned it — or be unsatisfiable. Refusing
-it means the sort only ever moves modules *within* their own kind, so `shared`
-registers first by construction.
+**`Shared` first is never broken**, and that is a fifth refusal rather than a
+hope. `Shared` depending on a module would either move that module ahead of it
+— breaking "every module may rely on `Shared` without saying so" for modules
+that never mentioned it — or be unsatisfiable. Refusing it means the sort only
+ever moves the other modules among themselves, so `Shared` registers first by
+construction.
 
 ## Versions and constraints
 
@@ -172,13 +207,13 @@ and the application will not boot.
 
 Why modules need this when Composer exists: modules under `modules/` are **not**
 Composer packages. They are folders in one repository, and nothing else is going
-to check that `plugins/Payment` still fits the `plugins/Billing` beside it.
+to check that `Payment` still fits the `Billing` beside it.
 
 ## Disabling a module
 
 ```php
 // config/modules.php
-return ['disabled' => ['gateways/Stripe']];
+return ['disabled' => ['Stripe']];
 ```
 
 A disabled module is **installed but never runs**: not its `module.php`, not its
@@ -187,18 +222,18 @@ known to the registry so "disabled" and "missing" can be told apart, and
 `module:list` shows it beneath the table:
 
 ```
-  ID                KIND      NAME             VERSION  ...  REQUIRES
-  shared            shared    Shared           0.1.0    ...  -
-  gateways/Example  gateways  Example Gateway  0.1.0    ...  plugins/Example? ^0.1 (absent)
+  ID              KIND    NAME             VERSION  ...  REQUIRES
+  Shared          shared  Shared           0.1.0    ...  -
+  ExampleGateway  module  Example Gateway  0.1.0    ...  Example? ^0.1 (absent)
 
-Disabled (installed, switched off in modules.disabled): plugins/Example
+Disabled (installed, switched off in modules.disabled): Example
 ```
 
 Anything that *requires* it refuses to boot; anything that uses it *optionally*
 carries on without it.
 
 Two refusals of its own: an id that is not installed, because a typo would leave
-the module running while the configuration says it is off; and `shared`, because
+the module running while the configuration says it is off; and `Shared`, because
 every other module may rely on it without declaring so.
 
 **Nothing about resolution is cached.** Switching a module off never needs the
@@ -218,8 +253,8 @@ refusing to boot with both modules named.
 | What you see | Why | Fix |
 |---|---|---|
 | A new module is not listed | A module cache from `cache:warm` is in use | `php laika cache:clear` |
-| A new module is not listed, and no cache | The file is not exactly `modules/Plugins/<Name>/module.php`, or does not `return` a function | Check the path and the `return` |
-| `Class "App\Modules\Plugins\…" not found`, Linux only | The folder's case does not match the namespace | Rename the folder |
+| A new module is not listed, and no cache | The file is not exactly `modules/<Name>/module.php`, or does not `return` a function | Check the path and the `return` |
+| `Class "App\Modules\…" not found`, Linux only | The folder's case does not match the namespace | Rename the folder |
 | The boot names two modules | A missing, disabled, conflicting or circular dependency | The message says which of the four |
 | A constraint is refused | `1.2` is ambiguous | Write `^1.2` or `1.2.0` |
 | Something declared in `onBoot` is ignored | `onBoot` is too late to declare | Declare it in the module closure |

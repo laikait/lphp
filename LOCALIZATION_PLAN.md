@@ -62,8 +62,8 @@ lang/en.php                  root, unqualified keys
 lang/bn.php
 lang/countries.php           country → preferred language (policy, not a registry)
 modules/Shared/lang/en.php               → shared.<key>
-modules/Plugins/Billing/lang/en.php      → plugin.Billing.<key>
-modules/Gateways/Stripe/lang/en.php      → gateway.Stripe.<key>
+modules/Billing/lang/en.php      → Billing.<key>
+modules/Stripe/lang/en.php      → Stripe.<key>
 ```
 
 - Each file returns a flat `array<string,string>`. Non-array → `LocalizationException` naming the file.
@@ -74,14 +74,14 @@ modules/Gateways/Stripe/lang/en.php      → gateway.Stripe.<key>
 
 - **No `$module->translations()` method.** A `lang/` directory in the module is the declaration, same as `Templates/` and `assets/`.
 - `ModuleDiscovery` records `hasLang`; it is cached with the rest of `ModuleDefinition`, so no scan per request.
-- `ModuleManager::publishTranslations()` registers `namespace → dir` in `TranslationCatalog`, using the **same namespace as templates** (`shared`, `plugin.Billing`, `gateway.Stripe`).
+- `ModuleManager::publishTranslations()` registers `namespace → dir` in `TranslationCatalog`, using the **same namespace as templates** (`shared`, `plugin.Billing`, `Stripe`).
 - Namespaces are unique by construction (kind + directory), so no collision detection is needed.
 - Disabled/removed module → not published → its keys resolve to the key itself.
 
 Key resolution: longest registered namespace prefix wins; otherwise the key is a root key.
 
 ```text
-plugin.Billing.invoice_created → ns plugin.Billing, key invoice_created
+Billing.invoice_created → ns plugin.Billing, key invoice_created
 updated                         → root, key updated
 ```
 
@@ -177,7 +177,7 @@ $twig->addFilter(new \Twig\TwigFilter('local', $this->localizer));
 ```twig
 {{ 'updated'|local }}
 {{ 'user_update_success'|local({user: user.name}) }}
-{{ 'plugin.Billing.invoice_created'|local }}
+{{ 'Billing.invoice_created'|local }}
 ```
 
 **PHP templates** — `TemplateView::local()` returns plain text; the author escapes as usual:
@@ -249,7 +249,7 @@ Relay, DB translations, admin UI, machine translation, gettext, ICU, URL prefixe
 
 - `{{ 'updated'|local }}` → active-locale text
 - `{{ 'user_update_success'|local({user: 'Some User'}) }}` → `Some User updated successfully`
-- `{{ 'plugin.Billing.invoice_created'|local }}` resolves from the module; gone when module removed
+- `{{ 'Billing.invoice_created'|local }}` resolves from the module; gone when module removed
 - `language=bn` → bn; country `BD` → bn when no cookie; browser only after both fail; `en` last
 - Invalid locale input never reaches the filesystem
 - One file load per locale per request/job

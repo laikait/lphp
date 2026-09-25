@@ -26,7 +26,7 @@ fine on a terminal and not in a response" possible to express at all.
 | Class, file, line, trace | debug only | debug only | debug only |
 
 The middle row is the one worth explaining. `Command "customer:sync" is already
-registered by plugins/Example` is exactly what an operator needs, and exactly
+registered by Example` is exactly what an operator needs, and exactly
 what an anonymous client should not have — it is an inventory of the
 application. An operator already has the source, the configuration and a
 directory listing, so withholding it from them protects nobody and costs them an

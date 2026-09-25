@@ -11,7 +11,7 @@ module can ship its own in its `lang/` directory. Templates translate with the
 ```twig
 {{ 'updated'|local }}
 {{ 'user_update_success'|local({user: user.name}) }}
-{{ 'plugin.Billing.invoice_created'|local }}
+{{ 'Billing.invoice_created'|local }}
 ```
 
 With `lang/en.php`:
@@ -52,7 +52,7 @@ final class InvoiceMailer
 
     public function subject(string $user): string
     {
-        return $this->localization->get('plugin.Billing.invoice_for', ['user' => $user]);
+        return $this->localization->get('Billing.invoice_for', ['user' => $user]);
     }
 }
 ```
@@ -76,7 +76,7 @@ lang/
   bn.php
   pt-BR.php
   countries.php    country → language policy (see below)
-modules/Plugins/Billing/lang/
+modules/Billing/lang/
   en.php
   bn.php
 ```
@@ -100,8 +100,8 @@ A module's keys are prefixed with the same name its templates have:
 | Module | Its key `invoice_created` is |
 |---|---|
 | `modules/Shared/lang/` | `shared.invoice_created` |
-| `modules/Plugins/Billing/lang/` | `plugin.Billing.invoice_created` |
-| `modules/Gateways/Stripe/lang/` | `gateway.Stripe.invoice_created` |
+| `modules/Billing/lang/` | `Billing.invoice_created` |
+| `modules/Stripe/lang/` | `Stripe.invoice_created` |
 
 Every other key is looked up in the application's `lang/`. A module cannot
 replace an application key, and two modules cannot collide, because no two
@@ -293,7 +293,7 @@ responses `Cache-Control: private`.
 
 | Symptom | Cause | Fix |
 |---|---|---|
-| The key is printed instead of the text | No file in the chain has it, or the prefix is wrong | Check the key in `lang/en.php`; a module key starts with `plugin.<Name>.` |
+| The key is printed instead of the text | No file in the chain has it, or the prefix is wrong | Check the key in `lang/en.php`; a module key starts with its folder name: `Billing.` |
 | `Unknown "local" filter` | A Twig engine built outside `Bootstrap` | Render through the application's `TemplateManager` |
 | The cookie is ignored | No `lang/<value>.php`, or the value is not a tag | Name the file exactly as the tag: `pt-BR.php` |
 | The country is ignored | The request did not come from `http.trusted_proxies`, or no `country_header` | Configure both |

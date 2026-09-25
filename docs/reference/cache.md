@@ -129,7 +129,7 @@ the event that says a customer was created:
 
 ```php
 $module->onBoot(static function (CustomerQuery $customers, HookEngine $hooks): void {
-    $hooks->add('customer.created', $customers->forgetTotal(...), 5, 'plugins/Example');
+    $hooks->add('customer.created', $customers->forgetTotal(...), 5, 'Example');
 });
 ```
 

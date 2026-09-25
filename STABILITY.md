@@ -62,9 +62,9 @@ change, so that the Experimental surface can stay still.
 | The JSON error document: `status`, `title`, `message` first, additions under their own keys | Experimental | 1.0 candidate |
 | Response headers: `X-Request-Id`, `X-Correlation-Id`, `X-Api-Version`, `Deprecation`, `Sunset`, `RateLimit-*`, `Retry-After` | Experimental | |
 | `Server-Timing` and the `profile` log record's shape | Experimental | newest; the most likely to change |
-| Asset URLs: `/assets/{core,template,plugin,gateway}/…` | Experimental | 1.0 candidate; URLs end up in caches and emails |
-| Template namespaces (`@shared`, `@plugin.<Name>`, `@gateway.<Name>`) and the default template's names (`layout`, `home`, `errors/404`, `errors/error`) with the data they are given | Experimental | |
-| Translation files (`lang/<locale>.php`, `lang/countries.php`, a module's `lang/`), key namespaces (`shared.`, `plugin.<Name>.`, `gateway.<Name>.`), the `language` cookie and the `local` filter | Experimental | |
+| Asset URLs: `/assets/{core,template,module}/…` | Experimental | 1.0 candidate; URLs end up in caches and emails |
+| Module ids (the folder name under `modules/`; `Shared` is fixed), template namespaces (`@<Name>`) and the default template's names (`layout`, `home`, `errors/404`, `errors/error`) with the data they are given | Experimental | |
+| Translation files (`lang/<locale>.php`, `lang/countries.php`, a module's `lang/`), key namespaces (`<Module>.`, e.g. `Shared.`, `Billing.`), the `language` cookie and the `local` filter | Experimental | |
 | Cache files under `system/Cache/` (`config.php`, `modules.php`) | Internal | rebuilt by `cache:warm`; never read across versions |
 | **Persisted formats**: a queued job's envelope (`QueuedJob::toArray()`), a session record, a rate-limit counter | Internal | **with one promise**: a release must read what the previous release wrote, because a deployment does not drain its queue or log everybody out |
 
@@ -79,7 +79,7 @@ namespace beats a shorter one.
 | `App\Engine\Asset\*` | Internal | |
 | `App\Engine\Asset\AssetException` | Experimental | |
 | `App\Engine\Asset\AssetKind` | Experimental | |
-| `App\Engine\Asset\AssetManager` | Experimental | 1.0 candidate: `core()`, `template()`, `plugin()`, `gateway()`, `url()` |
+| `App\Engine\Asset\AssetManager` | Experimental | 1.0 candidate: `core()`, `template()`, `module()`, `url()` |
 | `App\Engine\Asset\AssetReference` | Experimental | |
 | `App\Engine\Asset\AssetRegistry` | Experimental | `register()` for directories that are not modules |
 | `App\Engine\Asset\AssetSource` | Experimental | |

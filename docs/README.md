@@ -79,9 +79,9 @@ in full.
 
 | Word | Meaning |
 |---|---|
-| **Module** | A folder under `modules/` holding one part of your application: its pages, commands, tables and jobs. There are three kinds: `Shared` (exactly one, loaded first), `Plugins/<Name>` (your features) and `Gateways/<Name>` (usually a connection to an outside service, such as payments). See [Modules](reference/modules.md). |
+| **Module** | A folder under `modules/` holding one part of your application: its pages, commands, tables and jobs. `modules/Shared/` is the one every application has, loaded first; every other folder with a `module.php` is a module named after the folder, whatever you call it. See [Modules](reference/modules.md). |
 | **`module.php`** | The one file that tells the framework what a module adds: its routes, commands, services, hooks and settings. See [Modules](reference/modules.md). |
-| **Module id** | A module's name, taken from where its folder is: `modules/Plugins/Notes/` is `plugins/Notes`. |
+| **Module id** | A module's name, taken from where its folder is: `modules/Notes/` is `Notes`. |
 | **Route** | A rule that connects a URL and an HTTP method, such as `GET /notes`, to the code that answers it. See [Routing](reference/routing.md). |
 | **Handler** | The class or method a route calls. It receives the request, and returns a response, a string (HTML) or an array (JSON). See [Routing](reference/routing.md). |
 | **Request, Response** | The framework's objects for what the browser sent and what goes back to it. |

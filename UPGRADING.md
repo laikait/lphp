@@ -9,6 +9,59 @@ format — a queued job, a session record — which always gets one.
 Each entry says **what changed**, **who is affected** and **what to do**, in that
 order. An entry that cannot say who is affected is not finished.
 
+## To the next release, from 2.1.2
+
+### Modules are flat: modules/<Name>, no plugins or gateways
+
+- **Changed:** a module is any folder directly under `modules/` with a
+  `module.php`, and its id is the folder name. `modules/Plugins/` and
+  `modules/Gateways/` are gone, and with them the plugin and gateway kinds.
+  `Shared` is the one fixed name and still registers first.
+
+  | | 2.1.2 | Now |
+  |---|---|---|
+  | folder | `modules/Plugins/Billing/` | `modules/Billing/` |
+  | id | `plugins/Billing`, `shared` | `Billing`, `Shared` |
+  | `requires()`, `modules.disabled`, `--module=` | `'plugins/Billing'` | `'Billing'` |
+  | namespace | `App\Modules\Plugins\Billing\` | `App\Modules\Billing\` |
+  | templates | `@plugin.Billing/…`, `@shared/…` | `@Billing/…`, `@Shared/…` |
+  | template override | `templates/plugin.Billing/` | `templates/Billing/` |
+  | assets | `/assets/plugin/Billing/…`, `asset()->plugin()` / `->gateway()` | `/assets/module/Billing/…`, `asset()->module()` |
+  | configuration | `config/plugins/Billing.php`, `shared.*` | `config/Billing.php`, `Shared.*` |
+  | translations | `plugin.Billing.key` | `Billing.key` |
+  | migration ids | `plugins/Billing:2026_…` | `Billing:2026_…` |
+  | `modules.paths` | `['shared' => …, 'plugins' => …, 'gateways' => …]` | `['modules']`, a list |
+
+  A folder name must start with a capital letter and hold only letters, digits
+  and underscores; anything else with a `module.php` stops the boot. Two
+  folders of the same name in different `modules.paths` entries also stop it.
+  A gateway may no longer be told apart from a plugin by kind, so a plugin and
+  a gateway that shared a name must now differ.
+- **Affected:** every application with a module of its own, and anything that
+  names one: `requires()`, `modules.disabled`, config files, templates, asset
+  URLs, translation keys, and the `migrations` table.
+- **Do:**
+  1. Move each `modules/Plugins/<Name>/` and `modules/Gateways/<Name>/` to
+     `modules/<Name>/`, renaming one if a plugin and a gateway share a name.
+     Change `App\Modules\Plugins\` and `App\Modules\Gateways\` to
+     `App\Modules\` and run `composer dump-autoload`.
+  2. Replace the ids and names in the table above in your code, templates and
+     `config/`. Move `config/plugins/<Name>.php` to `config/<Name>.php`, and
+     `templates/plugin.<Name>/` to `templates/<Name>/`.
+  3. If `config/modules.php` sets `paths`, make it a list:
+     `['paths' => ['modules']]`.
+  4. Rename recorded migrations so they are not run again (the table is
+     `database.migrations.table`, `migrations` by default):
+
+     ```sql
+     UPDATE migrations SET
+         migration = REPLACE(REPLACE(REPLACE(migration, 'plugins/', ''), 'gateways/', ''), 'shared:', 'Shared:'),
+         module = CASE WHEN module = 'shared' THEN 'Shared'
+                       ELSE REPLACE(REPLACE(module, 'plugins/', ''), 'gateways/', '') END;
+     ```
+  5. Run `php laika cache:clear`, then `php laika module:list` to check the
+     ids.
+
 ## To 2.1.2, from the tree committed as "Phase 23-25"
 
 2.1.2 is the first release, so there is no earlier release to upgrade from.

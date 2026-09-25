@@ -13,7 +13,7 @@ source code.
 
 ```twig
 <link rel="stylesheet" href="{{ view.asset().core('css/app.css') }}">
-<script src="{{ view.asset().plugin('Example', 'js/example.js') }}"></script>
+<script src="{{ view.asset().module('Example', 'js/example.js') }}"></script>
 ```
 
 <!-- {% endraw %} -->
@@ -23,8 +23,8 @@ or in PHP:
 ```php
 asset()->core('js/app.js');                    // /assets/core/js/app.js?v=9c81f4a2
 asset()->template('css/app.css');              // /assets/template/css/app.css?v=3f1c8d70
-asset()->plugin('Example', 'js/example.js');   // /assets/plugin/Example/js/example.js?v=...
-asset()->gateway('Stripe', 'js/stripe.js');
+asset()->module('Example', 'js/example.js');   // /assets/module/Example/js/example.js?v=...
+asset()->module('Stripe', 'js/stripe.js');
 ```
 
 **Always link through `asset()`.** A hand-written `/assets/...` URL works, but
@@ -39,8 +39,8 @@ There are four places, and no fifth. Each has its own URL prefix:
 |---|---|---|
 | `public/assets/` | `/assets/core/` | `asset()->core('css/app.css')` |
 | `templates/assets/` | `/assets/template/` | `asset()->template('css/app.css')` |
-| `modules/Plugins/Example/assets/` | `/assets/plugin/Example/` | `asset()->plugin('Example', 'js/x.js')` |
-| `modules/Gateways/Stripe/assets/` | `/assets/gateway/Stripe/` | `asset()->gateway('Stripe', 'js/x.js')` |
+| `modules/Example/assets/` | `/assets/module/Example/` | `asset()->module('Example', 'js/x.js')` |
+| `modules/Stripe/assets/` | `/assets/module/Stripe/` | `asset()->module('Stripe', 'js/x.js')` |
 
 Use `public/assets/` for the application's own files and `templates/assets/` for
 files belonging to the look of the site. A module's files go in its own
@@ -149,16 +149,16 @@ a page that will not render — and the 404 shows up in the access log anyway.
 ### Why PHP serves them at all
 
 The web server serves only `public/`, and `modules/` sits outside it — next to
-`module.php` and every repository. So a plugin's `assets/` folder is unreachable
+`module.php` and every repository. So a module's `assets/` folder is unreachable
 by the web server *on purpose*, and the asset server is what makes those files
 reachable without opening up the folder that holds the source.
 
-With a plugin called `Example` installed that ships `assets/js/example.js`, you
+With a module called `Example` installed that ships `assets/js/example.js`, you
 can see both halves at once:
 
 ```bash
-curl -i http://localhost/framework/modules/Plugins/Example/assets/js/example.js  # 404, from the application
-curl -i http://localhost/framework/assets/plugin/Example/js/example.js           # 200
+curl -i http://localhost/framework/modules/Example/assets/js/example.js  # 404, from the application
+curl -i http://localhost/framework/assets/module/Example/js/example.js           # 200
 ```
 
 `public/assets/` is different: the web server can serve it directly, and letting
@@ -187,12 +187,12 @@ That is possible precisely because publishing was never a declaration. Having an
 `assets/` folder is the whole of it, and discovery already knows which modules
 have one.
 
-You can watch it on a real server. Install a plugin with a route and an asset,
+You can watch it on a real server. Install a module with a route and an asset,
 make its `module.php` throw, and its pages fail while its assets do not:
 
 ```bash
 curl -s -o /dev/null -w "%{http_code}\n" http://localhost/framework/customers.json                       # 500
-curl -s -o /dev/null -w "%{http_code}\n" http://localhost/framework/assets/plugin/Example/js/example.js  # 200
+curl -s -o /dev/null -w "%{http_code}\n" http://localhost/framework/assets/module/Example/js/example.js  # 200
 ```
 
 The decision is made on the raw path, before any filter runs, because the filters

@@ -16,7 +16,7 @@ final class SendInvoice
     public function __invoke(): void
     {
         $from = $this->config->string('billing.sender', 'billing@example.com');
-        $size = $this->config->int('plugins/Example.page_size', 25);
+        $size = $this->config->int('Example.page_size', 25);
     }
 }
 ```
@@ -90,12 +90,12 @@ buys you a parser.
 A module's id is a path, and a subfolder in `config/` matches it:
 
 ```php
-// config/plugins/Example.php — the module at modules/Plugins/Example
+// config/Example.php — the module at modules/Example
 return ['page_size' => 10];
 ```
 
 ```php
-// modules/Plugins/Example/module.php
+// modules/Example/module.php
 $module->config(['page_size' => 25]);
 ```
 

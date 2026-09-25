@@ -40,7 +40,7 @@ injected:
 
 ```php
 $module->onBoot(static function (Auditor $auditor, HookEngine $hooks): void {
-    $hooks->add('customer.created', [$auditor, 'record'], 10, 'plugins/Audit');
+    $hooks->add('customer.created', [$auditor, 'record'], 10, 'Audit');
 });
 ```
 

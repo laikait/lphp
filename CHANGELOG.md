@@ -11,6 +11,18 @@ public, is in [`STABILITY.md`](STABILITY.md).
 
 ## [Unreleased]
 
+### Changed
+
+- **Modules are flat.** A module is any folder under `modules/` with a
+  `module.php`, named whatever its author likes; its id is the folder name
+  (`Billing`, `Shared`). The plugin and gateway kinds, `modules/Plugins/` and
+  `modules/Gateways/` are gone, so `cache:warm` no longer records roots that do
+  not exist. Templates are `@Billing/`, assets `/assets/module/Billing/` through
+  `asset()->module()`, configuration `config/Billing.php`, translations
+  `Billing.key`. `modules.paths` is a list of places to look, and an entry with
+  its own `module.php` is a single module. Breaking: see
+  [`UPGRADING.md`](UPGRADING.md#modules-are-flat-modulesname-no-plugins-or-gateways).
+
 ### Added
 
 - **Localization.** Translations as PHP files: the application's in `lang/`,
