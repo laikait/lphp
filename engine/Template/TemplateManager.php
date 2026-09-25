@@ -69,6 +69,14 @@ final class TemplateManager
          * exactly as it did before there was a cache.
          */
         private readonly Cache $cache = new Cache(new NullStore()),
+        /**
+         * What $view->local() calls: the localization service, handed over as
+         * a closure so the template layer knows nothing about where
+         * translations come from. Null returns the key, untranslated.
+         *
+         * @var (\Closure(string, array<array-key, mixed>): string)|null
+         */
+        private readonly ?\Closure $translator = null,
     ) {}
 
     // ---- engines ----------------------------------------------------------
@@ -152,6 +160,16 @@ final class TemplateManager
         } finally {
             --$this->depth;
         }
+    }
+
+    /**
+     * The translation of $key in the current locale, as plain text.
+     *
+     * @param array<array-key, mixed> $parameters
+     */
+    public function translate(string $key, array $parameters = []): string
+    {
+        return $this->translator === null ? $key : ($this->translator)($key, $parameters);
     }
 
     public function exists(string $name): bool

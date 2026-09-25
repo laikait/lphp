@@ -13,8 +13,8 @@ use App\Engine\Support\Path;
  * artefact a discovery cache stores, so it must survive var_export() and come
  * back identical.
  *
- * Two of the fields are answers to filesystem questions -- does the module have
- * an assets/ directory, does it have a Templates/ one -- asked once, here,
+ * Three of the fields are answers to filesystem questions -- does the module
+ * have an assets/ directory, a Templates/ one, a lang/ one -- asked once, here,
  * rather than by registration on every request. They are facts about the
  * directory in the same way the path is, which is why they belong in the cache
  * and why nothing resolved or declared does.
@@ -27,6 +27,9 @@ final class ModuleDefinition
     /** The directory whose presence registers a module's templates. */
     public const TEMPLATES = 'Templates';
 
+    /** The directory whose presence registers a module's translations. */
+    public const LANG = 'lang';
+
     public function __construct(
         public readonly string $id,
         public readonly ModuleKind $kind,
@@ -35,6 +38,7 @@ final class ModuleDefinition
         public readonly string $directory,
         public readonly bool $hasAssets = false,
         public readonly bool $hasTemplates = false,
+        public readonly bool $hasLang = false,
     ) {}
 
     /**
@@ -48,6 +52,7 @@ final class ModuleDefinition
         string $directory,
         bool $hasAssets = false,
         bool $hasTemplates = false,
+        bool $hasLang = false,
     ): self {
         $path = Path::normalize($path);
 
@@ -59,6 +64,7 @@ final class ModuleDefinition
             directory: $directory,
             hasAssets: $hasAssets,
             hasTemplates: $hasTemplates,
+            hasLang: $hasLang,
         );
     }
 
@@ -73,7 +79,7 @@ final class ModuleDefinition
         return \sprintf('%d:%s', $this->kind->rank(), $this->directory);
     }
 
-    /** @return array{id: string, kind: string, path: string, entryFile: string, directory: string, assets: bool, templates: bool} */
+    /** @return array{id: string, kind: string, path: string, entryFile: string, directory: string, assets: bool, templates: bool, lang: bool} */
     public function toArray(): array
     {
         return [
@@ -84,10 +90,11 @@ final class ModuleDefinition
             'directory' => $this->directory,
             'assets' => $this->hasAssets,
             'templates' => $this->hasTemplates,
+            'lang' => $this->hasLang,
         ];
     }
 
-    /** @param array{id: string, kind: string, path: string, entryFile: string, directory: string, assets: bool, templates: bool} $data */
+    /** @param array{id: string, kind: string, path: string, entryFile: string, directory: string, assets: bool, templates: bool, lang: bool} $data */
     public static function fromArray(array $data): self
     {
         return new self(
@@ -98,6 +105,7 @@ final class ModuleDefinition
             directory: $data['directory'],
             hasAssets: $data['assets'],
             hasTemplates: $data['templates'],
+            hasLang: $data['lang'],
         );
     }
 
@@ -123,6 +131,7 @@ final class ModuleDefinition
 
         return ModuleKind::tryFrom($data['kind']) !== null
             && \is_bool($data['assets'] ?? null)
-            && \is_bool($data['templates'] ?? null);
+            && \is_bool($data['templates'] ?? null)
+            && \is_bool($data['lang'] ?? null);
     }
 }

@@ -183,6 +183,7 @@ final class BootstrapTest extends TestCase
             'mcp.http.path',
             'mcp.allow_guests',
             'mcp.log.enabled',
+            'localization.country_header',
         ] as $key) {
             self::assertTrue($config->has($key), $key . ' is missing from the defaults');
         }
@@ -193,7 +194,7 @@ final class BootstrapTest extends TestCase
         self::assertSame(
             [
                 'app', 'http', 'database', 'assets', 'cache', 'queue', 'security', 'auth', 'session',
-                'scheduler', 'system', 'mcp', 'logging', 'observability', 'templates', 'modules',
+                'scheduler', 'system', 'mcp', 'logging', 'observability', 'localization', 'templates', 'modules',
             ],
             \array_keys($config->all()),
         );

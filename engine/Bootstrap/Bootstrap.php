@@ -53,6 +53,13 @@ use App\Engine\Error\ErrorPage;
 use App\Engine\Filter\FilterEngine;
 use App\Engine\Hook\HookEngine;
 use App\Engine\Http\Request;
+use App\Engine\Http\Response;
+use App\Engine\Localization\CountryResolver;
+use App\Engine\Localization\HeaderCountryResolver;
+use App\Engine\Localization\LocaleResolver;
+use App\Engine\Localization\Localization;
+use App\Engine\Localization\NullCountryResolver;
+use App\Engine\Localization\TranslationCatalog;
 use App\Engine\Logging\Context;
 use App\Engine\Logging\ErrorLog;
 use App\Engine\Logging\Level;
@@ -227,7 +234,16 @@ final class Bootstrap
         // a layout and six partials does it seven times. The manager memoises
         // within a request on its own; the cache is what carries the answer
         // into the next one.
-        $templates = new TemplateManager($views, $manager, new Escaper(), $cache->namespace('templates'));
+        //
+        // Translation is handed to both as a closure that resolves the
+        // localization service on first use, so a page that translates nothing
+        // builds none of it, and an application that rebinds CountryResolver
+        // in a module is still the one that is used.
+        $translator = static fn(string $key, array $parameters = []): string => $container
+            ->get(Localization::class)
+            ->get($key, $parameters);
+
+        $templates = new TemplateManager($views, $manager, new Escaper(), $cache->namespace('templates'), $translator);
 
         // Twig first, PHP second, and the order is the precedence: where a
         // directory holds both home.twig and home.php, the Twig one renders.
@@ -243,6 +259,7 @@ final class Bootstrap
                 ? Path::join($basePath, 'system', 'Cache', 'templates')
                 : null,
             (bool) $settings->get('app.debug', false),
+            $translator,
         ));
         $templates->addEngine(new PhpTemplateEngine());
 
@@ -412,6 +429,11 @@ final class Bootstrap
         $mcp = new McpRegistry();
         $container->instance(McpRegistry::class, $mcp);
 
+        // Translations: the application's lang/ now, each module's lang/ as the
+        // manager registers it. See Localization for how a locale is chosen.
+        $translations = new TranslationCatalog(Path::join($basePath, 'lang'));
+        $container->instance(TranslationCatalog::class, $translations);
+
         $container->instance(ModuleManager::class, $modules = new ModuleManager(
             $container,
             $settings,
@@ -426,6 +448,7 @@ final class Bootstrap
             new ModuleRegistry(),
             $basePath,
             $mcp,
+            $translations,
         ));
 
         // Before anything boots, so module timing is there from the first
@@ -712,6 +735,8 @@ final class Bootstrap
         $filters->add('response.instance', $report->onResponse(...), 95, 'engine');
         $hooks->add('command.finished', $report->onCommand(...), 90, 'engine');
         $hooks->add('job.finished', $report->onJob(...), 90, 'engine');
+
+        self::localization($container, $settings, $hooks, $filters, $served, $basePath);
 
         $application = new Application($container, $context, $basePath);
         $container->instance(Application::class, $application);
@@ -1160,6 +1185,72 @@ final class Bootstrap
      * rather than to memory, because a typo in a deployment's configuration
      * should cost nothing rather than silently switch overlap protection off.
      */
+    /**
+     * Localization: one instance per request, command or job, built on first use.
+     *
+     * @param object{request: ?Request} $served
+     */
+    private static function localization(
+        Container $container,
+        Config $settings,
+        HookEngine $hooks,
+        FilterEngine $filters,
+        object $served,
+        string $basePath,
+    ): void {
+        $header = $settings->string('localization.country_header');
+        $header = $header === '' ? null : $header;
+
+        // Replaceable: a module that binds its own CountryResolver -- a local
+        // GeoIP database, a different CDN -- is the one locale resolution asks.
+        $container->singleton(CountryResolver::class, static fn(): CountryResolver => $header === null
+            ? new NullCountryResolver()
+            : new HeaderCountryResolver($header));
+
+        $container->singleton(Localization::class, static function (Container $container) use ($settings, $served, $basePath): Localization {
+            $catalog = $container->get(TranslationCatalog::class);
+
+            return new Localization(
+                $catalog,
+                new LocaleResolver(
+                    $catalog,
+                    $container->get(CountryResolver::class),
+                    Path::join($basePath, 'lang', 'countries.php'),
+                ),
+                request: $served->request,
+                log: (bool) $settings->get('app.debug', false) ? $container->get(Logger::class) : null,
+            );
+        });
+
+        // Each request and each job starts without the last one's locale. Only
+        // an instance that already exists is told; one built later reads the
+        // request from $served.
+        $hooks->add('request.received', static function (Request $request) use ($container): void {
+            if ($container->resolved(Localization::class)) {
+                $container->get(Localization::class)->onRequest($request);
+            }
+        }, 4, 'engine');
+
+        $hooks->add('job.started', static function () use ($container): void {
+            if ($container->resolved(Localization::class)) {
+                $container->get(Localization::class)->reset();
+            }
+        }, 1, 'engine');
+
+        // A page whose language came from the cookie, the browser or the
+        // country is a different page for a different visitor, and a cache in
+        // front of the application has to be told so.
+        $vary = \implode(', ', \array_filter(['Cookie', 'Accept-Language', $header]));
+
+        $filters->add('response.instance', static function (Response $response) use ($container, $vary): Response {
+            if (!$container->resolved(Localization::class) || !$container->get(Localization::class)->resolvedFromRequest()) {
+                return $response;
+            }
+
+            return $response->withAddedHeader('Vary', $vary);
+        }, 85, 'engine');
+    }
+
     private static function scheduleLock(Config $settings, string $basePath): ScheduleLock
     {
         return match ($settings->string('scheduler.lock', 'file')) {
@@ -1595,6 +1686,12 @@ final class Bootstrap
                 // false otherwise, because a client should not choose the id its
                 // own requests are logged under.
                 'trust_incoming_ids' => false,
+            ],
+            'localization' => [
+                // The header a trusted CDN or proxy puts the visitor's country
+                // in, e.g. CF-IPCountry. Read only from http.trusted_proxies;
+                // null means no country detection.
+                'country_header' => Env::string('LOCALIZATION_COUNTRY_HEADER'),
             ],
             'templates' => [
                 // Twig's compilation cache. Off by default, like the module

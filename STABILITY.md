@@ -64,6 +64,7 @@ change, so that the Experimental surface can stay still.
 | `Server-Timing` and the `profile` log record's shape | Experimental | newest; the most likely to change |
 | Asset URLs: `/assets/{core,template,plugin,gateway}/…` | Experimental | 1.0 candidate; URLs end up in caches and emails |
 | Template namespaces (`@shared`, `@plugin.<Name>`, `@gateway.<Name>`) and the default template's names (`layout`, `home`, `errors/404`, `errors/error`) with the data they are given | Experimental | |
+| Translation files (`lang/<locale>.php`, `lang/countries.php`, a module's `lang/`), key namespaces (`shared.`, `plugin.<Name>.`, `gateway.<Name>.`), the `language` cookie and the `local` filter | Experimental | |
 | Cache files under `system/Cache/` (`config.php`, `modules.php`) | Internal | rebuilt by `cache:warm`; never read across versions |
 | **Persisted formats**: a queued job's envelope (`QueuedJob::toArray()`), a session record, a rate-limit counter | Internal | **with one promise**: a release must read what the previous release wrote, because a deployment does not drain its queue or log everybody out |
 
@@ -134,6 +135,9 @@ namespace beats a shorter one.
 | `App\Engine\Hook\*` | Experimental | |
 | `App\Engine\Http\*` | Experimental | |
 | `App\Engine\Http\Negotiator` | Internal | reached through `Request::negotiate()` |
+| `App\Engine\Localization\*` | Experimental | |
+| `App\Engine\Localization\AcceptLanguage` | Internal | used by `LocaleResolver` |
+| `App\Engine\Localization\TranslationLoader` | Internal | used by `Localization` |
 | `App\Engine\Logging\*` | Internal | |
 | `App\Engine\Logging\Level` | Experimental | |
 | `App\Engine\Logging\LogRecord` | Experimental | what a `LogWriter` receives |

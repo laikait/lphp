@@ -1274,7 +1274,7 @@ final class ArchitectureTest extends TestCase
         \sort($methods);
 
         self::assertSame(
-            ['__construct', 'asset', 'data', 'escaper', 'exists', 'get', 'has', 'render', 'withData'],
+            ['__construct', 'asset', 'data', 'escaper', 'exists', 'get', 'has', 'local', 'render', 'withData'],
             $methods,
             'TemplateView gained a method. Everything a template can reach is listed here on purpose.',
         );
@@ -3638,8 +3638,9 @@ final class ArchitectureTest extends TestCase
      * the cached shape is pinned: adding a field here is adding something that
      * will one day be silently wrong.
      *
-     * Phase 27 added two, deliberately, and both are answers the same directory
-     * walk gives -- whether assets/ and Templates/ exist. They go stale exactly
+     * Phase 27 added two, and localization a third, deliberately, and all are
+     * answers the same directory walk gives -- whether assets/, Templates/ and
+     * lang/ exist. They go stale exactly
      * when the path would (somebody changed the module's directory), not when
      * somebody edits a declaration, which is the line this test holds.
      */
@@ -3652,7 +3653,7 @@ final class ArchitectureTest extends TestCase
         );
 
         self::assertSame(
-            ['id', 'kind', 'path', 'entryFile', 'directory', 'assets', 'templates'],
+            ['id', 'kind', 'path', 'entryFile', 'directory', 'assets', 'templates', 'lang'],
             \array_keys($definition->toArray()),
             'The discovery cache gained a field. If it is resolved data, it will go stale.',
         );

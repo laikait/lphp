@@ -36,6 +36,13 @@ final class TwigTemplateEngine implements TemplateEngine
         private readonly TemplateRegistry $registry,
         private readonly ?string $cacheDirectory = null,
         private readonly bool $debug = false,
+        /**
+         * What the `local` filter calls. Registered on every Environment this
+         * builds, so a template compiled into the cache still finds it.
+         *
+         * @var (\Closure(string, array<array-key, mixed>): string)|null
+         */
+        private readonly ?\Closure $translator = null,
     ) {}
 
     public function extensions(): array
@@ -96,7 +103,7 @@ final class TwigTemplateEngine implements TemplateEngine
             }
         }
 
-        return $this->twig = new \Twig\Environment($loader, [
+        $twig = new \Twig\Environment($loader, [
             // Twig's default already, stated because it is the reason to
             // choose Twig and should not be switched off by accident.
             'autoescape' => 'html',
@@ -106,6 +113,20 @@ final class TwigTemplateEngine implements TemplateEngine
             // rendering nothing is how it reaches production.
             'strict_variables' => $this->debug,
         ]);
+
+        // {{ 'updated'|local }} and {{ 'user_update_success'|local({user: name}) }}.
+        // Not marked is_safe: a translation is text, and it is escaped like
+        // every other value -- including the parameters inside it.
+        if ($this->translator !== null) {
+            $translator = $this->translator;
+
+            $twig->addFilter(new \Twig\TwigFilter(
+                'local',
+                static fn(string $key, array $parameters = []): string => $translator($key, $parameters),
+            ));
+        }
+
+        return $this->twig = $twig;
     }
 
     /** Forget the Environment, so a later registration is picked up. */

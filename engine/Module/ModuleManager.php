@@ -18,6 +18,7 @@ use App\Engine\Container\Container;
 use App\Engine\Container\ServiceRegistrar;
 use App\Engine\Filter\FilterEngine;
 use App\Engine\Hook\HookEngine;
+use App\Engine\Localization\TranslationCatalog;
 use App\Engine\MCP\McpCollector;
 use App\Engine\MCP\McpRegistry;
 use App\Engine\Routing\RouteCollector;
@@ -99,6 +100,7 @@ final class ModuleManager
         private readonly ModuleRegistry $registry = new ModuleRegistry(),
         private readonly string $basePath = '',
         private readonly McpRegistry $mcp = new McpRegistry(),
+        private readonly TranslationCatalog $translations = new TranslationCatalog(),
     ) {}
 
     public function registry(): ModuleRegistry
@@ -380,6 +382,7 @@ final class ModuleManager
 
         $this->publishAssets();
         $this->publishTemplates();
+        $this->publishTranslations();
 
         $registrar = new ServiceRegistrar($this->container);
 
@@ -584,12 +587,34 @@ final class ModuleManager
                 continue;
             }
 
-            $namespace = $definition->kind === ModuleKind::Shared
-                ? ModuleKind::Shared->value
-                : \rtrim($definition->kind->value, 's') . '.' . $definition->directory;
-
-            $this->templates->add($namespace, $definition->file(ModuleDefinition::TEMPLATES), TemplateSource::MODULE);
+            $this->templates->add(self::namespaceOf($definition), $definition->file(ModuleDefinition::TEMPLATES), TemplateSource::MODULE);
         }
+    }
+
+    /**
+     * Register every module that has a lang/ directory.
+     *
+     * The same bargain again: the directory is the declaration, and the name
+     * is the template namespace, so 'plugin.Billing.invoice_created' is found
+     * in modules/Plugins/Billing/lang/ exactly as '@plugin.Billing/invoice' is
+     * found in its Templates/. A module that is removed or disabled is not
+     * here, and its keys stop resolving without anything else being edited.
+     */
+    private function publishTranslations(): void
+    {
+        foreach ($this->registry->definitions() as $definition) {
+            if ($definition->hasLang) {
+                $this->translations->add(self::namespaceOf($definition), $definition->file(ModuleDefinition::LANG));
+            }
+        }
+    }
+
+    /** 'shared', 'plugin.Example', 'gateway.Example': how templates and translations name a module. */
+    private static function namespaceOf(ModuleDefinition $definition): string
+    {
+        return $definition->kind === ModuleKind::Shared
+            ? ModuleKind::Shared->value
+            : \rtrim($definition->kind->value, 's') . '.' . $definition->directory;
     }
 
     /**

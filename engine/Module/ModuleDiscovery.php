@@ -145,6 +145,7 @@ final class ModuleDiscovery
             $directory,
             hasAssets: \is_dir(Path::join($path, ModuleDefinition::ASSETS)),
             hasTemplates: \is_dir(Path::join($path, ModuleDefinition::TEMPLATES)),
+            hasLang: \is_dir(Path::join($path, ModuleDefinition::LANG)),
         );
     }
 }

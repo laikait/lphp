@@ -233,7 +233,7 @@ final class ModuleRegistry
      * assets/ and a Templates/ directory -- filesystem facts, found by the same
      * walk, and the reason a boot from this cache probes no module directory.
      *
-     * @return list<array{id: string, kind: string, path: string, entryFile: string, directory: string, assets: bool, templates: bool}>
+     * @return list<array{id: string, kind: string, path: string, entryFile: string, directory: string, assets: bool, templates: bool, lang: bool}>
      */
     public function toArray(): array
     {
@@ -244,7 +244,7 @@ final class ModuleRegistry
     }
 
     /**
-     * @param list<array{id: string, kind: string, path: string, entryFile: string, directory: string, assets: bool, templates: bool}> $data
+     * @param list<array{id: string, kind: string, path: string, entryFile: string, directory: string, assets: bool, templates: bool, lang: bool}> $data
      */
     public function loadArray(array $data): void
     {
@@ -337,7 +337,7 @@ final class ModuleRegistry
             }
         }
 
-        /** @var list<array{id: string, kind: string, path: string, entryFile: string, directory: string, assets: bool, templates: bool}> $data */
+        /** @var list<array{id: string, kind: string, path: string, entryFile: string, directory: string, assets: bool, templates: bool, lang: bool}> $data */
         $this->loadArray($data);
 
         return true;
