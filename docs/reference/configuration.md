@@ -46,6 +46,9 @@ parsing lives.
 
 ## Where settings come from
 
+Every key, every environment variable and its default is listed in
+[Default settings](defaults.md).
+
 Four sources, each overriding the one before it:
 
 | Source | Holds |
