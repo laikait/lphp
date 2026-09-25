@@ -29,7 +29,9 @@ final class Locale
     /** The canonical form of $tag, or null when it is not a locale. */
     public static function normalize(string $tag): ?string
     {
-        $tag = \trim($tag);
+        // Spaces only: trim()'s default would also strip a NUL, and a value
+        // carrying one is not a locale that happens to be padded.
+        $tag = \trim($tag, " \t");
 
         if ($tag === '' || \strlen($tag) > self::MAX_LENGTH) {
             return null;

@@ -58,9 +58,13 @@ final class TranslationCatalog
     /** @return list<string> module namespaces, without the root */
     public function namespaces(): array
     {
-        $namespaces = \array_keys($this->directories);
+        $namespaces = \array_values(\array_filter(
+            \array_keys($this->directories),
+            static fn(string $namespace): bool => $namespace !== self::ROOT,
+        ));
+        \sort($namespaces);
 
-        return \array_values(\array_filter($namespaces, static fn(string $namespace): bool => $namespace !== self::ROOT));
+        return $namespaces;
     }
 
     public function directory(string $namespace = self::ROOT): ?string
