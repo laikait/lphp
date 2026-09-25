@@ -10,9 +10,11 @@ use App\Engine\Hook\HookEngine;
 use App\Engine\Http\Cookie;
 use App\Engine\Http\Request;
 use App\Engine\Http\Response;
+use App\Engine\Localization\ChainCountryResolver;
 use App\Engine\Localization\CountryResolver;
 use App\Engine\Localization\HeaderCountryResolver;
 use App\Engine\Localization\Localization;
+use App\Engine\Localization\MaxMindCountryResolver;
 use App\Engine\Localization\NullCountryResolver;
 use App\Engine\Localization\TranslationCatalog;
 use App\Engine\Template\TemplateManager;
@@ -150,6 +152,34 @@ final class LocalizationSliceTest extends TestCase
         ], $application);
 
         self::assertStringContainsString('<h1>Invoice created</h1>', $response->body());
+    }
+
+    public function test_a_maxmind_database_chooses_by_the_visitors_address(): void
+    {
+        $application = $this->booted(['localization' => ['maxmind_database' => 'tests/Fixtures/MaxMind/GeoLite2-City-Test.mmdb']]);
+
+        self::assertInstanceOf(MaxMindCountryResolver::class, $application->container()->get(CountryResolver::class));
+
+        // 81.2.69.160 is GB in MaxMind's test data, and lang/countries.php
+        // maps GB to en -- which outranks a browser asking for Bengali.
+        $fromGb = ['headers' => ['Accept-Language' => 'bn'], 'server' => ['REMOTE_ADDR' => '81.2.69.160']];
+        $unknown = ['headers' => ['Accept-Language' => 'bn'], 'server' => ['REMOTE_ADDR' => '127.0.0.1']];
+
+        self::assertStringContainsString('<h1>Invoice created</h1>', $this->get('/invoice', $fromGb, $application)->body());
+        self::assertStringContainsString('<h1>ইনভয়েস তৈরি হয়েছে</h1>', $this->get('/invoice', $unknown, $application)->body(), 'no country, so the browser decides');
+    }
+
+    public function test_the_header_and_the_database_are_chained_header_first(): void
+    {
+        $resolver = $this->booted(['localization' => [
+            'country_header' => 'CF-IPCountry',
+            'maxmind_database' => 'tests/Fixtures/MaxMind/GeoLite2-Country-Test.mmdb',
+        ]])->container()->get(CountryResolver::class);
+
+        self::assertInstanceOf(ChainCountryResolver::class, $resolver);
+        self::assertInstanceOf(HeaderCountryResolver::class, $resolver->resolvers()[0]);
+        self::assertInstanceOf(MaxMindCountryResolver::class, $resolver->resolvers()[1]);
+        self::assertSame($this->basePath('tests/Fixtures/MaxMind/GeoLite2-Country-Test.mmdb'), $resolver->resolvers()[1]->database());
     }
 
     public function test_country_detection_is_off_by_default(): void

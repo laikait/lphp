@@ -184,6 +184,7 @@ final class BootstrapTest extends TestCase
             'mcp.allow_guests',
             'mcp.log.enabled',
             'localization.country_header',
+            'localization.maxmind_database',
         ] as $key) {
             self::assertTrue($config->has($key), $key . ' is missing from the defaults');
         }

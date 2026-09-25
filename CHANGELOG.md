@@ -21,7 +21,9 @@ public, is in [`STABILITY.md`](STABILITY.md).
   `lang/countries.php`, then `Accept-Language`, then `en`; country detection
   reads a CDN header only from `http.trusted_proxies`
   (`localization.country_header`) and is replaceable through
-  `CountryResolver`. Localized responses carry `Vary`. See
+  `CountryResolver`. A local MaxMind GeoLite2/GeoIP2 Country or City
+  database (`localization.maxmind_database`, optional `maxmind-db/reader`)
+  answers after the header. Localized responses carry `Vary`. See
   [Localization](docs/reference/localization.md).
 - `Request::fromTrustedProxy()` is public.
 

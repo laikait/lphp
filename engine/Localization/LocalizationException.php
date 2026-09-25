@@ -45,4 +45,17 @@ final class LocalizationException extends FrameworkException
             $available === [] ? '(none)' : \implode(', ', $available),
         ));
     }
+
+    public static function maxMindUnavailable(): self
+    {
+        return new self(
+            'localization.maxmind_database is set, but the MaxMind reader is not installed. '
+            . 'Run: composer require maxmind-db/reader',
+        );
+    }
+
+    public static function maxMindDatabase(string $file, string $reason): self
+    {
+        return new self(\sprintf('The MaxMind database %s %s.', $file, $reason));
+    }
 }

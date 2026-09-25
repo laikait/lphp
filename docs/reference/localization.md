@@ -208,10 +208,48 @@ This is the application's policy for visitors from each country, not a claim
 that a country has one language, and a language named here is used only if its
 file exists.
 
+### A local MaxMind database
+
+Without a CDN, the country can come from a MaxMind database on the server:
+GeoLite2 (free, needs a MaxMind account to download) or GeoIP2, **Country or
+City** — both have the country, and City is simply larger.
+
+```bash
+composer require maxmind-db/reader
+```
+
+```php
+// config/localization.php
+return ['maxmind_database' => 'system/GeoIP/GeoLite2-Country.mmdb'];
+```
+
+or `LOCALIZATION_MAXMIND_DATABASE=...`. A relative path is from the project
+root. Keep the file outside `public/`, and refresh it with MaxMind's
+`geoipupdate` — addresses move between countries.
+
+- The lookup is local: a few microseconds, no network, and the file is opened
+  only when a request actually needs a country.
+- The address is `Request::ip()`, which believes `X-Forwarded-For` only from
+  `http.trusted_proxies`. Behind an unlisted proxy every visitor looks like the
+  proxy.
+- The record's `country` is used, and `registered_country` only when there is
+  none. An address MaxMind does not know (a private network, localhost) is no
+  country, and resolution moves on to the browser.
+- A missing file, a file that is not a MaxMind database, or one with no
+  countries (ASN, ISP) stops the request with a `LocalizationException` that
+  says which.
+
+**MaxMind tells you where an address is, not what its user reads.** The
+language still comes from `lang/countries.php`. A record's `names` field holds
+the *country's name* in a few languages; it is not the visitor's language and
+is not used.
+
+With both `country_header` and `maxmind_database` set, the trusted header is
+asked first and the database answers when it has nothing.
+
 ### Your own country source
 
-To use a local GeoIP database or another provider, bind `CountryResolver` in a
-module:
+To use something else, bind `CountryResolver` in a module:
 
 ```php
 use App\Engine\Container\ServiceRegistrar;
@@ -219,14 +257,14 @@ use App\Engine\Http\Request;
 use App\Engine\Localization\CountryResolver;
 
 $module->services(static function (ServiceRegistrar $services): void {
-    $services->singleton(CountryResolver::class, MaxMindCountryResolver::class);
+    $services->singleton(CountryResolver::class, MyCountryResolver::class);
 });
 
-final class MaxMindCountryResolver implements CountryResolver
+final class MyCountryResolver implements CountryResolver
 {
     public function country(Request $request): ?string
     {
-        // Look up $request->ip() in a local database; null when unknown.
+        // A two-letter code, or null when unknown.
     }
 }
 ```
@@ -246,6 +284,11 @@ plus the country header when one is configured, so a CDN or page cache keeps
 one copy per language instead of serving the first visitor's to everyone. A
 response that translated nothing, or used `setLocale()`, is not marked.
 
+A country found in a MaxMind database comes from the visitor's address, which
+no `Vary` header can name. Do not put a shared page cache in front of pages
+localized that way; use the CDN's country header instead, or mark those
+responses `Cache-Control: private`.
+
 ## If it doesn't work
 
 | Symptom | Cause | Fix |
@@ -254,6 +297,8 @@ response that translated nothing, or used `setLocale()`, is not marked.
 | `Unknown "local" filter` | A Twig engine built outside `Bootstrap` | Render through the application's `TemplateManager` |
 | The cookie is ignored | No `lang/<value>.php`, or the value is not a tag | Name the file exactly as the tag: `pt-BR.php` |
 | The country is ignored | The request did not come from `http.trusted_proxies`, or no `country_header` | Configure both |
+| `the MaxMind reader is not installed` | `maxmind_database` is set without the package | `composer require maxmind-db/reader` |
+| Every visitor gets the same country from MaxMind | The app sees the proxy's address | Add the proxy to `http.trusted_proxies` |
 | `pt_BR.php` is not a language | File names are canonical tags | Rename it `pt-BR.php` |
 
 <!-- {% endraw %} -->

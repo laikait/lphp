@@ -54,10 +54,12 @@ use App\Engine\Filter\FilterEngine;
 use App\Engine\Hook\HookEngine;
 use App\Engine\Http\Request;
 use App\Engine\Http\Response;
+use App\Engine\Localization\ChainCountryResolver;
 use App\Engine\Localization\CountryResolver;
 use App\Engine\Localization\HeaderCountryResolver;
 use App\Engine\Localization\LocaleResolver;
 use App\Engine\Localization\Localization;
+use App\Engine\Localization\MaxMindCountryResolver;
 use App\Engine\Localization\NullCountryResolver;
 use App\Engine\Localization\TranslationCatalog;
 use App\Engine\Logging\Context;
@@ -1201,11 +1203,27 @@ final class Bootstrap
         $header = $settings->string('localization.country_header');
         $header = $header === '' ? null : $header;
 
-        // Replaceable: a module that binds its own CountryResolver -- a local
-        // GeoIP database, a different CDN -- is the one locale resolution asks.
-        $container->singleton(CountryResolver::class, static fn(): CountryResolver => $header === null
-            ? new NullCountryResolver()
-            : new HeaderCountryResolver($header));
+        $database = $settings->string('localization.maxmind_database');
+        $database = $database === null || $database === ''
+            ? null
+            : (Path::isAbsolute($database) ? $database : Path::join($basePath, $database));
+
+        // A trusted CDN header first, because it is free; a local MaxMind
+        // database second, for requests that did not come through the CDN.
+        // Replaceable: a module that binds its own CountryResolver is the one
+        // locale resolution asks.
+        $container->singleton(CountryResolver::class, static function () use ($header, $database): CountryResolver {
+            $resolvers = \array_values(\array_filter([
+                $header === null ? null : new HeaderCountryResolver($header),
+                $database === null ? null : new MaxMindCountryResolver($database),
+            ]));
+
+            return match (\count($resolvers)) {
+                0 => new NullCountryResolver(),
+                1 => $resolvers[0],
+                default => new ChainCountryResolver(...$resolvers),
+            };
+        });
 
         $container->singleton(Localization::class, static function (Container $container) use ($settings, $served, $basePath): Localization {
             $catalog = $container->get(TranslationCatalog::class);
@@ -1692,6 +1710,10 @@ final class Bootstrap
                 // in, e.g. CF-IPCountry. Read only from http.trusted_proxies;
                 // null means no country detection.
                 'country_header' => Env::string('LOCALIZATION_COUNTRY_HEADER'),
+                // A local MaxMind GeoLite2/GeoIP2 Country or City database,
+                // relative to the project root or absolute. Needs
+                // maxmind-db/reader. null means no database lookup.
+                'maxmind_database' => Env::string('LOCALIZATION_MAXMIND_DATABASE'),
             ],
             'templates' => [
                 // Twig's compilation cache. Off by default, like the module
