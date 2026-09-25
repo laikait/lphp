@@ -13,6 +13,7 @@ use App\Engine\Http\Response;
 use App\Engine\Module\ModuleContext;
 use App\Engine\Routing\RouteCollector;
 use App\Engine\Template\TemplateManager;
+use App\Modules\Shared\Health\HealthCheck;
 
 /**
  * The shared module.
@@ -21,14 +22,14 @@ use App\Engine\Template\TemplateManager;
  * ground: a model or service belongs here only when more than one module really
  * needs it, and it registers first so that everything else can rely on it.
  *
- * A fresh installation ships it with two things: the front page, and the
- * choice of where repositories store their data.
+ * A fresh installation ships it with three things: the front page, a health
+ * check, and the choice of where repositories store their data.
  */
 return static function (ModuleContext $module): void {
     $module
         ->name('Shared')
         ->version('0.1.0')
-        ->description('The front page, and where repositories store their data.');
+        ->description('The front page, /health, and where repositories store their data.');
 
     $module->services(static function (ServiceRegistrar $services): void {
         // Where every repository in the application reads and writes.
@@ -67,5 +68,9 @@ return static function (ModuleContext $module): void {
         $routes->get('/', static fn (Request $request, TemplateManager $templates): Response => (new Response(
             $templates->render('home', ['home' => $request->basePath() . '/']),
         ))->withContentType('text/html'))->name('home');
+
+        // For a load balancer or an uptime monitor: 200 when this instance can
+        // serve, 503 when it cannot. Replaceable the same way as "/".
+        $routes->get('/health', HealthCheck::class)->name('health')->meta(['api' => true]);
     });
 };

@@ -218,6 +218,25 @@ as a second machine serves the same site:
 
 ## Watching it
 
+- **`GET /health`** is for a load balancer or an uptime monitor. It answers
+  **200** when this instance can serve and **503** when it cannot, as JSON:
+
+  ```json
+  {"status":"ok","checks":{"database":{"status":"ok"},"cache":{"status":"ok"},
+   "queue":{"status":"ok","pending":{"default":3}},"disk":{"status":"ok"}}}
+  ```
+
+  | Check | Fails when |
+  |---|---|
+  | `database` | the default connection cannot run `SELECT 1` (skipped with no database) |
+  | `cache` | a value written to the cache does not come back |
+  | `queue` | the queue store cannot be read; a backlog is reported, never a failure (skipped for `sync`) |
+  | `disk` | `system/` is not writable, or has less than 50 MB free |
+
+  It names checks and states only — never a DSN, a path or an error message.
+  With `APP_DEBUG=true` a `details` field says why a check failed. It is never
+  cached. To check something else, declare `GET /health` in your own module:
+  the route declared last wins, as for `/`.
 - **`X-Request-Id`** is on every response. When a user quotes it, you can find
   every log record for that request. The same id follows the work into the queue
   as `correlation_id`.

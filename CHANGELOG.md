@@ -43,6 +43,8 @@ public, is in [`STABILITY.md`](STABILITY.md).
   process already uses, stops the boot. `queue:work --memory=128M`
   (`QUEUE_MAX_MEMORY`) stops a worker between jobs at that size, and defaults to
   80% of `memory_limit`.
+- **`GET /health`** in the Shared module: database, cache, queue and disk
+  checks as JSON, 200 or 503, for load balancers and uptime monitors.
 - **`MAX_EXECUTION_TIME`** (`app.max_execution_time`) sets how long a web
   request may run, in seconds. Console commands and queue workers keep their own
   limits.

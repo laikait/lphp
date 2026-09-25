@@ -59,10 +59,11 @@ composer check       # coding standard + static analysis + tests
 | `public/` | The only folder the web server may serve: `index.php` and public assets. |
 | `system/` | Files the framework writes: logs, caches, sessions. |
 
-So a fresh install answers two pages:
+So a fresh install answers two pages and a health check:
 
 ```bash
 curl -i http://127.0.0.1:8080/               # the home page
+curl -i http://127.0.0.1:8080/health         # 200 when healthy, 503 when not (JSON)
 curl -i http://127.0.0.1:8080/no/such/page   # the "not found" page
 curl -i -H 'Accept: application/json' \
         http://127.0.0.1:8080/no/such/page   # the same error, as JSON
