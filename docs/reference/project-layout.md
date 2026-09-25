@@ -10,6 +10,7 @@ Where everything lives, and which folder your own code goes in.
 | A payment or delivery integration | `modules/Gateways/<Name>/` |
 | Something two modules both need | `modules/Shared/` |
 | The look of the site | `templates/` |
+| The application's translations | `lang/` |
 | This installation's settings | `config/` |
 | Your own stylesheets and scripts | `public/assets/` |
 
@@ -37,11 +38,13 @@ engine/                the framework
   Cache/ Queue/ Scheduler/ Security/ Observability/
   System/              commands, processes, cron, services, files on the server
   MCP/                 tools, resources and prompts that modules declare, over STDIO and HTTP
+  Localization/        translations, locale resolution and country detection
 templates/             the site's views: render('customer/profile') is customer/profile.twig
   layout.twig          the layout every default page extends
   home.twig            the front page until a module claims /
   errors/              the 404 and generic error pages
   assets/              the site's static files, /assets/template/... (never a view)
+lang/                  translations: en.php, bn.php, ... and countries.php (see localization.md)
 modules/
   Shared/              cross-module capability, registers first; owns /
     Model/User.php     a shared domain model
@@ -49,6 +52,7 @@ modules/
     Schema/            the pagination contract every list endpoint shares
     Data/              a shared repository
   Plugins/<Name>/      a plugin module; the directory appears with the first one
+    lang/              its translations, keyed plugin.<Name>.* (optional)
   Gateways/<Name>/     a gateway module; likewise
 system/                cache, logs, sessions, queued work (not web-readable)
   Cache/               compiled configuration, the module list, cached data

@@ -11,7 +11,19 @@ public, is in [`STABILITY.md`](STABILITY.md).
 
 ## [Unreleased]
 
-Nothing yet.
+### Added
+
+- **Localization.** Translations as PHP files: the application's in `lang/`,
+  each module's in its own `lang/`, keyed `shared.*`, `plugin.<Name>.*` and
+  `gateway.<Name>.*`. The Twig `local` filter, `TemplateView::local()` and an
+  injectable `Localization` service with `:name` parameters. The locale comes
+  from the `language` cookie, then the visitor's country through
+  `lang/countries.php`, then `Accept-Language`, then `en`; country detection
+  reads a CDN header only from `http.trusted_proxies`
+  (`localization.country_header`) and is replaceable through
+  `CountryResolver`. Localized responses carry `Vary`. See
+  [Localization](docs/reference/localization.md).
+- `Request::fromTrustedProxy()` is public.
 
 ## [2.1.2] - 2026-09-20
 

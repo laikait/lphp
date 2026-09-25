@@ -43,7 +43,7 @@ a guide links to it, or when you need the details.
 |---|---|
 | Structure | [Modules](reference/modules.md) · [Hooks and filters](reference/hooks-and-filters.md) · [Project layout](reference/project-layout.md) |
 | HTTP | [Routing](reference/routing.md) · [REST](reference/rest.md) · [Errors](reference/errors.md) |
-| Output | [Templates](reference/templates.md) · [Assets](reference/assets.md) |
+| Output | [Templates](reference/templates.md) · [Assets](reference/assets.md) · [Localization](reference/localization.md) |
 | Data | [Models](reference/models.md) · [Schemas](reference/schemas.md) · [Repositories and queries](reference/data.md) · [The database](reference/database.md) |
 | Runtime | [Configuration](reference/configuration.md) · [Cache](reference/cache.md) · [Logging](reference/logging.md) · [CLI](reference/console.md) |
 | Background | [Queue and worker](reference/queue.md) · [Scheduler](reference/scheduler.md) |

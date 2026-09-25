@@ -53,6 +53,7 @@ composer check       # coding standard + static analysis + tests
 | `modules/Shared/` | The one module that ships. It owns the home page, `/`. |
 | `modules/Plugins/`, `modules/Gateways/` | Not there yet. You create them for your own modules: a plugin is a feature, a gateway connects to an outside service such as a payment provider. |
 | `templates/` | The site's pages: a layout, the home page and the error pages, as Twig files. |
+| `lang/` | Translations: `en.php`, `bn.php` and `countries.php`. See [Localization](docs/reference/localization.md). |
 | `config/` | Your settings, as PHP files. Empty until you need one. |
 | `engine/` | The framework itself. You do not edit it. |
 | `public/` | The only folder the web server may serve: `index.php` and public assets. |
