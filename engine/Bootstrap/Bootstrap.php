@@ -271,7 +271,15 @@ final class Bootstrap
         // instead of the framework's. It is given the real hook engine, because
         // error.reported is how the logging phase will hear about failures and
         // a private engine would fire into nothing.
-        $errors = new ErrorHandler($settings, $hooks, new ErrorPage($templates));
+        //
+        // In debug mode with filp/whoops installed, the diagnostic page is
+        // Whoops; app.editor makes its file paths open in an editor.
+        $errors = new ErrorHandler($settings, $hooks, new ErrorPage(
+            $templates,
+            $basePath,
+            $settings->string('app.editor'),
+            Env::names(),
+        ));
 
         // The log. It listens to the error handler rather than being called by
         // it: error.reported is a hook, ErrorLog is an ordinary listener, and
@@ -1419,6 +1427,9 @@ final class Bootstrap
                 // changes shape depending on where the code is running is a bug
                 // found at month end.
                 'timezone' => Env::string('APP_TIMEZONE', 'UTC'),
+                // The editor the debug page (Whoops) links file paths to:
+                // phpstorm, vscode, sublime, atom, ... null for plain paths.
+                'editor' => Env::string('APP_EDITOR'),
                 // Tests assert on responses rather than on PHP's own error
                 // output, so they switch this off instead of having the handler
                 // fight the test runner for set_error_handler().

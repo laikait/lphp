@@ -26,6 +26,11 @@ public, is in [`STABILITY.md`](STABILITY.md).
   answers after the header. Localized responses carry `Vary`. See
   [Localization](docs/reference/localization.md).
 - `Request::fromTrustedProxy()` is public.
+- **Whoops debug page.** With `APP_DEBUG` on and `filp/whoops` installed (a dev
+  dependency), a browser error renders as a Whoops page, with cookies,
+  environment values and secret-looking fields masked and file links for
+  `APP_EDITOR`. Without it, or if it fails, the built-in page renders as
+  before. See [Errors](docs/reference/errors.md#the-debug-page-whoops).
 
 ## [2.1.2] - 2026-09-20
 

@@ -8,7 +8,7 @@ What differs is how it is rendered, and that is chosen by **who is reading**:
 
 | Reader | Sees |
 |---|---|
-| `Browser` | your own error template, or the framework's built-in page |
+| `Browser` | your own error template, or the framework's built-in page; in debug mode, Whoops |
 | `Api` | the JSON error document |
 | `Console` | two lines, plus a trace in debug mode |
 
@@ -95,6 +95,35 @@ The built-in page has no `<link>`, no `<script>` and no asset URL, and an
 architecture test keeps it that way. It has to render when the thing that broke
 is the asset pipeline.
 
+## The debug page: Whoops
+
+With `APP_DEBUG=true` and [`filp/whoops`](https://github.com/filp/whoops)
+installed, a browser gets the Whoops page instead of the built-in one: the
+source around every frame, the request, and the environment. It is a
+development dependency, so `composer install` gets it and
+`composer install --no-dev` does not.
+
+- **Debug only.** Outside debug mode Whoops is never used, whatever is
+  installed.
+- **Rendering only.** Whoops is not registered as PHP's handler. The framework's
+  `ErrorHandler` still catches, reports on `error.reported` and responds; Whoops
+  only turns the exception into HTML. JSON clients and the console are
+  unchanged.
+- **Secrets are masked.** Every cookie value, every environment value, and any
+  server or form field whose name looks like a secret (`KEY`, `SECRET`, `PASS`,
+  `TOKEN`, `DSN`, `AUTH`, `SESSION`, ...) shows as asterisks. The source code
+  and the exception message are shown as they are, so a message carrying a
+  secret still shows it: that is what debug mode is for.
+- **It cannot make things worse.** Without the package, or if Whoops itself
+  fails, the built-in page renders as before.
+- **Editor links.** `APP_EDITOR=phpstorm` (or `vscode`, `sublime`, `idea`, ...)
+  makes every file path open in your editor. Paths are shown relative to the
+  project root, and frames in `modules/`, `templates/` and `config/` are marked
+  as yours.
+
+Never turn debug on in production. Masking protects the obvious secrets; the
+source code and your data are still on the page.
+
 ## Listening for errors
 
 Every handled error fires a hook:
@@ -114,7 +143,8 @@ why there is no logger interface here to implement. See [Logging](logging.md).
 
 | What you see | Why | Fix |
 |---|---|---|
-| Your error template is ignored | Debug mode is on, and always shows the built-in page | `APP_DEBUG=false` |
+| Your error template is ignored | Debug mode is on, and always shows the debug page | `APP_DEBUG=false` |
+| Debug mode shows the plain built-in page, not Whoops | `filp/whoops` is not installed (`--no-dev`) | `composer install` |
 | An error page shows the built-in one in production | Your template threw while rendering | Check it renders on its own |
 | An API client gets an HTML error page | It did not send `Accept: application/json` | Send the header |
 | A message says only the status text | It was withheld, as designed | Read it on the console, or with `APP_DEBUG=1` |

@@ -175,7 +175,9 @@ final class DefaultPagesSliceTest extends TestCase
     {
         $body = $this->get($this->shipped(['app' => ['debug' => true]]), '/missing')->body();
 
-        self::assertStringNotContainsString('site-header', $body);
-        self::assertStringContainsString('404', $body);
+        // Whoops, which is a dev dependency: the diagnostic page, not the
+        // layout the visitor's 404 template extends.
+        self::assertStringContainsString('<title>App\\Engine\\Http\\HttpException', $body);
+        self::assertStringNotContainsString('<header class="site-header"', $body);
     }
 }

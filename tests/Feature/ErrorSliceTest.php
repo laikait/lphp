@@ -100,16 +100,17 @@ final class ErrorSliceTest extends TestCase
 
         self::assertStringContainsString('secret-hunter2', $body);
         self::assertStringContainsString('RuntimeException', $body);
-        self::assertStringContainsString('#0', $body);
-        self::assertStringNotContainsString('Something went wrong at our end', $body);
+        // Whoops, titled with the real error rather than the visitor's message.
+        // (The visitor's wording can still appear in the source it shows.)
+        self::assertStringContainsString('<title>RuntimeException: dsn=secret-hunter2', $body);
     }
 
     public function test_an_error_template_is_previewed_with_debug_off(): void
     {
         $debug = $this->get('/nope', ['Accept' => 'text/html'], ['app' => ['debug' => true]])->body();
 
-        self::assertStringNotContainsString('That page is not here', $debug);
-        self::assertStringContainsString('#0', $debug, 'debug wants the trace, not the visitor page');
+        self::assertStringContainsString('<title>App\\Engine\\Http\\HttpException', $debug, 'debug wants the trace, not the visitor page');
+        self::assertStringNotContainsString('<title>That page is not here', $debug);
     }
 
     /** A message this framework wrote for the client survives production. */

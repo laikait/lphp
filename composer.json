@@ -13,12 +13,14 @@
         "twig/twig": "^3.8"
     },
     "require-dev": {
+        "filp/whoops": "^2.15",
         "friendsofphp/php-cs-fixer": "^3.75",
         "maxmind-db/reader": "^1.12",
         "phpstan/phpstan": "^2.1",
         "phpunit/phpunit": "^11.5"
     },
     "suggest": {
+        "filp/whoops": "The debug error page: source, request and environment for each frame (app.debug only).",
         "maxmind-db/reader": "Country detection from a local MaxMind GeoLite2/GeoIP2 database (localization.maxmind_database)."
     },
     "autoload": {
