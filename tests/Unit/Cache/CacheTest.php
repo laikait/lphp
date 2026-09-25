@@ -76,8 +76,11 @@ final class CacheTest extends TestCase
             return 'computed';
         };
 
-        self::assertSame('computed', $this->cache->remember('k', $compute));
-        self::assertSame('computed', $this->cache->remember('k', $compute));
+        $first = $this->cache->remember('k', $compute);
+        $second = $this->cache->remember('k', $compute);
+
+        self::assertSame('computed', $first);
+        self::assertSame('computed', $second, 'answered from the cache');
         self::assertSame(1, $calls);
     }
 

@@ -377,7 +377,8 @@ final class ConnectionTest extends TestCase
                 // Swallowed on purpose: the outer transaction must survive.
             }
 
-            self::assertSame(1, $outer->transactionDepth());
+            $afterInner = $outer->transactionDepth();
+            self::assertSame(1, $afterInner, 'back to the outer transaction');
             $outer->insert('INSERT INTO people (name) VALUES (?)', ['also kept']);
         });
 
