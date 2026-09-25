@@ -46,6 +46,7 @@ to open besides the web server's.
    | `APP_KEY` | get one with `php laika security:key --bare`, and keep it like a password. Changing it makes every open form's CSRF token invalid |
    | `APP_TIMEZONE` | set it; do not rely on what `php.ini` happens to say |
    | `MEMORY_LIMIT` | PHP's `memory_limit`, e.g. `256M`, for the same reason; queue workers stop at 80% of it |
+   | `MAX_EXECUTION_TIME` | seconds a web request may run, e.g. `30`; the console and workers are not affected |
    | `DB_DSN`, `DB_USERNAME`, `DB_PASSWORD` | your database; or `config/database.php` for several |
    | `SESSION_STORE`, `CACHE_STORE`, `QUEUE_STORE` | see [More than one host](#more-than-one-host) |
    | `SESSION_ABSOLUTE` | a maximum session length, in seconds; there is none by default |

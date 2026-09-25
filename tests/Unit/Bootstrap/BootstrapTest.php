@@ -187,6 +187,7 @@ final class BootstrapTest extends TestCase
             'localization.country_header',
             'app.editor',
             'app.memory_limit',
+            'app.max_execution_time',
             'queue.max_memory',
             'localization.maxmind_database',
         ] as $key) {
@@ -292,6 +293,54 @@ final class BootstrapTest extends TestCase
         $this->expectExceptionMessage('is less than the');
 
         $this->withMemoryLimit(['memory_limit' => '1M'], static fn() => null);
+    }
+
+    // ---- max_execution_time ---------------------------------------------------
+
+    /** @param array<string, mixed> $app */
+    private function withTimeLimit(ExecutionContext $context, array $app, \Closure $then): void
+    {
+        $original = (int) \ini_get('max_execution_time');
+
+        try {
+            Bootstrap::create($this->basePath(), $context, ['app' => ['handle_errors' => false, ...$app]]);
+            $then();
+        } finally {
+            \set_time_limit($original);
+        }
+    }
+
+    public function test_max_execution_time_limits_a_web_request(): void
+    {
+        $this->withTimeLimit(ExecutionContext::http(), ['max_execution_time' => 42], static function (): void {
+            self::assertSame('42', \ini_get('max_execution_time'));
+        });
+    }
+
+    public function test_max_execution_time_leaves_the_console_alone(): void
+    {
+        $before = \ini_get('max_execution_time');
+
+        $this->withTimeLimit(ExecutionContext::cli(['laika']), ['max_execution_time' => 42], static function () use ($before): void {
+            self::assertSame($before, \ini_get('max_execution_time'));
+        });
+    }
+
+    public function test_no_max_execution_time_leaves_php_ini_alone(): void
+    {
+        $before = \ini_get('max_execution_time');
+
+        $this->withTimeLimit(ExecutionContext::http(), ['max_execution_time' => null], static function () use ($before): void {
+            self::assertSame($before, \ini_get('max_execution_time'));
+        });
+    }
+
+    public function test_a_negative_max_execution_time_stops_the_boot(): void
+    {
+        $this->expectException(ConfigurationException::class);
+        $this->expectExceptionMessage('app.max_execution_time (MAX_EXECUTION_TIME) is -5, which is negative');
+
+        $this->withTimeLimit(ExecutionContext::http(), ['max_execution_time' => -5], static fn() => null);
     }
 
     public function test_there_is_no_module_cache_setting(): void

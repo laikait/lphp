@@ -181,6 +181,22 @@ Queue workers use it too: with no `--memory` or `QUEUE_MAX_MEMORY`, a worker
 stops between jobs at 80% of this limit. See
 [Running a worker](queue.md#running-a-worker).
 
+## Time limit
+
+`MAX_EXECUTION_TIME` is how long a **web request** may run, in seconds; `0`
+means no limit. Unset leaves `php.ini`'s `max_execution_time`.
+
+```bash
+MAX_EXECUTION_TIME=30
+```
+
+- Web requests only. Console commands keep PHP's own "no limit", which is what
+  a migration or a long report needs, and a queue worker limits each job with
+  `QUEUE_TIMEOUT`.
+- A negative number stops the boot, and so does a host that has disabled
+  `set_time_limit()` — a limit you asked for that PHP does not apply is worse
+  than one you were told about.
+
 ## The configuration cache
 
 ```bash

@@ -43,6 +43,9 @@ public, is in [`STABILITY.md`](STABILITY.md).
   process already uses, stops the boot. `queue:work --memory=128M`
   (`QUEUE_MAX_MEMORY`) stops a worker between jobs at that size, and defaults to
   80% of `memory_limit`.
+- **`MAX_EXECUTION_TIME`** (`app.max_execution_time`) sets how long a web
+  request may run, in seconds. Console commands and queue workers keep their own
+  limits.
 - **Whoops debug page.** With `APP_DEBUG` on and `filp/whoops` installed (a dev
   dependency), a browser error renders as a Whoops page, with cookies,
   environment values and secret-looking fields masked and file links for

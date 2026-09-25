@@ -179,6 +179,7 @@ final class Bootstrap
         // between a laptop and the server, and a limit that is only right on
         // one of them is found by the first big report in production.
         self::applyMemoryLimit($settings);
+        self::applyTimeLimit($settings, $context);
 
         $hooks = new HookEngine();
         $filters = new FilterEngine((bool) $settings->get('app.debug', false));
@@ -869,6 +870,34 @@ final class Bootstrap
     }
 
     /**
+     * PHP's time limit for a web request, when app.max_execution_time sets one.
+     *
+     * Web requests only. The console's "no limit" is PHP's own default and the
+     * right one for a migration or a report, and a queue worker already limits
+     * each job with its timeout. Setting a limit here would cut both off.
+     *
+     * A host that disables set_time_limit() refuses the value rather than
+     * ignoring it: a limit the configuration asks for and PHP does not apply is
+     * one nobody finds out about until a request runs forever.
+     */
+    private static function applyTimeLimit(Config $settings, ExecutionContext $context): void
+    {
+        $seconds = $settings->int('app.max_execution_time');
+
+        if ($seconds === null || !$context->isHttp()) {
+            return;
+        }
+
+        if ($seconds < 0) {
+            throw ConfigurationException::invalidTimeLimit($seconds, 'is negative; use a number of seconds, or 0 for no limit');
+        }
+
+        if (!\set_time_limit($seconds)) {
+            throw ConfigurationException::invalidTimeLimit($seconds, 'was refused: set_time_limit() is disabled on this host');
+        }
+    }
+
+    /**
      * The cache, assembled from configuration.
      *
      * Which store is a deployment decision, exactly like which log writers, and
@@ -1486,6 +1515,10 @@ final class Bootstrap
                 // null leaves php.ini's. Set it here rather than in php.ini so
                 // the laptop and the server agree.
                 'memory_limit' => Env::string('MEMORY_LIMIT'),
+                // How long a web request may run, in seconds; 0 means no limit.
+                // null leaves php.ini's. Web requests only: the console keeps
+                // PHP's own "no limit", and a queue worker limits each job.
+                'max_execution_time' => Env::int('MAX_EXECUTION_TIME'),
                 // The editor the debug page (Whoops) links file paths to:
                 // phpstorm, vscode, sublime, atom, ... null for plain paths.
                 'editor' => Env::string('APP_EDITOR'),
