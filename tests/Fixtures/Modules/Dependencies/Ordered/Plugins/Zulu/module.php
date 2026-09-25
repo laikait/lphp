@@ -8,6 +8,6 @@ return static function (ModuleContext $module): void {
     $module->name('Zulu')->version('1.2.0');
 
     $module->hook('fixture.ping', static function (): void {
-        $_SERVER['fixture.order'][] = 'plugins/Zulu';
+        $_SERVER['fixture.order'][] = 'Zulu';
     });
 };

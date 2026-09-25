@@ -68,15 +68,15 @@ final class AssetSliceTest extends TestCase
         $registry = $application->container()->get(AssetRegistry::class);
         self::assertInstanceOf(AssetRegistry::class, $registry);
 
-        self::assertFalse($registry->has(AssetKind::Plugin, 'Example'), 'nothing is published before boot');
+        self::assertFalse($registry->has(AssetKind::Module, 'Example'), 'nothing is published before boot');
 
         $application->boot();
 
-        self::assertTrue($registry->has(AssetKind::Plugin, 'Example'));
-        self::assertTrue($registry->has(AssetKind::Gateway, 'Example'));
+        self::assertTrue($registry->has(AssetKind::Module, 'Example'));
+        self::assertTrue($registry->has(AssetKind::Module, 'Example'));
         self::assertTrue($registry->has(AssetKind::Core));
 
-        $source = $registry->source(AssetKind::Plugin, 'Example');
+        $source = $registry->source(AssetKind::Module, 'Example');
         self::assertStringEndsWith(self::SHOWCASE . '/Plugins/Example/assets', $source->root);
     }
 
@@ -89,7 +89,7 @@ final class AssetSliceTest extends TestCase
         self::assertInstanceOf(AssetRegistry::class, $registry);
 
         foreach ($registry->all() as $source) {
-            self::assertNotSame('shared', $source->name, 'shared has no name, so no URL could address it');
+            self::assertNotSame('Shared', $source->name, 'the showcase Shared has no assets/, so it publishes nothing');
         }
     }
 
@@ -105,8 +105,8 @@ final class AssetSliceTest extends TestCase
 
         self::assertSame($manager->core('css/app.css'), asset()->core('css/app.css'));
         self::assertSame(
-            $manager->plugin('Example', 'js/example.js'),
-            asset()->plugin('Example', 'js/example.js'),
+            $manager->module('Example', 'js/example.js'),
+            asset()->module('Example', 'js/example.js'),
         );
     }
 
@@ -125,8 +125,8 @@ final class AssetSliceTest extends TestCase
         $payload = \json_decode($this->bodyOf($response), true, 16, \JSON_THROW_ON_ERROR);
 
         self::assertMatchesRegularExpression('#^/assets/core/css/app\.css\?v=#', $payload['assets']['app.css']);
-        self::assertMatchesRegularExpression('#^/assets/plugin/Example/js/example\.js\?v=#', $payload['assets']['plugin.js']);
-        self::assertMatchesRegularExpression('#^/assets/gateway/Example/js/gateway\.js\?v=#', $payload['assets']['gateway.js']);
+        self::assertMatchesRegularExpression('#^/assets/module/Example/js/example\.js\?v=#', $payload['assets']['plugin.js']);
+        self::assertMatchesRegularExpression('#^/assets/module/ExampleGateway/js/gateway\.js\?v=#', $payload['assets']['gateway.js']);
 
         foreach ($payload['assets'] as $url) {
             self::assertStringNotContainsString('modules', $url, 'the URL leaks the module directory');
@@ -143,19 +143,19 @@ final class AssetSliceTest extends TestCase
      * through a URL that says "the plugin called Example" and nothing about
      * where that plugin is.
      */
-    public function test_a_plugins_asset_is_served_from_inside_the_denied_module_tree(): void
+    public function test_a_modules_asset_is_served_from_inside_the_denied_module_tree(): void
     {
-        $response = $this->handle($this->kernel(), '/assets/plugin/Example/js/example.js');
+        $response = $this->handle($this->kernel(), '/assets/module/Example/js/example.js');
 
         self::assertSame(200, $response->status());
         self::assertSame('text/javascript; charset=UTF-8', $response->header('Content-Type'));
         self::assertStringContainsString('export const customers', $this->bodyOf($response));
     }
 
-    public function test_a_gateway_of_the_same_name_serves_a_different_file(): void
+    public function test_another_module_serves_its_own_file(): void
     {
-        $plugin = $this->bodyOf($this->handle($this->kernel(), '/assets/plugin/Example/js/example.js'));
-        $gateway = $this->bodyOf($this->handle($this->kernel(), '/assets/gateway/Example/js/gateway.js'));
+        $plugin = $this->bodyOf($this->handle($this->kernel(), '/assets/module/Example/js/example.js'));
+        $gateway = $this->bodyOf($this->handle($this->kernel(), '/assets/module/ExampleGateway/js/gateway.js'));
 
         self::assertNotSame($plugin, $gateway);
         self::assertStringContainsString('audit', $gateway);
@@ -179,7 +179,7 @@ final class AssetSliceTest extends TestCase
 
         self::assertSame(200, $this->handle($kernel, '/customers')->status());
         self::assertSame(404, $this->handle($kernel, '/nope')->status());
-        self::assertSame(404, $this->handle($kernel, '/assets/plugin/Example/js/nope.js')->status());
+        self::assertSame(404, $this->handle($kernel, '/assets/module/Example/js/nope.js')->status());
     }
 
     public function test_a_module_php_file_cannot_be_reached_through_an_asset_url(): void
@@ -187,9 +187,9 @@ final class AssetSliceTest extends TestCase
         $kernel = $this->kernel();
 
         foreach ([
-            '/assets/plugin/Example/module.php',
-            '/assets/plugin/Example/../module.php',
-            '/assets/plugin/Example/../../../composer.json',
+            '/assets/module/Example/module.php',
+            '/assets/module/Example/../module.php',
+            '/assets/module/Example/../../../composer.json',
             '/assets/core/../composer.json',
         ] as $path) {
             $response = $this->handle($kernel, $path);
@@ -219,13 +219,13 @@ final class AssetSliceTest extends TestCase
         self::assertInstanceOf(FilterEngine::class, $filters);
 
         $filters->add('asset.response', static fn(Response $response, string $path): Response
-            => \str_starts_with($path, '/assets/gateway/') ? new Response('', 403) : $response);
+            => \str_starts_with($path, '/assets/module/ExampleGateway/') ? new Response('', 403) : $response);
 
         $kernel = $application->container()->get(HttpKernel::class);
         self::assertInstanceOf(HttpKernel::class, $kernel);
 
-        self::assertSame(403, $this->handle($kernel, '/assets/gateway/Example/js/gateway.js')->status());
-        self::assertSame(200, $this->handle($kernel, '/assets/plugin/Example/js/example.js')->status());
+        self::assertSame(403, $this->handle($kernel, '/assets/module/ExampleGateway/js/gateway.js')->status());
+        self::assertSame(200, $this->handle($kernel, '/assets/module/Example/js/example.js')->status());
     }
 
     // ---- deployment shapes ------------------------------------------------

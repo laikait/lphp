@@ -29,17 +29,17 @@ final class TwigTemplateEngineTest extends TestCase
         $this->root = \sys_get_temp_dir() . '/framework-twig-' . \bin2hex(\random_bytes(6));
 
         \mkdir($this->root . '/theme', 0o777, true);
-        \mkdir($this->root . '/theme/plugin.Example', 0o777, true);
+        \mkdir($this->root . '/theme/Example', 0o777, true);
         \mkdir($this->root . '/module', 0o777, true);
 
         $this->views = new TemplateRegistry();
         $this->views->add(null, $this->root . '/theme', TemplateSource::OVERRIDE);
-        $this->views->add('plugin.Example', $this->root . '/module');
+        $this->views->add('Example', $this->root . '/module');
     }
 
     protected function tearDown(): void
     {
-        foreach (['theme/plugin.Example', 'theme', 'module'] as $directory) {
+        foreach (['theme/Example', 'theme', 'module'] as $directory) {
             foreach (\glob($this->root . '/' . $directory . '/*') ?: [] as $file) {
                 if (\is_file($file)) {
                     @\unlink($file);
@@ -47,7 +47,7 @@ final class TwigTemplateEngineTest extends TestCase
             }
         }
 
-        foreach (['theme/plugin.Example', 'theme', 'module'] as $directory) {
+        foreach (['theme/Example', 'theme', 'module'] as $directory) {
             @\rmdir($this->root . '/' . $directory);
         }
 
@@ -139,14 +139,14 @@ final class TwigTemplateEngineTest extends TestCase
 
         self::assertSame(
             '<main>from the module</main>',
-            $this->manager()->render('@plugin.Example/child'),
+            $this->manager()->render('@Example/child'),
         );
     }
 
     public function test_a_module_namespace_is_a_twig_namespace(): void
     {
         $this->write('module/row.twig', '[{{ label }}]');
-        $this->write('theme/list.twig', '{% include "@plugin.Example/row.twig" with {label: "a"} %}');
+        $this->write('theme/list.twig', '{% include "@Example/row.twig" with {label: "a"} %}');
 
         self::assertSame('[a]', $this->manager()->render('list'));
     }
@@ -155,18 +155,18 @@ final class TwigTemplateEngineTest extends TestCase
     public function test_a_theme_overrides_a_modules_twig_template(): void
     {
         $this->write('module/panel.twig', 'the module');
-        $this->write('theme/plugin.Example/panel.twig', 'the theme');
+        $this->write('theme/Example/panel.twig', 'the theme');
 
-        self::assertSame('the theme', $this->manager()->render('@plugin.Example/panel'));
+        self::assertSame('the theme', $this->manager()->render('@Example/panel'));
     }
 
     /** A PHP template in the theme beats a Twig one in the module. */
     public function test_precedence_beats_extension_across_engines(): void
     {
         $this->write('module/mixed.twig', 'module twig');
-        $this->write('theme/plugin.Example/mixed.php', 'theme php');
+        $this->write('theme/Example/mixed.php', 'theme php');
 
-        self::assertSame('theme php', $this->manager()->render('@plugin.Example/mixed'));
+        self::assertSame('theme php', $this->manager()->render('@Example/mixed'));
     }
 
     public function test_the_view_is_available_in_twig_too(): void

@@ -55,8 +55,8 @@ final class SystemSliceTest extends TestCase
     private function app(array $system = []): Application
     {
         $app = $this->shippedApplication([
-            'modules' => ['paths' => ['plugins' => 'tests/Fixtures/Modules/System/Plugins']],
-            'plugins/Backup' => ['directory' => $this->backups],
+            'modules' => ['paths' => ['modules/Shared', 'tests/Fixtures/Modules/System/Plugins']],
+            'Backup' => ['directory' => $this->backups],
             'system' => \array_replace_recursive([
                 'filesystem' => ['write' => [$this->backups]],
                 'commands' => ['allowed' => [\PHP_BINARY]],
@@ -156,8 +156,8 @@ final class SystemSliceTest extends TestCase
     public function test_a_request_decides_and_a_worker_does_the_work_under_one_correlation(): void
     {
         $container = $this->shippedApplication([
-            'modules' => ['paths' => ['plugins' => 'tests/Fixtures/Modules/System/Plugins']],
-            'plugins/Backup' => ['directory' => $this->backups],
+            'modules' => ['paths' => ['modules/Shared', 'tests/Fixtures/Modules/System/Plugins']],
+            'Backup' => ['directory' => $this->backups],
             'queue' => ['store' => 'memory'],
             'system' => [
                 'filesystem' => ['write' => [$this->backups]],
@@ -200,8 +200,8 @@ final class SystemSliceTest extends TestCase
             $declared[$permission->capability] = $permission->module;
         }
 
-        self::assertSame('plugins/Backup', $declared['system.filesystem.write'] ?? null);
-        self::assertSame('plugins/Backup', $declared['system.command.execute'] ?? null);
+        self::assertSame('Backup', $declared['system.filesystem.write'] ?? null);
+        self::assertSame('Backup', $declared['system.command.execute'] ?? null);
         self::assertArrayNotHasKey('system.shell.execute', $declared, 'nothing the module did not declare');
     }
 }

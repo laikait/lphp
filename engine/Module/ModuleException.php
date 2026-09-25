@@ -22,11 +22,23 @@ final class ModuleException extends FrameworkException
     public static function duplicateId(string $id, string $existingPath, string $newPath): self
     {
         return new self(\sprintf(
-            'Two modules claim the id "%s": %s and %s. Module ids are derived from the directory name '
-            . 'and must be unique within their kind.',
+            'Two modules claim the id "%s": %s and %s. A module\'s id is its directory name, so two '
+            . 'directories of the same name in different modules.paths roots cannot both be modules.',
             $id,
             $existingPath,
             $newPath,
+        ));
+    }
+
+    public static function invalidModuleName(string $directory, string $path): self
+    {
+        return new self(\sprintf(
+            'The module at %s is in a directory called "%s", which cannot be a module name. A module is '
+            . 'named after its directory, and the name is also its PHP namespace segment and its '
+            . 'configuration namespace, so it starts with a capital letter and holds only letters, '
+            . 'digits and underscores: Billing, Stripe_Gateway, Crm2.',
+            $path,
+            $directory,
         ));
     }
 
@@ -84,9 +96,8 @@ final class ModuleException extends FrameworkException
     public static function invalidDependencyId(string $module, string $id): self
     {
         return new self(\sprintf(
-            'Module "%s" depends on "%s", which is not a module id. Ids are qualified by kind -- '
-            . '"shared", "plugins/Billing", "gateways/Stripe" -- because a plugin and a gateway may share '
-            . 'a directory name, and a bare name could mean either.',
+            'Module "%s" depends on "%s", which is not a module id. A module\'s id is its directory '
+            . 'name under modules/: "Shared", "Billing", "Stripe".',
             $module,
             $id,
         ));
@@ -165,17 +176,11 @@ final class ModuleException extends FrameworkException
     public static function dependencyAgainstKind(string $module, ModuleKind $kind, Dependency $dependency): self
     {
         return new self(\sprintf(
-            'Module "%s" (%s) depends on "%s" (%s), which is a kind that loads after it. Shared loads '
-            . 'first, then plugins, then gateways, because each specialises what came before -- and '
-            . 'that order is what lets every module rely on shared without declaring it. A %s depending '
-            . 'on a %s would either break that guarantee or never be satisfiable, so it is refused. '
-            . 'If the two genuinely need each other, the shared part belongs in the module that loads first.',
+            'Module "%s" depends on "%s", but Shared loads before every other module and may depend on '
+            . 'none of them. That order is what lets every module rely on Shared without declaring it. '
+            . 'If Shared needs something, it belongs in Shared.',
             $module,
-            $kind->value,
             $dependency->id,
-            $dependency->kind()->value,
-            \rtrim($kind->value, 's'),
-            \rtrim($dependency->kind()->value, 's'),
         ));
     }
 

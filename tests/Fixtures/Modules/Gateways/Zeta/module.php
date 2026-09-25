@@ -15,6 +15,6 @@ return static function (ModuleContext $module): void {
     }, priority: 50);
 
     $module->onBoot(static function (Recorder $recorder): void {
-        $recorder->booted[] = 'gateways/Zeta';
+        $recorder->booted[] = 'Zeta';
     });
 };

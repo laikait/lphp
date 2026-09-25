@@ -21,6 +21,20 @@ use App\Engine\Support\Path;
  */
 final class ModuleDefinition
 {
+    /** The one module every application has, and the only one with a fixed name. */
+    public const SHARED = 'Shared';
+
+    /**
+     * What a module's directory may be called: a PHP namespace segment that
+     * starts with a capital, because a module's directory name is also the
+     * namespace segment its classes live under.
+     *
+     * The capital is not decoration. The id is also the module's configuration
+     * namespace (config/Billing.php) and every framework namespace is lower
+     * case, so the two can never collide.
+     */
+    public const NAME_PATTERN = '/^[A-Z][A-Za-z0-9_]*$/';
+
     /** The directory whose presence publishes a module's assets. */
     public const ASSETS = 'assets';
 
@@ -42,12 +56,10 @@ final class ModuleDefinition
     ) {}
 
     /**
-     * The id is qualified by kind because the specification's own example has a
-     * plugin and a gateway both called "Example". Bare directory names would
-     * collide in config namespacing and hook attribution.
+     * The id is the directory name: modules/Billing is "Billing", and
+     * modules/Shared is "Shared", the shared module.
      */
     public static function create(
-        ModuleKind $kind,
         string $path,
         string $directory,
         bool $hasAssets = false,
@@ -57,8 +69,8 @@ final class ModuleDefinition
         $path = Path::normalize($path);
 
         return new self(
-            id: $kind === ModuleKind::Shared ? $kind->value : $kind->value . '/' . $directory,
-            kind: $kind,
+            id: $directory,
+            kind: ModuleKind::of($directory),
             path: $path,
             entryFile: $path . '/module.php',
             directory: $directory,

@@ -10,7 +10,6 @@ use App\Engine\Migration\MigrationException;
 use App\Engine\Migration\SeederFile;
 use App\Engine\Migration\SeedRunner;
 use App\Engine\Module\ModuleDefinition;
-use App\Engine\Module\ModuleKind;
 use App\Engine\Module\ModuleRegistry;
 use App\Tests\Support\TestCase;
 
@@ -41,7 +40,7 @@ final class SeedRunnerTest extends TestCase
     private function fixtures(): array
     {
         $app = $this->application([
-            'modules' => ['paths' => ['plugins' => self::FIXTURES]],
+            'modules' => ['paths' => [self::SHOWCASE . '/Shared', self::FIXTURES]],
             'database' => ['connections' => ['default' => ['dsn' => 'sqlite::memory:']]],
         ])->boot();
 
@@ -68,7 +67,7 @@ final class SeedRunnerTest extends TestCase
         }
 
         $modules = new ModuleRegistry();
-        $modules->add(ModuleDefinition::create(ModuleKind::Plugin, $this->scratch . '/Scratch', 'Scratch'));
+        $modules->add(ModuleDefinition::create($this->scratch . '/Scratch', 'Scratch'));
 
         $connections = new ConnectionManager([ConnectionConfig::of('default', 'sqlite::memory:')]);
         $connections->connection()->execute('CREATE TABLE seeded (name TEXT UNIQUE)');
@@ -117,7 +116,7 @@ final class SeedRunnerTest extends TestCase
         self::assertSame(2, $seeds->seed(ran: static function (SeederFile $file) use (&$ran): void {
             $ran[] = $file->id();
         }));
-        self::assertSame(['plugins/Customers:customers', 'plugins/Billing:invoices'], $ran);
+        self::assertSame(['Customers:customers', 'Billing:invoices'], $ran);
 
         self::assertSame(2, $seeds->seed());
 
@@ -130,7 +129,7 @@ final class SeedRunnerTest extends TestCase
     {
         [$seeds, $connections] = $this->fixtures();
 
-        self::assertSame(1, $seeds->seed(module: 'plugins/Customers'));
+        self::assertSame(1, $seeds->seed(module: 'Customers'));
         self::assertSame(1, $connections->connection()->table('laika_mig_customers')->count());
         self::assertSame(0, $connections->connection()->table('laika_mig_invoices')->count());
     }
@@ -140,9 +139,9 @@ final class SeedRunnerTest extends TestCase
         [$seeds] = $this->fixtures();
 
         $this->expectException(MigrationException::class);
-        $this->expectExceptionMessage('There is no enabled module "plugins/Nobody". The enabled ones are: ');
+        $this->expectExceptionMessage('There is no enabled module "Nobody". The enabled ones are: ');
 
-        $seeds->seed(module: 'plugins/Nobody');
+        $seeds->seed(module: 'Nobody');
     }
 
     public function test_files_within_a_module_run_in_name_order(): void
@@ -170,7 +169,7 @@ final class SeedRunnerTest extends TestCase
             $seeds->seed();
             self::fail('a seeder with a bad name ran');
         } catch (MigrationException $e) {
-            self::assertStringContainsString('plugins/Scratch has a seeder named "BadName.php"', $e->getMessage());
+            self::assertStringContainsString('Scratch has a seeder named "BadName.php"', $e->getMessage());
         }
 
         self::assertSame([], self::seeded($connections));
@@ -187,7 +186,7 @@ final class SeedRunnerTest extends TestCase
             $seeds->seed();
             self::fail('a file that is not a seeder was run');
         } catch (MigrationException $e) {
-            self::assertStringContainsString('The file of plugins/Scratch:b_closure returned Closure', $e->getMessage());
+            self::assertStringContainsString('The file of Scratch:b_closure returned Closure', $e->getMessage());
         }
 
         self::assertSame([], self::seeded($connections));
@@ -205,7 +204,7 @@ final class SeedRunnerTest extends TestCase
             $seeds->seed();
             self::fail('a seeder that broke a unique column succeeded');
         } catch (MigrationException $e) {
-            self::assertStringContainsString('plugins/Scratch:b_half failed on sqlite. Nothing of it was kept; the seeders before it were.', $e->getMessage());
+            self::assertStringContainsString('Scratch:b_half failed on sqlite. Nothing of it was kept; the seeders before it were.', $e->getMessage());
             self::assertNotNull($e->getPrevious());
         }
 

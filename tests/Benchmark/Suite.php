@@ -39,7 +39,6 @@ use App\Engine\Module\DependencyResolver;
 use App\Engine\Module\ModuleContext;
 use App\Engine\Module\ModuleDefinition;
 use App\Engine\Module\ModuleDiscovery;
-use App\Engine\Module\ModuleKind;
 use App\Engine\Module\ModuleManager;
 use App\Engine\Module\ModuleRegistry;
 use App\Engine\Module\ModuleStage;
@@ -144,7 +143,7 @@ final class Suite
             new Benchmark('Application boot', 'register 100 MCP capabilities', static fn(): \Closure
                 => static function (): McpRegistry {
                     $registry = new McpRegistry();
-                    $mcp = new McpCollector($registry, 'plugins/Bench');
+                    $mcp = new McpCollector($registry, 'Bench');
 
                     for ($i = 0; $i < 100; ++$i) {
                         $mcp->tool("bench.tool{$i}", GreetTool::class, 'A tool.', 'bench.view');
@@ -162,7 +161,7 @@ final class Suite
                     [
                         'app' => ['handle_errors' => false],
                         'security' => ['key' => \str_repeat('k', 64)],
-                        'modules' => ['paths' => ['plugins' => 'tests/Fixtures/Modules/Mcp/Plugins'], 'disabled' => ['plugins/Muted']],
+                        'modules' => ['paths' => ['tests/Fixtures/Modules/Shared', 'tests/Fixtures/Modules/Mcp/Plugins'], 'disabled' => ['Muted']],
                         'mcp' => ['transports' => ['http' => true]],
                     ],
                 )->handle(Request::create('POST', '/mcp', [
@@ -284,10 +283,10 @@ final class Suite
     private static function mcpServer(int $tools): array
     {
         $access = new AccessRegistry();
-        (new AccessCollector($access, 'plugins/Bench'))->capability('bench.view')->role('agent', ['bench.view']);
+        (new AccessCollector($access, 'Bench'))->capability('bench.view')->role('agent', ['bench.view']);
 
         $registry = new McpRegistry();
-        $mcp = new McpCollector($registry, 'plugins/Bench');
+        $mcp = new McpCollector($registry, 'Bench');
 
         for ($i = 0; $i < $tools; ++$i) {
             $mcp->tool("bench.tool{$i}", GreetTool::class, 'A tool.', 'bench.view');
@@ -321,12 +320,12 @@ final class Suite
                 $contexts = [];
 
                 for ($i = 0; $i < 50; ++$i) {
-                    $context = new ModuleContext(ModuleDefinition::create(ModuleKind::Plugin, "/bench/P{$i}", "P{$i}"));
+                    $context = new ModuleContext(ModuleDefinition::create("/bench/P{$i}", "P{$i}"));
                     $context->enterStage(ModuleStage::Loading);
                     $context->version('1.0.0');
 
                     if ($i > 0 && $i < 25) {
-                        $context->requires('plugins/P' . ($i - 1), '^1.0');
+                        $context->requires('P' . ($i - 1), '^1.0');
                     }
 
                     $contexts[] = $context;
@@ -501,7 +500,7 @@ final class Suite
                 $app = self::application($basePath)->boot();
                 $server = $app->container()->get(AssetServer::class);
 
-                return static fn(): mixed => $server->locate('/assets/plugin/Example/js/example.js');
+                return static fn(): mixed => $server->locate('/assets/module/Example/js/example.js');
             }),
         ];
     }
@@ -518,7 +517,7 @@ final class Suite
                     $customers[] = new CustomerListRecord($i, "Customer {$i}", "customer{$i}@example.test");
                 }
 
-                return static fn(): string => $templates->render('@plugin.Example/customers', ['customers' => $customers, 'total' => 20]);
+                return static fn(): string => $templates->render('@Example/customers', ['customers' => $customers, 'total' => 20]);
             }),
 
             // Twig compiles each template to a PHP class once per process (or
@@ -634,9 +633,9 @@ final class Suite
             [
                 'app' => ['handle_errors' => false],
                 'modules' => ['paths' => [
-                    'shared' => 'tests/Fixtures/Showcase/Shared',
-                    'plugins' => 'tests/Fixtures/Showcase/Plugins',
-                    'gateways' => 'tests/Fixtures/Showcase/Gateways',
+                    'tests/Fixtures/Showcase/Shared',
+                    'tests/Fixtures/Showcase/Plugins',
+                    'tests/Fixtures/Showcase/Gateways',
                 ]],
             ],
         );

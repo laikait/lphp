@@ -18,26 +18,26 @@ final class AssetRegistryTest extends TestCase
         self::assertSame('core', (new AssetSource(AssetKind::Core, null, '/x'))->key());
         self::assertSame('template', (new AssetSource(AssetKind::Template, null, '/x'))->key());
         self::assertSame('template/admin', (new AssetSource(AssetKind::Template, 'admin', '/x'))->key());
-        self::assertSame('plugin/Example', (new AssetSource(AssetKind::Plugin, 'Example', '/x'))->key());
-        self::assertSame('gateway/Stripe', (new AssetSource(AssetKind::Gateway, 'Stripe', '/x'))->key());
+        self::assertSame('module/Example', (new AssetSource(AssetKind::Module, 'Example', '/x'))->key());
+        self::assertSame('module/Stripe', (new AssetSource(AssetKind::Module, 'Stripe', '/x'))->key());
     }
 
     public function test_an_unpublished_namespace_cannot_be_reached(): void
     {
         $registry = new AssetRegistry();
 
-        self::assertFalse($registry->has(AssetKind::Plugin, 'Nothing'));
-        self::assertNull($registry->find(AssetKind::Plugin, 'Nothing'));
+        self::assertFalse($registry->has(AssetKind::Module, 'Nothing'));
+        self::assertNull($registry->find(AssetKind::Module, 'Nothing'));
 
         $this->expectException(AssetException::class);
-        $registry->source(AssetKind::Plugin, 'Nothing');
+        $registry->source(AssetKind::Module, 'Nothing');
     }
 
     public function test_publishing_the_same_directory_twice_is_harmless(): void
     {
         $registry = new AssetRegistry();
-        $registry->publish(AssetKind::Plugin, 'Example', '/x/assets');
-        $registry->publish(AssetKind::Plugin, 'Example', '/x/assets');
+        $registry->publish(AssetKind::Module, 'Example', '/x/assets');
+        $registry->publish(AssetKind::Module, 'Example', '/x/assets');
 
         self::assertSame(1, $registry->count());
     }
@@ -50,35 +50,34 @@ final class AssetRegistryTest extends TestCase
     public function test_publishing_two_directories_under_one_name_is_refused(): void
     {
         $registry = new AssetRegistry();
-        $registry->publish(AssetKind::Plugin, 'Example', '/x/assets');
+        $registry->publish(AssetKind::Module, 'Example', '/x/assets');
 
         $this->expectException(AssetException::class);
         $this->expectExceptionMessage('already published');
 
-        $registry->publish(AssetKind::Plugin, 'Example', '/y/assets');
+        $registry->publish(AssetKind::Module, 'Example', '/y/assets');
     }
 
-    public function test_a_plugin_and_a_gateway_of_the_same_name_are_different_namespaces(): void
+    public function test_two_modules_are_two_namespaces(): void
     {
         $registry = new AssetRegistry();
-        $registry->publish(AssetKind::Plugin, 'Example', '/plugins/Example/assets');
-        $registry->publish(AssetKind::Gateway, 'Example', '/gateways/Example/assets');
+        $registry->publish(AssetKind::Module, 'Example', '/Example/assets');
+        $registry->publish(AssetKind::Module, 'ExampleGateway', '/ExampleGateway/assets');
 
         self::assertSame(2, $registry->count());
-        self::assertSame(['Example'], $registry->names(AssetKind::Plugin));
-        self::assertSame(['Example'], $registry->names(AssetKind::Gateway));
+        self::assertSame(['Example', 'ExampleGateway'], $registry->names(AssetKind::Module));
     }
 
     public function test_listing_is_stable_regardless_of_registration_order(): void
     {
         $first = new AssetRegistry();
-        $first->publish(AssetKind::Plugin, 'Zeta', '/z');
+        $first->publish(AssetKind::Module, 'Zeta', '/z');
         $first->publish(AssetKind::Core, null, '/c');
-        $first->publish(AssetKind::Plugin, 'Alpha', '/a');
+        $first->publish(AssetKind::Module, 'Alpha', '/a');
 
         $second = new AssetRegistry();
-        $second->publish(AssetKind::Plugin, 'Alpha', '/a');
-        $second->publish(AssetKind::Plugin, 'Zeta', '/z');
+        $second->publish(AssetKind::Module, 'Alpha', '/a');
+        $second->publish(AssetKind::Module, 'Zeta', '/z');
         $second->publish(AssetKind::Core, null, '/c');
 
         $keys = static fn(AssetRegistry $registry): array => \array_map(
@@ -86,7 +85,7 @@ final class AssetRegistryTest extends TestCase
             $registry->all(),
         );
 
-        self::assertSame(['core', 'plugin/Alpha', 'plugin/Zeta'], $keys($first));
+        self::assertSame(['core', 'module/Alpha', 'module/Zeta'], $keys($first));
         self::assertSame($keys($first), $keys($second));
     }
 

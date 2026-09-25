@@ -24,7 +24,6 @@ use App\Engine\Migration\MigrationException;
 use App\Engine\Migration\Migrator;
 use App\Engine\Model\ModelManager;
 use App\Engine\Module\ModuleDefinition;
-use App\Engine\Module\ModuleKind;
 use App\Engine\Module\ModuleRegistry;
 use App\Tests\Support\TestCase;
 use App\Tests\Support\TestDatabases;
@@ -1135,10 +1134,10 @@ final class DialectConformanceTest extends TestCase
         $modules = new ModuleRegistry();
 
         foreach ($order as $name) {
-            $modules->add(ModuleDefinition::create(ModuleKind::Plugin, $this->basePath($fixtures . '/' . $name), $name));
+            $modules->add(ModuleDefinition::create($this->basePath($fixtures . '/' . $name), $name));
         }
 
-        $modules->setOrder(\array_values(\array_map(static fn(string $name): string => 'plugins/' . $name, $order)));
+        $modules->setOrder(\array_values($order));
         $connections = new ConnectionManager([$config]);
 
         return [new Migrator($connections, $modules, 'laika_mig_migrations', lockWait: 0), $connections];

@@ -7,10 +7,8 @@ namespace App\Engine\Module;
 /**
  * One module saying it needs another.
  *
- * **By id, not by name.** `plugins/Billing`, never `Billing`: the
- * specification's own tree has a plugin and a gateway both called `Example`, so
- * a bare name cannot say which one is meant, and module ids are already
- * kind-qualified for exactly that reason.
+ * **By id.** A module's id is its directory name under modules/ -- `Billing`,
+ * `Shared` -- so the name written here is the name on disk.
  *
  * **Optional is not the same as absent.** An optional dependency that is
  * installed and enabled is checked exactly like a required one -- its version
@@ -22,13 +20,13 @@ namespace App\Engine\Module;
 final class Dependency
 {
     /**
-     * `shared`, or a kind and a PHP identifier.
+     * A module name: see ModuleDefinition::NAME_PATTERN.
      *
-     * The identifier rule is not arbitrary: a module's directory name is a
-     * namespace segment (the `Billing` in `...\Plugins\Billing`), so a name PHP could
+     * The rule is not arbitrary: a module's directory name is a namespace
+     * segment (the `Billing` in the module's namespace), so a name PHP could
      * not use as one is not a module that can exist.
      */
-    public const ID_PATTERN = '/^(shared|(plugins|gateways)\/[A-Za-z_][A-Za-z0-9_]*)$/';
+    public const ID_PATTERN = ModuleDefinition::NAME_PATTERN;
 
     public function __construct(
         public readonly string $id,
@@ -44,12 +42,10 @@ final class Dependency
     /** The kind of module this points at, read from the id itself. */
     public function kind(): ModuleKind
     {
-        return $this->id === ModuleKind::Shared->value
-            ? ModuleKind::Shared
-            : ModuleKind::from(\strstr($this->id, '/', true) ?: $this->id);
+        return ModuleKind::of($this->id);
     }
 
-    /** `plugins/Billing ^1.0`, `plugins/Crm ^2.0 (optional)`, or just the id when any version will do. */
+    /** `Billing ^1.0`, `Crm ^2.0 (optional)`, or just the id when any version will do. */
     public function describe(): string
     {
         return $this->id

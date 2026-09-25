@@ -247,17 +247,10 @@ final class BootstrapTest extends TestCase
     {
         $paths = (new Config(Bootstrap::defaults()))->get('modules.paths');
 
-        self::assertSame([
-            'shared' => 'modules/Shared',
-            'plugins' => 'modules/Plugins',
-            'gateways' => 'modules/Gateways',
-        ], $paths);
+        self::assertSame(['modules'], $paths);
 
-        // Only shared has to exist. The framework ships no plugin and no
-        // gateway, git keeps no empty directory, and an invariant forbids one
-        // kept for appearance -- so modules/Plugins/ appears when the first
-        // plugin does, and discovery reads an absent root as an empty one.
-        // DefaultPagesSliceTest boots exactly that.
+        // One root, and only Shared in it: every other module is a directory
+        // somebody adds, named whatever they like.
         self::assertDirectoryExists($this->basePath('modules/Shared'));
     }
 

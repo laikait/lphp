@@ -41,34 +41,34 @@ final class TranslationCatalogTest extends LocalizationTestCase
         self::assertNull($catalog->file(TranslationCatalog::ROOT, 'bn'));
         self::assertNull($catalog->file(TranslationCatalog::ROOT, '../en'));
         self::assertNull($catalog->file(TranslationCatalog::ROOT, 'en/../../config'));
-        self::assertNull($catalog->file('plugin.Missing', 'en'));
+        self::assertNull($catalog->file('Missing', 'en'));
     }
 
     public function test_keys_split_on_registered_namespaces_only(): void
     {
         $catalog = new TranslationCatalog($this->directory([]));
         $catalog->add('shared', $this->directory([]));
-        $catalog->add('plugin.Billing', $this->directory([]));
+        $catalog->add('Billing', $this->directory([]));
 
-        self::assertSame(['plugin.Billing', 'invoice_created'], $catalog->split('plugin.Billing.invoice_created'));
-        self::assertSame(['plugin.Billing', 'invoice.created'], $catalog->split('plugin.Billing.invoice.created'));
+        self::assertSame(['Billing', 'invoice_created'], $catalog->split('Billing.invoice_created'));
+        self::assertSame(['Billing', 'invoice.created'], $catalog->split('Billing.invoice.created'));
         self::assertSame(['shared', 'welcome'], $catalog->split('shared.welcome'));
         self::assertSame(['', 'updated'], $catalog->split('updated'));
-        self::assertSame(['', 'plugin.Removed.key'], $catalog->split('plugin.Removed.key'));
+        self::assertSame(['', 'Removed.key'], $catalog->split('Removed.key'));
         self::assertSame(['', 'errors.not_found'], $catalog->split('errors.not_found'));
         self::assertSame(['', '.updated'], $catalog->split('.updated'));
-        self::assertSame(['plugin.Billing', 'shared'], $catalog->namespaces());
+        self::assertSame(['Billing', 'shared'], $catalog->namespaces());
     }
 
     public function test_a_namespace_is_registered_once(): void
     {
         $catalog = new TranslationCatalog();
-        $catalog->add('plugin.Billing', $this->directory([]));
+        $catalog->add('Billing', $this->directory([]));
 
         $this->expectException(LocalizationException::class);
-        $this->expectExceptionMessage('"plugin.Billing" is registered twice');
+        $this->expectExceptionMessage('"Billing" is registered twice');
 
-        $catalog->add('plugin.Billing', $this->directory([]));
+        $catalog->add('Billing', $this->directory([]));
     }
 
     public function test_the_root_cannot_be_registered_as_a_module(): void

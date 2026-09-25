@@ -11,7 +11,6 @@ use App\Engine\Migration\MigrationException;
 use App\Engine\Migration\MigrationFile;
 use App\Engine\Migration\Migrator;
 use App\Engine\Module\ModuleDefinition;
-use App\Engine\Module\ModuleKind;
 use App\Engine\Module\ModuleRegistry;
 use App\Tests\Support\TestCase;
 
@@ -43,7 +42,7 @@ final class MigratorTest extends TestCase
     private function migrator(): Migrator
     {
         return $this->application([
-            'modules' => ['paths' => ['plugins' => self::FIXTURES]],
+            'modules' => ['paths' => [self::SHOWCASE . '/Shared', self::FIXTURES]],
             'database' => ['connections' => ['default' => ['dsn' => 'sqlite::memory:']]],
         ])->boot()->container()->get(Migrator::class);
     }
@@ -74,7 +73,7 @@ final class MigratorTest extends TestCase
         }
 
         $modules = new ModuleRegistry();
-        $modules->add(ModuleDefinition::create(ModuleKind::Plugin, $this->scratch . '/Scratch', 'Scratch'));
+        $modules->add(ModuleDefinition::create($this->scratch . '/Scratch', 'Scratch'));
 
         return new Migrator(
             new ConnectionManager([ConnectionConfig::of('default', 'sqlite::memory:')]),
@@ -112,9 +111,9 @@ final class MigratorTest extends TestCase
     public function test_modules_run_in_dependency_order_and_files_in_name_order(): void
     {
         self::assertSame([
-            'plugins/Customers:2026_01_01_000000_create_customers',
-            'plugins/Customers:2026_03_01_000000_create_customer_notes',
-            'plugins/Billing:2026_02_01_000000_create_invoices',
+            'Customers:2026_01_01_000000_create_customers',
+            'Customers:2026_03_01_000000_create_customer_notes',
+            'Billing:2026_02_01_000000_create_invoices',
         ], \array_map(static fn(MigrationFile $file): string => $file->id(), $this->migrator()->files()));
     }
 
@@ -131,9 +130,9 @@ final class MigratorTest extends TestCase
 
         self::assertSame(
             [
-                ['id' => 'plugins/Customers:2026_01_01_000000_create_customers', 'batch' => 1, 'file' => true],
-                ['id' => 'plugins/Customers:2026_03_01_000000_create_customer_notes', 'batch' => 1, 'file' => true],
-                ['id' => 'plugins/Billing:2026_02_01_000000_create_invoices', 'batch' => 1, 'file' => true],
+                ['id' => 'Customers:2026_01_01_000000_create_customers', 'batch' => 1, 'file' => true],
+                ['id' => 'Customers:2026_03_01_000000_create_customer_notes', 'batch' => 1, 'file' => true],
+                ['id' => 'Billing:2026_02_01_000000_create_invoices', 'batch' => 1, 'file' => true],
             ],
             $migrator->status(),
         );
@@ -151,7 +150,7 @@ final class MigratorTest extends TestCase
     public function test_pretending_shows_the_sql_and_changes_nothing(): void
     {
         $app = $this->application([
-            'modules' => ['paths' => ['plugins' => self::FIXTURES]],
+            'modules' => ['paths' => [self::SHOWCASE . '/Shared', self::FIXTURES]],
             'database' => ['connections' => ['default' => ['dsn' => 'sqlite::memory:']]],
         ])->boot();
         $migrator = $app->container()->get(Migrator::class);
@@ -172,7 +171,7 @@ final class MigratorTest extends TestCase
     public function test_a_rollback_undoes_the_last_batch_newest_first(): void
     {
         $app = $this->application([
-            'modules' => ['paths' => ['plugins' => self::FIXTURES]],
+            'modules' => ['paths' => [self::SHOWCASE . '/Shared', self::FIXTURES]],
             'database' => ['connections' => ['default' => ['dsn' => 'sqlite::memory:']]],
         ])->boot();
         $migrator = $app->container()->get(Migrator::class);
@@ -231,7 +230,7 @@ final class MigratorTest extends TestCase
             $migrator->rollback();
             self::fail('a migration without down() was rolled back');
         } catch (MigrationException $e) {
-            self::assertStringContainsString('Nothing was rolled back: plugins/Scratch:2026_01_02_000000_one_way cannot be undone', $e->getMessage());
+            self::assertStringContainsString('Nothing was rolled back: Scratch:2026_01_02_000000_one_way cannot be undone', $e->getMessage());
         }
 
         self::assertSame([1, 1], \array_column($migrator->status(), 'batch'), 'the reversible one was undone anyway');
@@ -248,7 +247,7 @@ final class MigratorTest extends TestCase
         $migrator->migrate();
         \unlink((string) $this->scratch . '/Scratch/' . MigrationFile::DIRECTORY . '/2026_01_01_000000_gone.php');
 
-        self::assertSame([['id' => 'plugins/Scratch:2026_01_01_000000_gone', 'batch' => 1, 'file' => false]], $migrator->status());
+        self::assertSame([['id' => 'Scratch:2026_01_01_000000_gone', 'batch' => 1, 'file' => false]], $migrator->status());
 
         $this->expectException(MigrationException::class);
         $this->expectExceptionMessage('the file is gone');
@@ -305,7 +304,7 @@ final class MigratorTest extends TestCase
             $migrator->migrate();
             self::fail('the broken migration succeeded');
         } catch (MigrationException $e) {
-            self::assertStringContainsString('plugins/Scratch:2026_01_02_000000_breaks failed on sqlite', $e->getMessage());
+            self::assertStringContainsString('Scratch:2026_01_02_000000_breaks failed on sqlite', $e->getMessage());
             self::assertStringContainsString('Nothing of it was kept', $e->getMessage());
             self::assertInstanceOf(DatabaseException::class, $e->getPrevious());
 

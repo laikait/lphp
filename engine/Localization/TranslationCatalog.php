@@ -10,9 +10,9 @@ use App\Engine\Support\Path;
  * Where translations live: the application's lang/ and every module's.
  *
  * The root directory has no namespace, so its keys are bare: 'updated'. A
- * module's directory is registered under the same name its templates are --
- * 'shared', 'plugin.Billing', 'gateway.Stripe' -- so its keys are qualified
- * the same way: 'plugin.Billing.invoice_created'. Names are unique because
+ * module's directory is registered under the module's id -- 'Shared',
+ * 'Billing' -- so its keys are qualified by it: 'Billing.invoice_created',
+ * exactly as its templates are '@Billing/...'. Names are unique because
  * module ids are, and a module that is removed or disabled is never
  * registered, so its keys simply stop resolving.
  *
@@ -103,9 +103,9 @@ final class TranslationCatalog
     /**
      * Which namespace a key belongs to, and the key within it.
      *
-     *     'plugin.Billing.invoice_created' → ['plugin.Billing', 'invoice_created']
-     *     'shared.welcome'                 → ['shared', 'welcome']
-     *     'updated'                        → ['', 'updated']
+     *     'Billing.invoice_created' → ['Billing', 'invoice_created']
+     *     'Shared.welcome'          → ['Shared', 'welcome']
+     *     'updated'                 → ['', 'updated']
      *
      * A dotted key whose prefix is no registered module is a root key.
      *
@@ -113,14 +113,10 @@ final class TranslationCatalog
      */
     public function split(string $key): array
     {
-        $segments = \explode('.', $key, 3);
+        $segments = \explode('.', $key, 2);
 
-        if (\count($segments) === 3 && $this->has($segments[0] . '.' . $segments[1])) {
-            return [$segments[0] . '.' . $segments[1], $segments[2]];
-        }
-
-        if (\count($segments) >= 2 && $segments[0] !== self::ROOT && $this->has($segments[0])) {
-            return [$segments[0], \substr($key, \strlen($segments[0]) + 1)];
+        if (\count($segments) === 2 && $segments[0] !== self::ROOT && $this->has($segments[0])) {
+            return [$segments[0], $segments[1]];
         }
 
         return [self::ROOT, $key];

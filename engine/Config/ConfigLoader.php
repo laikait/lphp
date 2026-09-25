@@ -14,9 +14,10 @@ namespace App\Engine\Config;
  *
  * The filename is the namespace. config/database.php lands under "database",
  * so the file somebody opens to change a connection is the one named after it.
- * Subdirectories join with a slash, which is how a module is configured:
- * config/plugins/Example.php lands under "plugins/Example", the module's own
- * id, and overrides the defaults that module declares. The mapping is that
+ * A module is configured the same way: config/Billing.php lands under
+ * "Billing", the module's own id, and overrides the defaults that module
+ * declares. Module ids start with a capital and framework namespaces do not,
+ * so the two never collide. Subdirectories join with a slash. The mapping is that
  * direct on purpose -- a lookup table from file to key is a thing to maintain
  * and to get wrong.
  *
@@ -100,7 +101,7 @@ final class ConfigLoader
             }
 
             // Nested namespaces are single keys containing a slash, not a path
-            // through the tree: "plugins/Example" is one module's name. Config
+            // through the tree: "reports/daily" is one namespace. Config
             // splits on dots, so this stays a single segment by construction.
             $items[$namespace] = $values;
         }

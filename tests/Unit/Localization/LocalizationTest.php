@@ -40,7 +40,7 @@ final class LocalizationTest extends LocalizationTestCase
             ],
         ]));
 
-        $this->catalog->add('plugin.Billing', $this->directory([
+        $this->catalog->add('Billing', $this->directory([
             'en.php' => ['invoice_created' => 'Invoice created', 'only_english' => 'Only English'],
             'bn.php' => ['invoice_created' => 'ইনভয়েস তৈরি হয়েছে'],
         ]));
@@ -85,24 +85,24 @@ final class LocalizationTest extends LocalizationTestCase
     {
         $localization = $this->localization();
 
-        self::assertSame('Invoice created', $localization->get('plugin.Billing.invoice_created'));
+        self::assertSame('Invoice created', $localization->get('Billing.invoice_created'));
 
         $localization->setLocale('bn');
 
-        self::assertSame('ইনভয়েস তৈরি হয়েছে', $localization->get('plugin.Billing.invoice_created'));
+        self::assertSame('ইনভয়েস তৈরি হয়েছে', $localization->get('Billing.invoice_created'));
     }
 
     public function test_a_missing_module_key_comes_back_as_the_key(): void
     {
-        self::assertSame('plugin.Billing.invoice_missing', $this->localization()->get('plugin.Billing.invoice_missing'));
+        self::assertSame('Billing.invoice_missing', $this->localization()->get('Billing.invoice_missing'));
     }
 
     public function test_a_module_key_is_not_found_in_the_root_or_another_module(): void
     {
         $localization = $this->localization();
 
-        self::assertSame('plugin.Billing.updated', $localization->get('plugin.Billing.updated'));
-        self::assertSame('plugin.Removed.invoice_created', $localization->get('plugin.Removed.invoice_created'));
+        self::assertSame('Billing.updated', $localization->get('Billing.updated'));
+        self::assertSame('Removed.invoice_created', $localization->get('Removed.invoice_created'));
     }
 
     public function test_a_locale_falls_back_through_its_less_specific_forms_then_english(): void
@@ -114,7 +114,7 @@ final class LocalizationTest extends LocalizationTestCase
         self::assertSame('সেভ', $localization->get('save'), 'bn-BD itself');
         self::assertSame('আপডেট করা হয়েছে', $localization->get('updated'), 'from bn');
         self::assertSame('Hello :name, you are :username', $localization->get('greeting'), 'from en');
-        self::assertSame('Only English', $localization->get('plugin.Billing.only_english'), 'modules fall back the same way');
+        self::assertSame('Only English', $localization->get('Billing.only_english'), 'modules fall back the same way');
     }
 
     public function test_only_the_active_locale_and_its_fallbacks_are_loaded(): void

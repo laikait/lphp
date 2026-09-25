@@ -14,9 +14,9 @@ use App\Engine\Module\ModuleContext;
 return static function (ModuleContext $module): void {
     $module->name('Alpha')->version('1.0.0');
 
-    $module->requires('plugins/Zulu', '^1.0');
+    $module->requires('Zulu', '^1.0');
 
     $module->hook('fixture.ping', static function (): void {
-        $_SERVER['fixture.order'][] = 'plugins/Alpha';
+        $_SERVER['fixture.order'][] = 'Alpha';
     });
 };

@@ -32,7 +32,7 @@ final class CacheException extends FrameworkException
     {
         return new self(\sprintf(
             'Cache namespace "%s" is invalid. A namespace is a short lowercase name, such as '
-            . '"assets" or "plugins.example".',
+            . '"assets" or "billing".',
             $namespace,
         ));
     }

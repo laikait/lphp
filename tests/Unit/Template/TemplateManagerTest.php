@@ -29,13 +29,13 @@ final class TemplateManagerTest extends TestCase
     {
         $this->root = \sys_get_temp_dir() . '/framework-views-' . \bin2hex(\random_bytes(6));
 
-        foreach (['theme', 'theme/plugin.Example', 'module', 'module/deep', 'shared'] as $directory) {
+        foreach (['theme', 'theme/Example', 'module', 'module/deep', 'shared'] as $directory) {
             \mkdir($this->root . '/' . $directory, 0o777, true);
         }
 
         $this->write('theme/page.php', 'theme page');
         $this->write('theme/nested.php', '<?= $view->render("@Example/only-in-module") ?>');
-        $this->write('theme/plugin.Example/overridden.php', 'the theme wins');
+        $this->write('theme/Example/overridden.php', 'the theme wins');
         $this->write('module/overridden.php', 'the module loses');
         $this->write('module/only-in-module.php', 'module only');
         $this->write('module/deep/thing.php', 'deep');
@@ -44,7 +44,6 @@ final class TemplateManagerTest extends TestCase
 
         $this->views = new TemplateRegistry();
         $this->views->add(null, $this->root . '/theme', TemplateSource::OVERRIDE);
-        $this->views->add('plugin.Example', $this->root . '/module');
         $this->views->add('Example', $this->root . '/module');
         $this->views->add('shared', $this->root . '/shared');
     }
@@ -173,14 +172,14 @@ final class TemplateManagerTest extends TestCase
      */
     public function test_the_active_template_overrides_a_module_template(): void
     {
-        self::assertSame('the theme wins', $this->manager()->render('@plugin.Example/overridden'));
+        self::assertSame('the theme wins', $this->manager()->render('@Example/overridden'));
     }
 
     public function test_the_module_copy_is_the_fallback(): void
     {
-        \unlink($this->root . '/theme/plugin.Example/overridden.php');
+        \unlink($this->root . '/theme/Example/overridden.php');
 
-        self::assertSame('the module loses', $this->manager()->render('@plugin.Example/overridden'));
+        self::assertSame('the module loses', $this->manager()->render('@Example/overridden'));
     }
 
     /**
@@ -190,18 +189,18 @@ final class TemplateManagerTest extends TestCase
      */
     public function test_a_module_cannot_override_another_module(): void
     {
-        \mkdir($this->root . '/shared/plugin.Example', 0o777, true);
-        $this->write('shared/plugin.Example/only-in-module.php', 'shared tried to win');
+        \mkdir($this->root . '/shared/Example', 0o777, true);
+        $this->write('shared/Example/only-in-module.php', 'shared tried to win');
 
-        self::assertSame('module only', $this->manager()->render('@plugin.Example/only-in-module'));
+        self::assertSame('module only', $this->manager()->render('@Example/only-in-module'));
     }
 
     public function test_the_search_path_is_reported_highest_precedence_first(): void
     {
-        $path = $this->views->searchPath('plugin.Example');
+        $path = $this->views->searchPath('Example');
 
         self::assertCount(2, $path);
-        self::assertStringEndsWith('theme/plugin.Example', $path[0]);
+        self::assertStringEndsWith('theme/Example', $path[0]);
         self::assertStringEndsWith('module', $path[1]);
     }
 
@@ -231,9 +230,9 @@ final class TemplateManagerTest extends TestCase
         });
 
         $this->write('module/mixed.tpl', 'module tpl');
-        $this->write('theme/plugin.Example/mixed.php', 'theme php');
+        $this->write('theme/Example/mixed.php', 'theme php');
 
-        self::assertSame('theme php', $manager->render('@plugin.Example/mixed'));
+        self::assertSame('theme php', $manager->render('@Example/mixed'));
     }
 
     public function test_two_engines_cannot_claim_one_extension(): void
@@ -409,6 +408,6 @@ final class TemplateManagerTest extends TestCase
 
     public function test_the_namespace_list_is_sorted_and_complete(): void
     {
-        self::assertSame(['Example', 'plugin.Example', 'shared'], $this->views->namespaces());
+        self::assertSame(['Example', 'shared'], $this->views->namespaces());
     }
 }

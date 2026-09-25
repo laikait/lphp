@@ -11,8 +11,8 @@ use App\Engine\Support\Path;
  *
  * A source has a namespace, a root and a precedence. The precedence is the
  * whole override story: the active template is registered above every module,
- * so a site can replace a plugin's invoice layout by putting a file in its own
- * theme, without touching the plugin and without the plugin having to offer a
+ * so a site can replace a module's invoice layout by putting a file in its own
+ * theme, without touching the module and without the module having to offer a
  * hook for it.
  */
 final class TemplateSource

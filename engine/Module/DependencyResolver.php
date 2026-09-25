@@ -20,24 +20,22 @@ namespace App\Engine\Module;
  * 4. **circular** -- no order exists in which each module follows what it needs
  *
  * Plus one the specification did not list and this design needs: a dependency
- * **against kind** -- a plugin depending on a gateway, or shared depending on
- * anything. See below.
+ * **against kind** -- Shared depending on anything. See below.
  *
  * **The order only changes where a dependency forces it.** This is a stable
  * topological sort: at every step it takes, of the modules whose dependencies
- * are all placed, the one that came first in the existing order (kind, then
+ * are all placed, the one that came first in the existing order (Shared, then
  * directory name). So an application with no declarations registers exactly as
  * it always did, and a dependency moves precisely one module -- the one that has
  * to wait -- rather than reshuffling everything after it.
  *
- * **Kind order is never broken, and that is enforced rather than hoped for.**
- * Every module may rely on shared without declaring it, because shared always
- * registers first; gateways specialise plugins, so they come last. A dependency
- * pointing at a later kind would either reorder across kinds -- breaking the
- * guarantee for modules that never mentioned it -- or be unsatisfiable, so it is
- * refused where it is declared. The consequence is that the sort only ever moves
- * modules within their own kind, and "shared registers first" stays true by
- * construction.
+ * **Shared first is never broken, and that is enforced rather than hoped for.**
+ * Every module may rely on Shared without declaring it, because Shared always
+ * registers first. Shared depending on a module would either move that module
+ * ahead of it -- breaking the guarantee for modules that never mentioned it --
+ * or be unsatisfiable, so it is refused where it is declared. The consequence is
+ * that the sort only ever moves ordinary modules among themselves, and "Shared
+ * registers first" stays true by construction.
  *
  * Nothing here is cached. The inputs are in memory, the graph is a few dozen
  * nodes, and a cached order is a stale order the day somebody edits a
@@ -105,9 +103,9 @@ final class DependencyResolver
             throw ModuleException::circularDependency([$module->id(), $module->id()]);
         }
 
-        // Before presence: a plugin depending on a gateway is a mistake in the
-        // declaration whether or not that gateway happens to be installed today.
-        if ($dependency->kind()->rank() > $module->kind()->rank() || $module->kind() === ModuleKind::Shared) {
+        // Before presence: Shared depending on a module is a mistake in the
+        // declaration whether or not that module happens to be installed today.
+        if ($module->kind() === ModuleKind::Shared) {
             throw ModuleException::dependencyAgainstKind($module->id(), $module->kind(), $dependency);
         }
 
@@ -234,7 +232,7 @@ final class DependencyResolver
     /**
      * The installed id nearest a missing one, when it is plausibly a typo.
      *
-     * Three edits is enough for `plugins/Biling` or a wrong letter case, and few
+     * Three edits is enough for `Biling` or a wrong letter case, and few
      * enough that a genuinely different module is not offered as the answer.
      * It is a suggestion in an error message, never a substitution: guessing
      * which module somebody meant is how the wrong one gets loaded.

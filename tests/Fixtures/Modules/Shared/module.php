@@ -29,11 +29,11 @@ return static function (ModuleContext $module): void {
     // where the container supplies it. Declaring [Recorder::class, 'record']
     // above would mean a STATIC call, which is what PHP array callables are.
     $module->onBoot(static function (Recorder $recorder, HookEngine $hooks, FilterEngine $filters): void {
-        $recorder->booted[] = 'shared';
+        $recorder->booted[] = 'Shared';
 
-        $hooks->add('order.recorded', [$recorder, 'record'], 5, 'shared');
+        $hooks->add('order.recorded', [$recorder, 'record'], 5, 'Shared');
 
         // Priority 100 runs last, so it stamps the finished response.
-        $filters->add('response.instance', [$recorder, 'stamp'], 100, 'shared');
+        $filters->add('response.instance', [$recorder, 'stamp'], 100, 'Shared');
     });
 };

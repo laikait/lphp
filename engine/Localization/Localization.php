@@ -12,7 +12,7 @@ use App\Engine\Logging\Logger;
  *
  *     $localization->get('updated');                                  // Updated
  *     $localization->get('user_update_success', ['user' => 'Some User']);
- *     $localization->get('plugin.Billing.invoice_created');
+ *     $localization->get('Billing.invoice_created');
  *
  * The locale is decided the first time something asks for it -- from the
  * request when there is one (see LocaleResolver), en when there is not -- and

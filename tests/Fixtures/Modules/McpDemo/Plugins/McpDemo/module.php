@@ -53,10 +53,10 @@ return static function (ModuleContext $module): void {
     // it was given. Neither can reach a call that authorization refused.
     $module->onBoot(static function (HookEngine $hooks, FilterEngine $filters, StatusService $status): void {
         $hooks->add('mcp.tool.after', static function (Capability $tool) use ($status): void {
-            if ($tool->module === 'plugins/McpDemo') {
+            if ($tool->module === 'McpDemo') {
                 $status->recordCall();
             }
-        }, 10, 'plugins/McpDemo');
+        }, 10, 'McpDemo');
 
         $filters->add('mcp.tool.input', static function (array $arguments, Capability $tool): array {
             if ($tool->name === 'demo.echo' && is_string($arguments['text'] ?? null)) {
@@ -64,6 +64,6 @@ return static function (ModuleContext $module): void {
             }
 
             return $arguments;
-        }, 10, 'plugins/McpDemo');
+        }, 10, 'McpDemo');
     });
 };

@@ -81,22 +81,22 @@ final class ConfigurationSliceTest extends TestCase
 
     public function test_a_file_overrides_a_default(): void
     {
-        // config/plugins/Example.php, read at bootstrap, before any module has
+        // config/Example.php, read at bootstrap, before any module has
         // been discovered. The showcase directory stands in for an application
         // root, because the framework itself ships no config/.
         $settings = new Config(Bootstrap::settings($this->basePath(self::SHOWCASE)));
 
-        self::assertSame(10, $settings->int('plugins/Example.page_size'));
+        self::assertSame(10, $settings->int('Example.page_size'));
     }
 
     public function test_what_the_bootstrap_is_handed_beats_a_file(): void
     {
         $settings = new Config(Bootstrap::settings(
             $this->basePath(self::SHOWCASE),
-            ['plugins/Example' => ['page_size' => 3]],
+            ['Example' => ['page_size' => 3]],
         ));
 
-        self::assertSame(3, $settings->int('plugins/Example.page_size'));
+        self::assertSame(3, $settings->int('Example.page_size'));
     }
 
     /**
@@ -111,14 +111,14 @@ final class ConfigurationSliceTest extends TestCase
 
         // 10 is handed to Bootstrap by TestCase::application(), at the layer
         // config/ files arrive at; the module's own module.php says 25.
-        self::assertSame(10, $settings->int('plugins/Example.page_size'), 'the application wins');
+        self::assertSame(10, $settings->int('Example.page_size'), 'the application wins');
     }
 
     public function test_a_module_default_survives_where_no_file_names_it(): void
     {
         $settings = $this->fixtureApplication()->boot()->container()->get(Config::class);
 
-        self::assertSame('USD', $settings->string('shared.currency'));
+        self::assertSame('USD', $settings->string('Shared.currency'));
     }
 
     /**
@@ -219,10 +219,10 @@ final class ConfigurationSliceTest extends TestCase
 
     public function test_config_list_prints_resolved_values(): void
     {
-        [$status, $output] = $this->console('config:list', '--prefix=plugins');
+        [$status, $output] = $this->console('config:list', '--prefix=Example');
 
         self::assertSame(ConsoleKernel::SUCCESS, $status);
-        self::assertStringContainsString('plugins/Example.page_size', $output);
+        self::assertStringContainsString('Example.page_size', $output);
         self::assertStringContainsString('10', $output);
     }
 

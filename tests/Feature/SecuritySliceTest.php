@@ -192,7 +192,7 @@ final class SecuritySliceTest extends TestCase
      */
     public function test_a_new_visitor_can_submit_the_first_form_they_are_shown(): void
     {
-        $app = $this->app(['modules' => ['paths' => ['plugins' => 'tests/Fixtures/Modules/Forms/Plugins']]]);
+        $app = $this->app(['modules' => ['paths' => [self::SHOWCASE . '/Shared', 'tests/Fixtures/Modules/Forms/Plugins']]]);
 
         $page = $app->handle(Request::create('GET', '/guestbook'));
 

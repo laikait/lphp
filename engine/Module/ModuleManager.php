@@ -314,7 +314,7 @@ final class ModuleManager
                 continue;
             }
 
-            if ($id === ModuleKind::Shared->value) {
+            if ($id === ModuleDefinition::SHARED) {
                 throw ModuleException::sharedCannotBeDisabled();
             }
 
@@ -374,7 +374,7 @@ final class ModuleManager
 
             if ($values !== []) {
                 // defaults(), not merge(): a module declares defaults for its
-                // own settings and the application's config/plugins/Example.php
+                // own settings and the application's config/Billing.php
                 // -- read long before this runs -- outranks them.
                 $this->config->defaults($context->id(), $values);
             }
@@ -525,19 +525,13 @@ final class ModuleManager
      * A module does not declare this and cannot opt out of it, which is a
      * deliberate asymmetry with everything else in module.php. Publishing is
      * not a decision a module gets to make differently from its neighbours: the
-     * URL space is /assets/plugin/<name>/ for every plugin, so a declaration
+     * URL space is /assets/module/<name>/ for every module, so a declaration
      * could only ever say "yes" or be wrong. Having the directory is the "yes".
      * A disabled module publishes nothing -- its files stay unreachable.
      *
      * Whether the directory exists was answered by discovery, so this asks the
      * filesystem nothing. Idempotent, because the asset path runs it before a
      * full boot might.
-     *
-     * The shared module is deliberately excluded. Its id is just "shared" with
-     * no name of its own, so there is no URL that could address it, and giving
-     * it one would add a fifth namespace the specification does not have.
-     * Assets belonging to the application as a whole are the application's own,
-     * under assets/.
      */
     private function publishAssets(): void
     {
@@ -548,21 +542,13 @@ final class ModuleManager
         $this->assetsPublished = true;
 
         foreach ($this->registry->definitions() as $definition) {
-            $kind = match ($definition->kind) {
-                ModuleKind::Plugin => AssetKind::Plugin,
-                ModuleKind::Gateway => AssetKind::Gateway,
-                ModuleKind::Shared => null,
-            };
-
-            if ($kind === null || !$definition->hasAssets) {
-                continue;
+            if ($definition->hasAssets) {
+                $this->assets->register(new AssetSource(
+                    AssetKind::Module,
+                    $definition->id,
+                    $definition->file(ModuleDefinition::ASSETS),
+                ));
             }
-
-            $this->assets->register(new AssetSource(
-                $kind,
-                $definition->directory,
-                $definition->file(ModuleDefinition::ASSETS),
-            ));
         }
     }
 
@@ -570,24 +556,16 @@ final class ModuleManager
      * Register every module that has a Templates/ directory.
      *
      * Same bargain as assets, and for the same reason: having the directory is
-     * the declaration. What differs is that the shared module IS included here.
-     * A shared template is an ordinary thing to want -- a pagination control, a
-     * money cell, an address block -- and unlike an asset URL there is a name
-     * for it, "@shared/...", so nothing has to be invented to address it.
-     *
-     * The namespace mirrors the asset URL rather than the module id: a plugin
-     * called Example is "plugin.Example", not "plugins/Example". The dot is not
-     * decoration -- a Twig namespace cannot contain a slash, and the two
-     * engines have to agree on how a template is named.
+     * the declaration. The namespace is the module's id, so modules/Billing's
+     * Templates/invoice.twig is "@Billing/invoice", and a theme replaces it with
+     * templates/Billing/invoice.twig.
      */
     private function publishTemplates(): void
     {
         foreach ($this->registry->definitions() as $definition) {
-            if (!$definition->hasTemplates) {
-                continue;
+            if ($definition->hasTemplates) {
+                $this->templates->add($definition->id, $definition->file(ModuleDefinition::TEMPLATES), TemplateSource::MODULE);
             }
-
-            $this->templates->add(self::namespaceOf($definition), $definition->file(ModuleDefinition::TEMPLATES), TemplateSource::MODULE);
         }
     }
 
@@ -595,26 +573,18 @@ final class ModuleManager
      * Register every module that has a lang/ directory.
      *
      * The same bargain again: the directory is the declaration, and the name
-     * is the template namespace, so 'plugin.Billing.invoice_created' is found
-     * in modules/Plugins/Billing/lang/ exactly as '@plugin.Billing/invoice' is
-     * found in its Templates/. A module that is removed or disabled is not
-     * here, and its keys stop resolving without anything else being edited.
+     * is the module's id, so 'Billing.invoice_created' is found in
+     * modules/Billing/lang/ exactly as '@Billing/invoice' is found in its
+     * Templates/. A module that is removed or disabled is not here, and its
+     * keys stop resolving without anything else being edited.
      */
     private function publishTranslations(): void
     {
         foreach ($this->registry->definitions() as $definition) {
             if ($definition->hasLang) {
-                $this->translations->add(self::namespaceOf($definition), $definition->file(ModuleDefinition::LANG));
+                $this->translations->add($definition->id, $definition->file(ModuleDefinition::LANG));
             }
         }
-    }
-
-    /** 'shared', 'plugin.Example', 'gateway.Example': how templates and translations name a module. */
-    private static function namespaceOf(ModuleDefinition $definition): string
-    {
-        return $definition->kind === ModuleKind::Shared
-            ? ModuleKind::Shared->value
-            : \rtrim($definition->kind->value, 's') . '.' . $definition->directory;
     }
 
     /**

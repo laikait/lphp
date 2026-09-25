@@ -48,7 +48,7 @@ return static function (ModuleContext $module): void {
     // about order: it is about the User model and the pagination contract this
     // module uses (see Api/ and the owner relation below), and about refusing
     // to boot against a shared module whose 1.0 changed them.
-    $module->requires('shared', '^0.1');
+    $module->requires('Shared', '^0.1');
 
     $module->config([
         'page_size' => 25,
@@ -91,8 +91,8 @@ return static function (ModuleContext $module): void {
             'assets' => [
                 'app.css' => asset()->core('css/app.css'),
                 'app.js' => asset()->core('js/app.js'),
-                'plugin.js' => asset()->plugin('Example', 'js/example.js'),
-                'gateway.js' => asset()->gateway('Example', 'js/gateway.js'),
+                'plugin.js' => asset()->module('Example', 'js/example.js'),
+                'gateway.js' => asset()->module('ExampleGateway', 'js/gateway.js'),
             ],
         ])->name('links');
 
@@ -280,6 +280,6 @@ return static function (ModuleContext $module): void {
         // is the event saying a customer was created, so that is what clears
         // it. A cache whose only invalidation is time is a cache that is
         // usually wrong for a while.
-        $hooks->add('customer.created', $customers->forgetTotal(...), 5, 'plugins/Example');
+        $hooks->add('customer.created', $customers->forgetTotal(...), 5, 'Example');
     });
 };

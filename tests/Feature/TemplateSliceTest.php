@@ -59,18 +59,18 @@ final class TemplateSliceTest extends TestCase
         $views = $application->container()->get(TemplateRegistry::class);
         self::assertInstanceOf(TemplateRegistry::class, $views);
 
-        self::assertFalse($views->hasNamespace('plugin.Example'), 'nothing is registered before boot');
+        self::assertFalse($views->hasNamespace('Example'), 'nothing is registered before boot');
 
         $application->boot();
 
-        self::assertSame(['plugin.Example', 'shared'], $views->namespaces());
+        self::assertSame(['Example', 'Shared'], $views->namespaces());
     }
 
     /**
-     * The shared module gets a template namespace even though it gets no asset
-     * namespace: unlike a URL, a template has a name for it.
+     * Shared is a module like any other here: its Templates/ is "@Shared", and
+     * the showcase's has no assets/, so it publishes none.
      */
-    public function test_the_shared_module_has_templates_but_no_asset_namespace(): void
+    public function test_the_shared_module_has_templates_and_assets_only_if_it_has_the_directory(): void
     {
         $application = $this->booted();
 
@@ -79,10 +79,10 @@ final class TemplateSliceTest extends TestCase
         self::assertInstanceOf(TemplateRegistry::class, $views);
         self::assertInstanceOf(AssetRegistry::class, $assets);
 
-        self::assertTrue($views->hasNamespace('shared'));
+        self::assertTrue($views->hasNamespace('Shared'));
 
         foreach ($assets->all() as $source) {
-            self::assertNotSame('shared', $source->name);
+            self::assertNotSame('Shared', $source->name);
         }
     }
 
@@ -91,9 +91,9 @@ final class TemplateSliceTest extends TestCase
         $views = $this->booted()->container()->get(TemplateRegistry::class);
         self::assertInstanceOf(TemplateRegistry::class, $views);
 
-        $path = $views->searchPath('plugin.Example');
+        $path = $views->searchPath('Example');
 
-        self::assertStringEndsWith('templates/plugin.Example', $path[0]);
+        self::assertStringEndsWith('templates/Example', $path[0]);
         self::assertStringEndsWith(self::SHOWCASE . '/Plugins/Example/Templates', $path[1]);
     }
 
@@ -101,7 +101,7 @@ final class TemplateSliceTest extends TestCase
 
     public function test_a_module_template_is_rendered_from_inside_the_denied_module_tree(): void
     {
-        $html = $this->templates()->render('@plugin.Example/customer/promo', ['heading' => 'Hi']);
+        $html = $this->templates()->render('@Example/customer/promo', ['heading' => 'Hi']);
 
         self::assertStringContainsString('ships with the Example plugin', $html);
         self::assertStringContainsString('<h2>Hi</h2>', $html);
@@ -134,7 +134,7 @@ final class TemplateSliceTest extends TestCase
             email: 'ada@example.test',
         );
 
-        $html = $templates->render('@plugin.Example/customer/profile', ['customer' => $customer]);
+        $html = $templates->render('@Example/customer/profile', ['customer' => $customer]);
 
         self::assertStringContainsString('profile--overridden', $html);
         self::assertStringNotContainsString('profile--module', $html);
@@ -142,14 +142,14 @@ final class TemplateSliceTest extends TestCase
         // ...and the module's own copy is still there, as the fallback.
         self::assertFileExists($this->basePath(self::SHOWCASE . '/Plugins/Example/Templates/customer/profile.php'));
         self::assertStringEndsWith(
-            self::SHOWCASE . '/Theme/plugin.Example/customer/profile.php',
-            $templates->locate('@plugin.Example/customer/profile')->absolutePath,
+            self::SHOWCASE . '/Theme/Example/customer/profile.php',
+            $templates->locate('@Example/customer/profile')->absolutePath,
         );
     }
 
     public function test_a_shared_partial_is_reachable_by_namespace(): void
     {
-        $html = $this->templates()->render('@shared/money', ['amount' => 125000, 'currency' => 'USD']);
+        $html = $this->templates()->render('@Shared/money', ['amount' => 125000, 'currency' => 'USD']);
 
         self::assertStringContainsString('1,250.00 USD', $html);
     }
@@ -214,7 +214,7 @@ final class TemplateSliceTest extends TestCase
     /** Nothing a handler passes reaches the page unescaped. */
     public function test_markup_in_the_data_is_escaped(): void
     {
-        $html = $this->templates()->render('@plugin.Example/customer/promo', [
+        $html = $this->templates()->render('@Example/customer/promo', [
             'heading' => '<script>alert(1)</script>',
         ]);
 

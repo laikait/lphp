@@ -16,12 +16,11 @@ use App\Engine\Support\Path;
  *     core                 ->  <base>/assets
  *     template             ->  <base>/templates/assets
  *     template + "admin"   ->  <base>/templates/admin/assets
- *     plugin  + "Example"  ->  <base>/modules/Plugins/Example/assets
- *     gateway + "Stripe"   ->  <base>/modules/Gateways/Stripe/assets
+ *     module  + "Billing"  ->  <base>/modules/Billing/assets
  *
  * The root is stored normalised but NOT resolved: a source may legitimately be
  * registered for a directory that does not exist yet (a template that ships no
- * assets, a plugin mid-installation). Resolution is where existence matters,
+ * assets, a module mid-installation). Resolution is where existence matters,
  * and that is AssetResolver's job, not this one's.
  */
 final class AssetSource
@@ -52,7 +51,7 @@ final class AssetSource
     }
 
     /**
-     * The registry key: "core", "template", "template/admin", "plugin/Example".
+     * The registry key: "core", "template", "template/admin", "module/Billing".
      *
      * This is also exactly the URL prefix after /assets/, which is not a
      * coincidence -- one string means the URL scheme and the lookup key can

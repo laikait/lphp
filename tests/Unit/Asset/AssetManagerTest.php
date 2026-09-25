@@ -37,8 +37,8 @@ final class AssetManagerTest extends TestCase
         $this->registry->publish(AssetKind::Core, null, $this->root . '/core');
         $this->registry->publish(AssetKind::Template, null, $this->root . '/template');
         $this->registry->publish(AssetKind::Template, 'admin', $this->root . '/template-admin');
-        $this->registry->publish(AssetKind::Plugin, 'Example', $this->root . '/plugin');
-        $this->registry->publish(AssetKind::Gateway, 'Example', $this->root . '/gateway');
+        $this->registry->publish(AssetKind::Module, 'Example', $this->root . '/plugin');
+        $this->registry->publish(AssetKind::Module, 'ExampleGateway', $this->root . '/gateway');
     }
 
     protected function tearDown(): void
@@ -73,8 +73,8 @@ final class AssetManagerTest extends TestCase
         self::assertSame('/assets/core/css/app.css', $assets->core('css/app.css'));
         self::assertSame('/assets/template/css/app.css', $assets->template('css/app.css'));
         self::assertSame('/assets/template/admin/css/admin.css', $assets->template('admin', 'css/admin.css'));
-        self::assertSame('/assets/plugin/Example/css/example.css', $assets->plugin('Example', 'css/example.css'));
-        self::assertSame('/assets/gateway/Example/css/gateway.css', $assets->gateway('Example', 'css/gateway.css'));
+        self::assertSame('/assets/module/Example/css/example.css', $assets->module('Example', 'css/example.css'));
+        self::assertSame('/assets/module/ExampleGateway/css/gateway.css', $assets->module('ExampleGateway', 'css/gateway.css'));
     }
 
     /**
@@ -83,20 +83,20 @@ final class AssetManagerTest extends TestCase
      */
     public function test_a_url_never_reveals_where_the_file_lives(): void
     {
-        $url = $this->manager()->plugin('Example', 'css/example.css');
+        $url = $this->manager()->module('Example', 'css/example.css');
 
         self::assertStringNotContainsString('modules', $url);
         self::assertStringNotContainsString($this->root, $url);
         self::assertStringNotContainsString('assets/assets', $url);
     }
 
-    public function test_a_plugin_and_a_gateway_of_the_same_name_do_not_collide(): void
+    public function test_two_modules_do_not_collide(): void
     {
         $assets = $this->manager(versioning: AssetVersioning::None);
 
         self::assertNotSame(
-            $assets->plugin('Example', 'css/example.css'),
-            $assets->gateway('Example', 'css/gateway.css'),
+            $assets->module('Example', 'css/example.css'),
+            $assets->module('ExampleGateway', 'css/gateway.css'),
         );
     }
 
@@ -204,9 +204,9 @@ final class AssetManagerTest extends TestCase
     public function test_an_unpublished_namespace_throws_in_strict_mode(): void
     {
         $this->expectException(AssetException::class);
-        $this->expectExceptionMessage("plugin 'Missing'");
+        $this->expectExceptionMessage("module 'Missing'");
 
-        $this->manager(strict: true)->plugin('Missing', 'css/x.css');
+        $this->manager(strict: true)->module('Missing', 'css/x.css');
     }
 
     // ---- locate -----------------------------------------------------------
@@ -234,7 +234,7 @@ final class AssetManagerTest extends TestCase
 
         self::assertTrue($assets->exists(AssetKind::Core, null, 'css/app.css'));
         self::assertFalse($assets->exists(AssetKind::Core, null, 'css/nope.css'));
-        self::assertFalse($assets->exists(AssetKind::Plugin, 'Missing', 'css/x.css'));
+        self::assertFalse($assets->exists(AssetKind::Module, 'Missing', 'css/x.css'));
     }
 
     // ---- encoding ---------------------------------------------------------
@@ -255,7 +255,7 @@ final class AssetManagerTest extends TestCase
     {
         foreach (['../evil', 'a/b', '', 'has space', '.hidden', 'semi;colon'] as $name) {
             try {
-                new AssetSource(AssetKind::Plugin, $name, $this->root);
+                new AssetSource(AssetKind::Module, $name, $this->root);
                 self::fail(\sprintf('the source name "%s" was accepted', $name));
             } catch (AssetException $e) {
                 self::assertStringContainsString('name', $e->getMessage());
@@ -276,12 +276,12 @@ final class AssetManagerTest extends TestCase
         self::assertStringContainsString('cannot be named', $caught);
     }
 
-    public function test_a_plugin_must_be_named(): void
+    public function test_a_module_source_must_be_named(): void
     {
         $caught = 'nothing was thrown';
 
         try {
-            new AssetSource(AssetKind::Plugin, null, $this->root);
+            new AssetSource(AssetKind::Module, null, $this->root);
         } catch (AssetException $e) {
             $caught = $e->getMessage();
         }

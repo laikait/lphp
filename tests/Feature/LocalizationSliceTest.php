@@ -31,7 +31,7 @@ final class LocalizationSliceTest extends TestCase
     /** @param array<string, mixed> $config */
     private function booted(array $config = []): Application
     {
-        $config['modules']['paths']['plugins'] ??= self::PLUGINS;
+        $config['modules']['paths'] ??= ['modules/Shared', self::PLUGINS];
 
         return $this->shippedApplication($config)->boot();
     }
@@ -51,19 +51,19 @@ final class LocalizationSliceTest extends TestCase
     {
         $catalog = $this->booted()->container()->get(TranslationCatalog::class);
 
-        self::assertSame(['plugin.Billing'], $catalog->namespaces());
-        self::assertSame(['bn', 'en'], $catalog->locales('plugin.Billing'));
+        self::assertSame(['Billing'], $catalog->namespaces());
+        self::assertSame(['bn', 'en'], $catalog->locales('Billing'));
         self::assertSame(['bn', 'en'], $catalog->locales(), 'the shipped lang/');
     }
 
     public function test_a_disabled_module_takes_its_translations_with_it(): void
     {
-        $application = $this->booted(['modules' => ['disabled' => ['plugins/Billing']]]);
+        $application = $this->booted(['modules' => ['disabled' => ['Billing']]]);
 
         self::assertSame([], $application->container()->get(TranslationCatalog::class)->namespaces());
         self::assertSame(
-            'plugin.Billing.invoice_created',
-            $application->container()->get(Localization::class)->get('plugin.Billing.invoice_created'),
+            'Billing.invoice_created',
+            $application->container()->get(Localization::class)->get('Billing.invoice_created'),
         );
     }
 
@@ -71,18 +71,18 @@ final class LocalizationSliceTest extends TestCase
 
     public function test_the_local_filter_translates_through_the_template_manager(): void
     {
-        $html = $this->booted()->container()->get(TemplateManager::class)->render('@plugin.Billing/invoice', ['user' => 'Some User']);
+        $html = $this->booted()->container()->get(TemplateManager::class)->render('@Billing/invoice', ['user' => 'Some User']);
 
         self::assertStringContainsString('<h1>Invoice created</h1>', $html);
         self::assertStringContainsString('<p>Invoice for Some User</p>', $html);
         self::assertStringContainsString('<p>Some User updated successfully</p>', $html);
         self::assertStringContainsString('<p>Updated</p>', $html);
-        self::assertStringContainsString('<p>plugin.Billing.no_such_key</p>', $html, 'a missing key shows as itself');
+        self::assertStringContainsString('<p>Billing.no_such_key</p>', $html, 'a missing key shows as itself');
     }
 
     public function test_the_local_filter_output_is_escaped(): void
     {
-        $html = $this->booted()->container()->get(TemplateManager::class)->render('@plugin.Billing/invoice', ['user' => '<script>alert(1)</script>']);
+        $html = $this->booted()->container()->get(TemplateManager::class)->render('@Billing/invoice', ['user' => '<script>alert(1)</script>']);
 
         self::assertStringNotContainsString('<script>', $html);
         self::assertStringContainsString('&lt;script&gt;alert(1)&lt;/script&gt; updated successfully', $html);
@@ -93,8 +93,8 @@ final class LocalizationSliceTest extends TestCase
         $first = $this->booted(['templates' => ['cache' => true]])->container()->get(TemplateManager::class);
         $second = $this->booted(['templates' => ['cache' => true]])->container()->get(TemplateManager::class);
 
-        self::assertStringContainsString('<h1>Invoice created</h1>', $first->render('@plugin.Billing/invoice', ['user' => 'A']));
-        self::assertStringContainsString('<h1>Invoice created</h1>', $second->render('@plugin.Billing/invoice', ['user' => 'A']));
+        self::assertStringContainsString('<h1>Invoice created</h1>', $first->render('@Billing/invoice', ['user' => 'A']));
+        self::assertStringContainsString('<h1>Invoice created</h1>', $second->render('@Billing/invoice', ['user' => 'A']));
     }
 
     public function test_a_php_template_translates_through_the_view(): void

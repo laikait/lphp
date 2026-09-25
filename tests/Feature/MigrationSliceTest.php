@@ -30,7 +30,7 @@ final class MigrationSliceTest extends TestCase
     {
         return $this->application([
             'app' => ['env' => $env],
-            'modules' => ['paths' => ['plugins' => 'tests/Fixtures/Modules/Migrations/Plugins']],
+            'modules' => ['paths' => [self::SHOWCASE . '/Shared', 'tests/Fixtures/Modules/Migrations/Plugins']],
             'database' => ['connections' => ['default' => ['dsn' => 'sqlite::memory:']]],
         ])->boot();
     }
@@ -63,14 +63,14 @@ final class MigrationSliceTest extends TestCase
 
         [$status, $output] = $this->console($app, 'migrate', '--pretend');
         self::assertSame(0, $status, $output);
-        self::assertStringContainsString('plugins/Billing:2026_02_01_000000_create_invoices', $output);
+        self::assertStringContainsString('Billing:2026_02_01_000000_create_invoices', $output);
         self::assertStringContainsString('CREATE TABLE "laika_mig_invoices"', $output);
         self::assertStringContainsString('3 migration(s) would run. Nothing was run.', $output);
         self::assertFalse($db->tables()->exists('laika_mig_invoices'));
 
         [$status, $output] = $this->console($app, 'migrate');
         self::assertSame(0, $status, $output);
-        self::assertMatchesRegularExpression('/ran\s+plugins\/Customers:2026_01_01_000000_create_customers.*\n.*create_customer_notes.*\n.*create_invoices/', $output);
+        self::assertMatchesRegularExpression('/ran\s+Customers:2026_01_01_000000_create_customers.*\n.*create_customer_notes.*\n.*create_invoices/', $output);
         self::assertTrue($db->tables()->exists('laika_mig_invoices'));
 
         [$status, $output] = $this->console($app, 'migrate');
@@ -79,7 +79,7 @@ final class MigrationSliceTest extends TestCase
 
         [$status, $output] = $this->console($app, 'migrate:status');
         self::assertSame(0, $status);
-        self::assertMatchesRegularExpression('/plugins\/Billing:2026_02_01_000000_create_invoices\s+ran\s+1/', $output);
+        self::assertMatchesRegularExpression('/Billing:2026_02_01_000000_create_invoices\s+ran\s+1/', $output);
         self::assertStringContainsString('0 pending.', $output);
 
         [$status, $output] = $this->console($app, 'migrate:rollback');
@@ -97,14 +97,14 @@ final class MigrationSliceTest extends TestCase
         foreach ([false => 'App\Engine\Database\DatabaseException, whose message is shown only with APP_DEBUG=1.', true => 'THIS IS NOT SQL'] as $debug => $cause) {
             $app = $this->application([
                 'app' => ['debug' => (bool) $debug],
-                'modules' => ['paths' => ['plugins' => 'tests/Fixtures/Modules/MigrationsFailing/Plugins']],
+                'modules' => ['paths' => [self::SHOWCASE . '/Shared', 'tests/Fixtures/Modules/MigrationsFailing/Plugins']],
                 'database' => ['connections' => ['default' => ['dsn' => 'sqlite::memory:']]],
             ])->boot();
 
             [$status, $output] = $this->console($app, 'migrate');
 
             self::assertSame(1, $status);
-            self::assertStringContainsString('plugins/Broken:2026_01_01_000000_half_done failed on sqlite. Nothing of it was kept', $output);
+            self::assertStringContainsString('Broken:2026_01_01_000000_half_done failed on sqlite. Nothing of it was kept', $output);
             self::assertStringContainsString('Cause: ', $output);
             self::assertStringContainsString($cause, $output);
         }
@@ -118,18 +118,18 @@ final class MigrationSliceTest extends TestCase
 
         [$status, $output] = $this->console($app, 'db:seed');
         self::assertSame(0, $status, $output);
-        self::assertMatchesRegularExpression('/seeded\s+plugins\/Customers:customers.*\n.*seeded\s+plugins\/Billing:invoices/', $output);
+        self::assertMatchesRegularExpression('/seeded\s+Customers:customers.*\n.*seeded\s+Billing:invoices/', $output);
         self::assertStringContainsString('2 seeder(s) ran.', $output);
         self::assertSame(1, $db->table('laika_mig_invoices')->count());
 
-        [$status, $output] = $this->console($app, 'db:seed', '--module=plugins/Customers');
+        [$status, $output] = $this->console($app, 'db:seed', '--module=Customers');
         self::assertSame(0, $status, $output);
         self::assertStringContainsString('1 seeder(s) ran.', $output);
         self::assertSame(1, $db->table('laika_mig_customers')->count(), 'a seeder that looks first adds nothing the second time');
 
-        [$status, $output] = $this->console($app, 'db:seed', '--module=plugins/Nobody');
+        [$status, $output] = $this->console($app, 'db:seed', '--module=Nobody');
         self::assertSame(1, $status);
-        self::assertStringContainsString('There is no enabled module "plugins/Nobody"', $output);
+        self::assertStringContainsString('There is no enabled module "Nobody"', $output);
     }
 
     /** Rows meant for a developer's database do not go into the live one by accident. */
@@ -160,14 +160,14 @@ final class MigrationSliceTest extends TestCase
             'cache' => ['store' => 'database'],
             'queue' => ['store' => 'database'],
             'logging' => ['writers' => ['database']],
-            'modules' => ['paths' => ['plugins' => 'tests/Fixtures/Modules/Migrations/Plugins']],
+            'modules' => ['paths' => [self::SHOWCASE . '/Shared', 'tests/Fixtures/Modules/Migrations/Plugins']],
             'database' => ['connections' => ['default' => ['dsn' => 'sqlite::memory:']]],
         ])->boot();
 
         [$status, $output] = $this->console($app, 'migrate');
         self::assertSame(0, $status, $output);
         self::assertMatchesRegularExpression(
-            '/framework:2026_09_19_000000_create_sessions.*\n.*framework:2026_09_19_000001_create_cache.*\n.*framework:2026_09_19_000002_create_jobs.*\n.*framework:2026_09_19_000003_create_logs.*\n.*plugins\/Customers/',
+            '/framework:2026_09_19_000000_create_sessions.*\n.*framework:2026_09_19_000001_create_cache.*\n.*framework:2026_09_19_000002_create_jobs.*\n.*framework:2026_09_19_000003_create_logs.*\n.*Customers/',
             $output,
         );
 

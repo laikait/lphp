@@ -75,7 +75,7 @@ final class ModuleListCommand
     }
 
     /**
-     * `shared ^0.1, plugins/Crm? (absent)`.
+     * `Shared ^0.1, Crm? (absent)`.
      *
      * An optional dependency carries a question mark, and one that is not there
      * says so -- otherwise the listing would show an integration as if it were

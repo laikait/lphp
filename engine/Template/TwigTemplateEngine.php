@@ -22,7 +22,7 @@ namespace App\Engine\Template;
  * **The loader mirrors the registry.** Every search path the manager would
  * look in is given to Twig in the same order, and module namespaces become Twig
  * namespaces, so `{% extends "layout.twig" %}` and
- * `{% include "@plugin.Example/row.twig" %}` resolve exactly where the manager
+ * `{% include "@Billing/row.twig" %}` resolve exactly where the manager
  * would have resolved them — including the override rule. If they did not
  * agree, a template found by one would be missing to the other, which is the
  * sort of bug that takes a day.

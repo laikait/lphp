@@ -1734,18 +1734,20 @@ final class Bootstrap
                 'cache' => false,
             ],
             'modules' => [
-                'paths' => [
-                    'shared' => 'modules/Shared',
-                    'plugins' => 'modules/Plugins',
-                    'gateways' => 'modules/Gateways',
-                ],
+                // Where modules are. Every directory directly inside one of
+                // these that has a module.php is a module named after its
+                // directory -- modules/Billing is "Billing" -- and
+                // modules/Shared is the shared module. A path that has a
+                // module.php of its own is a single module, for one kept
+                // outside modules/.
+                'paths' => ['modules'],
                 // There is no "cache" key here any more. The discovery cache is
                 // used when cache:warm has built it and app.debug is off -- the
                 // file is the switch, as it is for the configuration cache. See
                 // ModuleManager::readDiscoveryCache().
                 //
                 // Module ids installed here but switched off, e.g.
-                // ['gateways/Stripe']. A disabled module's module.php never
+                // ['Stripe']. A disabled module's module.php never
                 // runs, and anything that requires it refuses to boot rather
                 // than half-working. An unknown id is refused too: a typo would
                 // otherwise leave the module on. Shared cannot be disabled.

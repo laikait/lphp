@@ -21,11 +21,11 @@ return static function (ModuleContext $module): void {
 
     $module->routes(static function (RouteCollector $routes): void {
         $routes->get('/invoice', static fn(Request $request, TemplateManager $templates): Response => (new Response(
-            $templates->render('@plugin.Billing/invoice', ['user' => (string) $request->query('user', 'Some User')]),
+            $templates->render('@Billing/invoice', ['user' => (string) $request->query('user', 'Some User')]),
         ))->withContentType('text/html'))->name('billing.invoice');
 
         $routes->get('/receipt', static fn(TemplateManager $templates): Response => (new Response(
-            $templates->render('@plugin.Billing/receipt', ['user' => '<b>Ann</b>']),
+            $templates->render('@Billing/receipt', ['user' => '<b>Ann</b>']),
         ))->withContentType('text/html'))->name('billing.receipt');
 
         $routes->get('/untranslated', static fn(): Response => new Response('plain'))->name('billing.untranslated');

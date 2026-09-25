@@ -33,7 +33,7 @@ final class McpRegistryTest extends TestCase
 
     public function test_capabilities_are_found_by_kind_and_name_and_know_their_module(): void
     {
-        $this->module('plugins/Customer')
+        $this->module('Customer')
             ->tool('customer.get', \ArrayObject::class, 'Retrieve a customer by id.')
             ->resource('customer://{id}', \ArrayIterator::class)
             ->prompt('customer.support', \SplStack::class);
@@ -41,7 +41,7 @@ final class McpRegistryTest extends TestCase
         $tool = $this->registry->find(CapabilityKind::Tool, 'customer.get');
 
         self::assertNotNull($tool);
-        self::assertSame('plugins/Customer', $tool->module);
+        self::assertSame('Customer', $tool->module);
         self::assertSame('Retrieve a customer by id.', $tool->description);
         self::assertSame(CapabilityKind::Resource, $this->registry->find(CapabilityKind::Resource, 'customer://{id}')?->kind);
         self::assertNull($this->registry->find(CapabilityKind::Prompt, 'customer.get'), 'kinds are separate namespaces');
@@ -51,7 +51,7 @@ final class McpRegistryTest extends TestCase
     public function test_listing_is_in_registration_order(): void
     {
         $this->module('shared')->tool('zeta', \SplQueue::class)->tool('alpha', \SplQueue::class);
-        $this->module('plugins/Billing')->tool('mid', \SplQueue::class)->prompt('billing.explain', \SplQueue::class);
+        $this->module('Billing')->tool('mid', \SplQueue::class)->prompt('billing.explain', \SplQueue::class);
 
         self::assertSame(['zeta', 'alpha', 'mid'], \array_map(static fn($c) => $c->name, $this->registry->all(CapabilityKind::Tool)));
         self::assertSame(['zeta', 'alpha', 'mid', 'billing.explain'], \array_map(static fn($c) => $c->name, $this->registry->everything()));
@@ -59,13 +59,13 @@ final class McpRegistryTest extends TestCase
 
     public function test_a_name_belongs_to_one_module(): void
     {
-        $this->module('plugins/Customer')->tool('customer.get', \ArrayObject::class);
+        $this->module('Customer')->tool('customer.get', \ArrayObject::class);
 
         try {
-            $this->module('plugins/Crm')->tool('customer.get', \ArrayIterator::class);
+            $this->module('Crm')->tool('customer.get', \ArrayIterator::class);
             self::fail('a duplicate was registered');
         } catch (RegistryException $e) {
-            self::assertStringContainsString('registered by plugins/Customer and again by plugins/Crm', $e->getMessage());
+            self::assertStringContainsString('registered by Customer and again by Crm', $e->getMessage());
         }
 
         self::assertSame(\ArrayObject::class, $this->registry->find(CapabilityKind::Tool, 'customer.get')?->handler);
@@ -73,7 +73,7 @@ final class McpRegistryTest extends TestCase
 
     public function test_the_same_name_may_be_a_tool_and_a_prompt(): void
     {
-        $this->module('plugins/Customer')->tool('customer.support', \ArrayObject::class)->prompt('customer.support', \ArrayObject::class);
+        $this->module('Customer')->tool('customer.support', \ArrayObject::class)->prompt('customer.support', \ArrayObject::class);
 
         self::assertCount(2, $this->registry->everything());
     }
@@ -95,7 +95,7 @@ final class McpRegistryTest extends TestCase
         $this->expectException(RegistryException::class);
         $this->expectExceptionMessage('is invalid');
 
-        $this->module('plugins/Customer')->tool($name, \ArrayObject::class);
+        $this->module('Customer')->tool($name, \ArrayObject::class);
     }
 
     /** @return iterable<string, array{string, string}> */
@@ -114,7 +114,7 @@ final class McpRegistryTest extends TestCase
         $this->expectException(RegistryException::class);
         $this->expectExceptionMessage($why);
 
-        $this->module('plugins/Customer')->resource($template, \ArrayObject::class);
+        $this->module('Customer')->resource($template, \ArrayObject::class);
     }
 
     public function test_a_capability_without_a_handler_is_refused(): void
@@ -123,6 +123,6 @@ final class McpRegistryTest extends TestCase
         $this->expectExceptionMessage('has no handler class');
 
         // @phpstan-ignore argument.type (the point of the test is an empty handler)
-        $this->module('plugins/Customer')->prompt('customer.support', ' ');
+        $this->module('Customer')->prompt('customer.support', ' ');
     }
 }

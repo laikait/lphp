@@ -25,7 +25,7 @@ final class AccessRegistryTest extends TestCase
         $this->registry = new AccessRegistry();
     }
 
-    private function collector(string $module = 'plugins/Billing'): AccessCollector
+    private function collector(string $module = 'Billing'): AccessCollector
     {
         return new AccessCollector($this->registry, $module);
     }
@@ -42,7 +42,7 @@ final class AccessRegistryTest extends TestCase
         $permission = $this->registry->permissions()['invoice.void'];
 
         self::assertSame('Cancel an issued invoice.', $permission->description);
-        self::assertSame('plugins/Billing', $permission->module, 'who declared it is part of the record');
+        self::assertSame('Billing', $permission->module, 'who declared it is part of the record');
     }
 
     public function test_a_declared_role_grants_what_it_says(): void
@@ -70,12 +70,12 @@ final class AccessRegistryTest extends TestCase
     /** Two modules defining one capability means neither can be read alone. */
     public function test_two_modules_cannot_declare_the_same_capability(): void
     {
-        $this->collector('plugins/Billing')->capability('invoice.void');
+        $this->collector('Billing')->capability('invoice.void');
 
         $this->expectException(AuthException::class);
-        $this->expectExceptionMessage('plugins/Billing already declared');
+        $this->expectExceptionMessage('Billing already declared');
 
-        $this->collector('plugins/Reports')->capability('invoice.void');
+        $this->collector('Reports')->capability('invoice.void');
     }
 
     public function test_two_modules_cannot_declare_the_same_role(): void
@@ -85,7 +85,7 @@ final class AccessRegistryTest extends TestCase
         $this->expectException(AuthException::class);
         $this->expectExceptionMessage('shared already declared');
 
-        $this->collector('plugins/Billing')->role('clerk');
+        $this->collector('Billing')->role('clerk');
     }
 
     public function test_a_role_cannot_inherit_one_nobody_declared(): void
