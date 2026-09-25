@@ -45,6 +45,7 @@ to open besides the web server's.
    | `APP_ENV=production`, `APP_DEBUG=false` | debug shows stack traces, paths and settings to anyone who triggers an error |
    | `APP_KEY` | get one with `php laika security:key --bare`, and keep it like a password. Changing it makes every open form's CSRF token invalid |
    | `APP_TIMEZONE` | set it; do not rely on what `php.ini` happens to say |
+   | `MEMORY_LIMIT` | PHP's `memory_limit`, e.g. `256M`, for the same reason; queue workers stop at 80% of it |
    | `DB_DSN`, `DB_USERNAME`, `DB_PASSWORD` | your database; or `config/database.php` for several |
    | `SESSION_STORE`, `CACHE_STORE`, `QUEUE_STORE` | see [More than one host](#more-than-one-host) |
    | `SESSION_ABSOLUTE` | a maximum session length, in seconds; there is none by default |
@@ -158,6 +159,8 @@ User=www-data
 
 - `--max-jobs` and `--max-time` make the worker stop regularly, which keeps
   memory in check and makes sure a deployment's new code reaches every worker.
+  It also stops, between jobs, at 80% of `MEMORY_LIMIT` (or `--memory=`), so it
+  is restarted cleanly rather than killed mid-job.
 - With `QUEUE_STORE=file`, any number of workers on **one** machine is fine.
   With `database`, workers on any number of machines share the same queue.
 - A worker exits with 1 when it gave up on a job.

@@ -175,6 +175,11 @@ final class Bootstrap
         // whatever the ini file says.
         self::applyTimezone($settings);
 
+        // Before anything large is built, for the same reason: php.ini differs
+        // between a laptop and the server, and a limit that is only right on
+        // one of them is found by the first big report in production.
+        self::applyMemoryLimit($settings);
+
         $hooks = new HookEngine();
         $filters = new FilterEngine((bool) $settings->get('app.debug', false));
         $router = new Router();
@@ -814,6 +819,56 @@ final class Bootstrap
     }
 
     /**
+     * PHP's memory_limit, when app.memory_limit sets one.
+     *
+     * null leaves php.ini alone. A value is PHP's own notation -- 256M, 1G,
+     * 134217728, -1 for none -- and anything else stops the boot rather than
+     * being passed to ini_set(), which would quietly keep the old limit.
+     *
+     * A limit below what this process already uses, plus the headroom the
+     * error handler reserves, is refused too: the next allocation would be a
+     * fatal error, and one with no room left to report itself.
+     */
+    private static function applyMemoryLimit(Config $settings): void
+    {
+        // A string from the environment, or an int from a config file:
+        // 'memory_limit' => -1 is as natural to write as '256M'.
+        $limit = $settings->get('app.memory_limit');
+
+        if (\is_int($limit)) {
+            $limit = (string) $limit;
+        }
+
+        if ($limit === null || (\is_string($limit) && \trim($limit) === '')) {
+            return;
+        }
+
+        if (!\is_string($limit)) {
+            throw ConfigurationException::invalidMemoryLimit(\get_debug_type($limit), 'is not PHP\'s notation, such as 256M, 1G or -1');
+        }
+
+        $given = \trim($limit);
+        $limit = \strtoupper($given);
+
+        if (\preg_match('/^(-1|[0-9]+[KMG]?)$/', $limit) !== 1) {
+            throw ConfigurationException::invalidMemoryLimit($given, 'is not PHP\'s notation, such as 256M, 1G or -1');
+        }
+
+        $floor = \memory_get_usage(true) + 2 * ErrorHandler::RESERVED_MEMORY;
+
+        if ($limit !== '-1' && RequestLimits::toBytes($limit) < $floor) {
+            throw ConfigurationException::invalidMemoryLimit(
+                $limit,
+                \sprintf('is less than the %s this process needs already', RequestLimits::format($floor)),
+            );
+        }
+
+        if (\ini_set('memory_limit', $limit) === false) {
+            throw ConfigurationException::invalidMemoryLimit($limit, 'was refused by PHP');
+        }
+    }
+
+    /**
      * The cache, assembled from configuration.
      *
      * Which store is a deployment decision, exactly like which log writers, and
@@ -1427,6 +1482,10 @@ final class Bootstrap
                 // changes shape depending on where the code is running is a bug
                 // found at month end.
                 'timezone' => Env::string('APP_TIMEZONE', 'UTC'),
+                // PHP's memory_limit, in PHP's notation: 256M, 1G, -1 for none.
+                // null leaves php.ini's. Set it here rather than in php.ini so
+                // the laptop and the server agree.
+                'memory_limit' => Env::string('MEMORY_LIMIT'),
                 // The editor the debug page (Whoops) links file paths to:
                 // phpstorm, vscode, sublime, atom, ... null for plain paths.
                 'editor' => Env::string('APP_EDITOR'),
@@ -1494,6 +1553,10 @@ final class Bootstrap
                 // What queue:work uses when nothing is said on the command line.
                 'tries' => Env::int('QUEUE_TRIES', 3),
                 'timeout' => Env::int('QUEUE_TIMEOUT', 60),
+                // A worker stops, between jobs, once it uses this much: 128M,
+                // 1G. null means 80% of memory_limit when there is one, so a
+                // worker exits cleanly instead of dying mid-job.
+                'max_memory' => Env::string('QUEUE_MAX_MEMORY'),
                 'sleep' => 1,
                 // Waiting is the right answer to most reasons a job fails: a
                 // rate limit, a failover, a host restarting. See Queue\Backoff.

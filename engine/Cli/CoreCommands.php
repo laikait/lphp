@@ -120,6 +120,7 @@ final class CoreCommands
             ->flag('drain', 'Work until the queue is empty, then stop.')
             ->option('max-jobs', 'Stop after this many jobs.', default: '0')
             ->option('max-time', 'Stop after this many seconds.', default: '0')
+            ->option('memory', 'Stop, between jobs, once memory use reaches this: 128M, 1G. Default 80% of memory_limit.')
             ->option('tries', 'Attempts before a job is recorded as failed.')
             ->option('timeout', 'How long a job may hold its reservation, in seconds.')
             ->option('sleep', 'Seconds to wait when the queue is empty.')

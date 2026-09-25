@@ -86,6 +86,13 @@ last month's deployment, with a month of memory growth and a database handle it
 opened on Tuesday. Let it finish; let systemd, supervisor or a container restart
 policy start a fresh one.
 
+**Memory is a bound too.** `--memory=128M` (or `QUEUE_MAX_MEMORY`) stops the
+worker, between jobs, once the process uses that much. With neither set it is
+80% of `memory_limit` (`MEMORY_LIMIT`), so a worker whose memory grows exits
+cleanly instead of PHP killing it in the middle of a job. It is checked after
+each job, never during one, so leave room below `memory_limit` for the largest
+job. The last line says what stopped it: `Worker stopped: memory (130M used).`
+
 `queue:work` exits 1 when it gave up on a job, so a cron line that drains a
 queue can be alerted on without parsing its output.
 

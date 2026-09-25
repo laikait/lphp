@@ -97,4 +97,13 @@ final class ConfigurationException extends FrameworkException
             $timezone,
         ));
     }
+
+    public static function invalidMemoryLimit(string $limit, string $reason): self
+    {
+        return new self(\sprintf(
+            'app.memory_limit (MEMORY_LIMIT) is "%s", which %s.',
+            $limit,
+            $reason,
+        ));
+    }
 }

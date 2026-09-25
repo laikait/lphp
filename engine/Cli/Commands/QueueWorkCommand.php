@@ -4,12 +4,14 @@ declare(strict_types=1);
 
 namespace App\Engine\Cli\Commands;
 
+use App\Engine\Cli\ConsoleException;
 use App\Engine\Cli\Output;
 use App\Engine\Config\Config;
 use App\Engine\Queue\JobOutcome;
 use App\Engine\Queue\Queue;
 use App\Engine\Queue\Worker;
 use App\Engine\Queue\WorkerOptions;
+use App\Engine\Security\RequestLimits;
 
 /**
  * Run jobs off a queue.
@@ -42,6 +44,7 @@ final class QueueWorkCommand
         ?int $tries = null,
         ?int $timeout = null,
         ?int $sleep = null,
+        ?string $memory = null,
     ): int {
         $name = $this->queue->name($queue);
 
@@ -53,6 +56,7 @@ final class QueueWorkCommand
             maxJobs: $once ? 1 : \max(0, $maxJobs),
             maxSeconds: \max(0, $maxTime),
             stopWhenEmpty: $once || $drain,
+            maxMemory: $this->maxMemory($memory),
         );
 
         $output->pairs([
@@ -88,8 +92,34 @@ final class QueueWorkCommand
             return 1;
         }
 
-        $output->success('Worker stopped.');
+        $output->success('Worker stopped' . ($this->worker->stoppedBy() === null ? '.' : ': ' . $this->worker->stoppedBy() . '.'));
 
         return 0;
+    }
+
+    /**
+     * --memory, else queue.max_memory, else 80% of memory_limit.
+     *
+     * The last is the one that matters in practice: with a limit set and no
+     * worker setting, a worker still exits between jobs well before PHP would
+     * kill it in the middle of one. No limit at all (-1) means no default.
+     */
+    private function maxMemory(?string $option): int
+    {
+        $configured = $option ?? $this->config->string('queue.max_memory');
+
+        if ($configured !== null && \trim($configured) !== '') {
+            $bytes = RequestLimits::toBytes($configured);
+
+            if ($bytes <= 0) {
+                throw ConsoleException::valueRejected('queue:work', 'memory', 'a size such as 128M or 1G', $configured);
+            }
+
+            return $bytes;
+        }
+
+        $limit = RequestLimits::toBytes((string) \ini_get('memory_limit'));
+
+        return $limit > 0 ? (int) ($limit * 0.8) : 0;
     }
 }
