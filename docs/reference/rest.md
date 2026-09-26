@@ -9,7 +9,7 @@ asserts those folders do not exist. Everything on this page is a convention
 layered on top, not machinery underneath.
 
 [JSON APIs](../guides/json-apis.md) builds one from nothing. The examples below
-are the showcase plugin's customer endpoints (`tests/Fixtures/Showcase/`); a
+are the showcase `Example` module's customer endpoints (`tests/Fixtures/Showcase/`); a
 fresh installation has none of these routes.
 
 ## An endpoint

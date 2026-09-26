@@ -118,7 +118,7 @@ if (!function_exists('asset')) {
      * The asset manager, for building public URLs to published files.
      *
      *     asset()->core('js/app.js')
-     *     asset()->plugin('Example', 'js/example.js')
+     *     asset()->module('Billing', 'js/billing.js')
      *
      * This one returns an object rather than doing the work, because the asset
      * API is five verbs rather than one and five more global functions would be

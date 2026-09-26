@@ -3,7 +3,7 @@
 declare(strict_types=1);
 
 /**
- * A template the plugin ships, reachable as "@plugin.Example/customer/promo".
+ * A template the plugin ships, reachable as "@Example/customer/promo".
  *
  * It lives in modules/, which the web server refuses to serve, and it is
  * rendered rather than served -- the same distinction the asset manager draws.

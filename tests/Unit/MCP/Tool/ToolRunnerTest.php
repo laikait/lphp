@@ -34,7 +34,7 @@ final class ToolRunnerTest extends TestCase
     private function registry(): McpRegistry
     {
         $registry = new McpRegistry();
-        (new McpCollector($registry, 'plugins/Demo'))
+        (new McpCollector($registry, 'Demo'))
             ->tool('greet', GreetTool::class, 'Say hello.')
             ->tool('broken', BrokenTool::class);
 
@@ -144,7 +144,7 @@ final class ToolRunnerTest extends TestCase
     public function test_a_handler_that_is_not_a_tool_is_a_contract_error(): void
     {
         $registry = new McpRegistry();
-        (new McpCollector($registry, 'plugins/Demo'))->tool('not-a-tool', \ArrayObject::class);
+        (new McpCollector($registry, 'Demo'))->tool('not-a-tool', \ArrayObject::class);
 
         $this->expectException(McpContractException::class);
         $this->expectExceptionMessage('does not implement');
@@ -155,7 +155,7 @@ final class ToolRunnerTest extends TestCase
     public function test_a_schema_that_is_not_an_object_schema_is_a_contract_error(): void
     {
         $registry = new McpRegistry();
-        (new McpCollector($registry, 'plugins/Demo'))->tool('lists', ListSchemaTool::class);
+        (new McpCollector($registry, 'Demo'))->tool('lists', ListSchemaTool::class);
 
         $this->expectException(McpContractException::class);
         $this->expectExceptionMessage('input schema');

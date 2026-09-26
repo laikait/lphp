@@ -12,8 +12,8 @@ This guide shows how to put HTML pages in your application:
 - change pages that another module or the framework made.
 
 Do [Getting started](../getting-started.md) first: this guide assumes you have a
-module with a route. The examples use a plugin called `Desk`, in
-`modules/Plugins/Desk/`. Replace `Desk` with your own module's name.
+module with a route. The examples use a module called `Desk`, in
+`modules/Desk/`. Replace `Desk` with your own module's name.
 
 ## Render a page
 
@@ -21,7 +21,7 @@ A page needs three things, all in your module:
 
 | What | Where | Does |
 |---|---|---|
-| a template | `Templates/profile.twig` | the HTML. Its name is `@plugin.Desk/profile`. |
+| a template | `Templates/profile.twig` | the HTML. Its name is `@Desk/profile`. |
 | a handler | a class in `Http/` | renders the template and returns a `Response` |
 | a route | `module.php` | connects a URL to the handler |
 
@@ -30,7 +30,7 @@ The handler's method looks like this:
 ```php
 public function __invoke(Request $request): Response
 {
-    $html = $this->templates->render('@plugin.Desk/profile', [
+    $html = $this->templates->render('@Desk/profile', [
         'user' => $user,
         'home' => $request->basePath() . '/',
     ]);
@@ -78,7 +78,7 @@ A **PHP** template cannot extend a layout. Render the page first, then pass the
 result to the layout as `content`:
 
 ```php
-$content = $this->templates->render('@plugin.Desk/legacy', ['rows' => $rows]);
+$content = $this->templates->render('@Desk/legacy', ['rows' => $rows]);
 $html = $this->templates->render('layout', ['title' => 'Legacy', 'content' => $content]);
 ```
 
@@ -88,7 +88,7 @@ A **partial** is a small template used inside other templates, such as a message
 box. In Twig:
 
 ```twig
-{% include "@plugin.Desk/partials/message.twig" with {message: message} only %}
+{% include "@Desk/partials/message.twig" with {message: message} only %}
 ```
 
 `only` means the partial sees just the values you pass, here `message`.
@@ -96,7 +96,7 @@ box. In Twig:
 In a PHP template:
 
 ```php
-<?= $view->render('@plugin.Desk/partials/message', ['message' => $message]) ?>
+<?= $view->render('@Desk/partials/message', ['message' => $message]) ?>
 ```
 
 A PHP partial always sees only what it is passed, never its parent's variables.
@@ -131,22 +131,22 @@ Put them in an `assets/` folder in your module. There is nothing to register:
 the folder is published because it exists.
 
 ```
-modules/Plugins/Desk/assets/css/desk.css   →   /assets/plugin/Desk/css/desk.css?v=…
+modules/Desk/assets/css/desk.css   →   /assets/module/Desk/css/desk.css?v=…
 ```
 
 Link to a file with `asset()`, never with a hand-written URL. In Twig:
 
 ```twig
 {% block content %}
-<link rel="stylesheet" href="{{ view.asset().plugin('Desk', 'css/desk.css') }}">
+<link rel="stylesheet" href="{{ view.asset().module('Desk', 'css/desk.css') }}">
 {% endblock %}
 ```
 
 | From | Write |
 |---|---|
-| a Twig template | `view.asset().plugin('Desk', 'css/desk.css')` |
-| a PHP template | `$view->asset()->plugin('Desk', 'css/desk.css')` |
-| `module.php` | `asset()->plugin('Desk', 'css/desk.css')` |
+| a Twig template | `view.asset().module('Desk', 'css/desk.css')` |
+| a PHP template | `$view->asset()->module('Desk', 'css/desk.css')` |
+| `module.php` | `asset()->module('Desk', 'css/desk.css')` |
 
 - **The `?v=…` part** is made from the file's contents. When the file changes,
   the URL changes, so browsers can cache it for a long time and still get every
@@ -243,7 +243,7 @@ final class ContactForm
     /** @param array<string, mixed> $data */
     private function page(Request $request, array $data): Response
     {
-        $html = $this->templates->render('@plugin.Desk/contact', $data + [
+        $html = $this->templates->render('@Desk/contact', $data + [
             'action' => $this->router->url('contact.send'),
             'token' => $this->csrf->token($request),
             'home' => $request->basePath() . '/',
@@ -363,8 +363,8 @@ form should accept. It needs PHP's `fileinfo` extension. Store uploads outside
 after the module's template namespace, and edit your copy:
 
 ```
-modules/Plugins/Billing/Templates/invoice.twig   the module's own
-templates/plugin.Billing/invoice.twig            your copy, which is used instead
+modules/Billing/Templates/invoice.twig   the module's own
+templates/Billing/invoice.twig            your copy, which is used instead
 ```
 
 You never edit the other module. `php laika template:list` shows the order in
@@ -372,7 +372,7 @@ which folders are searched. See
 [Resolution, and how overriding works](../reference/templates.md#resolution-and-how-overriding-works).
 
 **The home page.** Declare a `/` route in your module, with any route name except
-`home`. Your module loads after `shared`, so your route wins.
+`home`. Your module loads after `Shared`, so your route wins.
 
 **The error pages.** `templates/errors/404.twig` is shown for pages that do not
 exist, and `templates/errors/error.twig` for every other error. To change one
@@ -391,7 +391,7 @@ extends, and the stylesheet `templates/assets/css/theme.css`.
 | What you see | Why | Fix |
 |---|---|---|
 | `403` when a form is submitted | The CSRF token is missing or wrong. | Print `Csrf::token()` into a hidden `_token` field, as in the form above. |
-| A template "was not found" | Wrong name, or the extension was written. | Use `@plugin.<Name>/path` without `.twig`; check with `php laika template:list`. |
+| A template "was not found" | Wrong name, or the extension was written. | Use `@<Name>/path` without `.twig`; check with `php laika template:list`. |
 | HTML shows as text, with `<` visible | Twig escaped it, as it should for data. | If the HTML is yours and trusted, print it with `\|raw`. |
 | The stylesheet is a 404 | The file is not in the module's `assets/` folder, or the path is wrong. | Check the file exists; `php laika asset:list` shows what is published. |
 | Your error page is not shown | Debug mode is on. | Set `APP_DEBUG=false`. |

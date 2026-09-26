@@ -25,7 +25,7 @@ final class SeederFile
         public readonly string $path,
     ) {}
 
-    /** "plugins/Billing:invoices". */
+    /** "Billing:invoices". */
     public function id(): string
     {
         return $this->module . ':' . $this->name;

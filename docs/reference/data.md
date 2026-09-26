@@ -87,7 +87,9 @@ This is the choice that most often turns a fast query into a slow page:
 | `rows()` · `firstRow()` | plain arrays | every selected column, builds nothing |
 | `into($readModel)` · `firstInto()` · `pageInto()` | read models | only the columns the read model declares |
 | `get()` · `first()` · `stream()` | full domain models | everything, hydrated and identity-mapped |
-| `page()` · `chunk()` | batches, with the totals a pager needs | as above |
+| `page()` · `pageInto()` | a numbered page and a total | as above, plus a count |
+| `cursor()` · `cursorInto()` | a page and a cursor to the next | as above, no count; fast at any depth |
+| `chunk()` | every row, a batch at a time | as above, by key rather than by offset |
 
 A list screen that builds ten thousand domain objects to show three columns is
 the classic mistake, so the cheap options are first-class rather than an
@@ -95,6 +97,62 @@ optimisation to find later.
 
 `pageInto()` works out its column list from the read model's own constructor, so
 the columns selected cannot drift from the fields being built.
+
+## Two ways to paginate
+
+| | `page($n, $perPage)` | `cursor($perPage, $cursor)` |
+|---|---|---|
+| Gives | page *n* of *N*, and a total | this page, a next cursor and a previous one |
+| Costs per page | reads past every earlier row, plus a `COUNT(*)` | reads only this page, no count |
+| Page 5,000 | slow | as fast as page 1 |
+| Rows added while paging | can shift a row onto two pages, or off every page | never |
+| Use for | admin screens with page numbers, small or medium tables | APIs, feeds, exports, infinite scroll, large tables |
+
+`page()` uses `OFFSET`, and a database answers `OFFSET 100000` by reading and
+discarding 100,000 rows. `cursor()` remembers the last row it showed and asks
+for the rows after it instead, which an index answers directly.
+
+```php
+// In a repository
+public function feed(?string $cursor): CursorPage
+{
+    return $this->query()
+        ->whereIs('spam', false)
+        ->orderByDesc('created_at')
+        ->cursorInto(MessageSummary::class, 20, $cursor);
+}
+
+// In a handler: ?cursor= is whatever the previous page handed out
+try {
+    $page = $messages->feed($request->query('cursor'));
+} catch (DataException) {
+    throw HttpException::badRequest('That cursor is not valid for this list.');
+}
+
+return ApiResponse::collection($page->items(), [
+    'next' => $page->nextCursor(),          // null on the last page
+    'previous' => $page->previousCursor(),  // null on the first
+]);
+```
+
+- **The order is made total for you.** The query's `orderBy()` columns, then the
+  key (`id`, or the repository's `key()`) in the same direction as the last
+  column, so rows that tie on `created_at` still have one fixed order. With no
+  order at all it is the key ascending.
+- **Index the order columns**, in order: `(created_at, id)` for the example. One
+  index serves both directions. Without it a cursor is correct but no faster.
+  Measured on SQLite with 200,000 rows, a page 190,000 rows in took 7 ms with
+  `OFFSET` and 0.06 ms with a cursor.
+- **A cursor belongs to its listing.** It carries the order it was made for, and
+  one made for a different order, or edited by hand, is refused with a
+  `DataException` — turn that into a 400 as above.
+- **Order by columns that are never null.** A cursor cannot continue from a row
+  whose order column is null, and says so.
+- **There is no total and no "jump to page 37".** That is the trade; use
+  `page()` where you need them.
+
+`chunk()` walks the same way, by key, so a job that deletes or updates the rows
+it is given neither skips nor repeats any.
 
 ## Two things a query does not have
 

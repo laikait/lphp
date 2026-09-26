@@ -52,7 +52,7 @@ final class CustomerPage
         // The page is a PHP template shipped by this module; the layout is the
         // active theme's Twig one. Handing markup from one engine to the other
         // is a string, so the two mix without either knowing.
-        $content = $this->templates->render('@plugin.Example/customers', [
+        $content = $this->templates->render('@Example/customers', [
             'customers' => $page->items(),
             'total' => $page->total,
         ]);

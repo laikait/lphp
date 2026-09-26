@@ -51,17 +51,19 @@ composer check       # coding standard + static analysis + tests
 | Folder | What is in it |
 |---|---|
 | `modules/Shared/` | The one module that ships. It owns the home page, `/`. |
-| `modules/Plugins/`, `modules/Gateways/` | Not there yet. You create them for your own modules: a plugin is a feature, a gateway connects to an outside service such as a payment provider. |
+| `modules/<Name>/` | Not there yet. Each module you write is a folder here, named whatever you like — `modules/Billing/`, `modules/Stripe/` — with a `module.php`. |
 | `templates/` | The site's pages: a layout, the home page and the error pages, as Twig files. |
+| `lang/` | Translations: `en.php`, `bn.php` and `countries.php`. See [Localization](docs/reference/localization.md). |
 | `config/` | Your settings, as PHP files. Empty until you need one. |
 | `engine/` | The framework itself. You do not edit it. |
 | `public/` | The only folder the web server may serve: `index.php` and public assets. |
 | `system/` | Files the framework writes: logs, caches, sessions. |
 
-So a fresh install answers two pages:
+So a fresh install answers two pages and a health check:
 
 ```bash
 curl -i http://127.0.0.1:8080/               # the home page
+curl -i http://127.0.0.1:8080/health         # 200 when healthy, 503 when not (JSON)
 curl -i http://127.0.0.1:8080/no/such/page   # the "not found" page
 curl -i -H 'Accept: application/json' \
         http://127.0.0.1:8080/no/such/page   # the same error, as JSON
@@ -71,7 +73,7 @@ To replace the home page, declare a `/` route in a module of your own. See
 [The default pages](docs/reference/templates.md#the-default-pages).
 
 There is no example application in `modules/`. The documentation's examples use a
-plugin called `Example`, which lives in `tests/Fixtures/Showcase/` as a test
+module called `Example`, which lives in `tests/Fixtures/Showcase/` as a test
 fixture: worth reading, but not part of an installation.
 
 ## Where to go next

@@ -48,9 +48,9 @@ final class VersionConstraintTest extends TestCase
     public function test_an_invalid_version_names_the_module_that_declared_it(): void
     {
         $this->expectException(ModuleException::class);
-        $this->expectExceptionMessage('Module "plugins/Billing" declares version "v1.0"');
+        $this->expectExceptionMessage('Module "Billing" declares version "v1.0"');
 
-        Version::parse('v1.0', 'plugins/Billing');
+        Version::parse('v1.0', 'Billing');
     }
 
     public function test_versions_compare_numerically_not_as_text(): void
@@ -130,10 +130,10 @@ final class VersionConstraintTest extends TestCase
     public function test_a_bare_partial_version_is_refused_with_the_alternatives(): void
     {
         try {
-            VersionConstraint::parse('1.2', 'plugins/Payment');
+            VersionConstraint::parse('1.2', 'Payment');
             self::fail('a bare partial version should have been refused');
         } catch (ModuleException $e) {
-            self::assertStringContainsString('plugins/Payment', $e->getMessage());
+            self::assertStringContainsString('Payment', $e->getMessage());
             self::assertStringContainsString('1.2.0', $e->getMessage());
             self::assertStringContainsString('^1.2', $e->getMessage());
         }

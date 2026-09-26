@@ -140,4 +140,29 @@ final class DataException extends FrameworkException
     {
         return new self(\sprintf('No collection named "%s" exists in this source.', $collection));
     }
+
+    public static function invalidCursor(string $reason): self
+    {
+        return new self(\sprintf(
+            'The cursor cannot be used: %s. Take cursors only from nextCursor() or previousCursor() of the same '
+            . 'listing, and start again without one if the listing\'s order changed.',
+            $reason,
+        ));
+    }
+
+    public static function seekOnNull(string $field): self
+    {
+        return new self(\sprintf(
+            'A cursor cannot continue from a row whose "%s" is null: null has no position between two values, '
+            . 'so "the rows after it" is not defined. Order a cursor listing by columns that are never null, '
+            . 'or filter the nulls out with whereNotNull("%s").',
+            $field,
+            $field,
+        ));
+    }
+
+    public static function cursorPageSize(int $perPage): self
+    {
+        return new self(\sprintf('A cursor page size must be at least 1; %d was given.', $perPage));
+    }
 }

@@ -11,7 +11,8 @@ use App\Engine\Support\Path;
  * The Discover stage: a filesystem walk, and nothing else.
  *
  * No module code runs here. The configured roots are scanned for module.php
- * files, and each definition records what a later stage would otherwise have to
+ * files -- every directory directly under a root that has one is a module,
+ * named after its directory, whatever that is -- and each definition records what a later stage would otherwise have to
  * ask the filesystem again -- whether the module has an assets/ directory and
  * whether it has a Templates/ one. That is what lets a boot from the discovery
  * cache touch no module directory at all: the cache holds these answers, and
@@ -26,7 +27,10 @@ use App\Engine\Support\Path;
  */
 final class ModuleDiscovery
 {
-    /** @param array<string, string> $roots kind => directory, relative to the base path or absolute */
+    /**
+     * @param list<string> $roots directories of modules, or a module directory itself; relative
+     *                            to the base path or absolute
+     */
     public function __construct(
         private readonly string $basePath,
         private readonly array $roots,
@@ -38,10 +42,14 @@ final class ModuleDiscovery
         $paths = $config->get('modules.paths', []);
         $roots = [];
 
+        if (\is_string($paths)) {
+            $paths = [$paths];
+        }
+
         if (\is_array($paths)) {
-            foreach ($paths as $kind => $path) {
-                if (\is_string($kind) && \is_string($path)) {
-                    $roots[$kind] = $path;
+            foreach ($paths as $path) {
+                if (\is_string($path) && $path !== '') {
+                    $roots[] = $path;
                 }
             }
         }
@@ -50,7 +58,7 @@ final class ModuleDiscovery
     }
 
     /**
-     * The roots this discovery walks, as absolute paths, keyed by kind.
+     * The roots this discovery walks, as absolute paths, in configured order.
      *
      * The discovery cache stores these and is ignored when they differ, which
      * covers the two ways a cache goes wrong without anybody editing a module:
@@ -58,55 +66,49 @@ final class ModuleDiscovery
      * The second is not exotic -- a test suite pointing at fixture modules, in a
      * checkout where somebody once ran cache:warm, is exactly that.
      *
-     * @return array<string, string>
+     * @return list<string>
      */
     public function roots(): array
     {
-        $resolved = [];
-
-        foreach ($this->roots as $kind => $relative) {
-            $resolved[$kind] = Path::normalize(
+        return \array_map(
+            fn(string $relative): string => Path::normalize(
                 Path::isAbsolute($relative) ? $relative : Path::join($this->basePath, $relative),
-            );
-        }
-
-        return $resolved;
+            ),
+            $this->roots,
+        );
     }
 
     /**
      * Every module under the configured roots, in no particular order.
      *
+     * A root is normally a directory of modules -- modules/ -- and every
+     * directory directly inside it that has a module.php is one. A root that
+     * has a module.php of its own is a single module instead, which is how a
+     * module kept outside modules/ is added without moving it.
+     *
      * Order is the registry's job, and deliberately not filesystem order; see
      * ModuleRegistry.
      *
      * @return list<ModuleDefinition>
+     *
+     * @throws ModuleException when a module's directory name cannot be a module name
      */
     public function scan(): array
     {
         $found = [];
 
-        foreach ($this->roots() as $kindValue => $root) {
-            $kind = ModuleKind::tryFrom($kindValue);
-
-            if ($kind === null) {
-                continue;
-            }
-
-            if (!$kind->isContainer()) {
-                $definition = $this->module($kind, $root, $kind->value);
-
-                if ($definition !== null) {
-                    $found[] = $definition;
-                }
+        foreach ($this->roots() as $root) {
+            if (\is_file(Path::join($root, 'module.php'))) {
+                $found[] = $this->module($root, \basename($root));
 
                 continue;
             }
 
             foreach ($this->entries($root) as $entry) {
-                $definition = $this->module($kind, Path::join($root, $entry), $entry);
+                $path = Path::join($root, $entry);
 
-                if ($definition !== null) {
-                    $found[] = $definition;
+                if (\is_dir($path) && \is_file(Path::join($path, 'module.php'))) {
+                    $found[] = $this->module($path, $entry);
                 }
             }
         }
@@ -133,18 +135,18 @@ final class ModuleDiscovery
         ));
     }
 
-    private function module(ModuleKind $kind, string $path, string $directory): ?ModuleDefinition
+    private function module(string $path, string $directory): ModuleDefinition
     {
-        if (!\is_dir($path) || !\is_file(Path::join($path, 'module.php'))) {
-            return null;
+        if (\preg_match(ModuleDefinition::NAME_PATTERN, $directory) !== 1) {
+            throw ModuleException::invalidModuleName($directory, $path);
         }
 
         return ModuleDefinition::create(
-            $kind,
             $path,
             $directory,
             hasAssets: \is_dir(Path::join($path, ModuleDefinition::ASSETS)),
             hasTemplates: \is_dir(Path::join($path, ModuleDefinition::TEMPLATES)),
+            hasLang: \is_dir(Path::join($path, ModuleDefinition::LANG)),
         );
     }
 }

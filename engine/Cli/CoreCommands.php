@@ -74,7 +74,7 @@ final class CoreCommands
 
         $commands->add('mcp:list', McpListCommand::class)
             ->describe('List every MCP tool, resource and prompt, its module and what a caller needs.')
-            ->option('module', 'Only capabilities belonging to this module, e.g. plugins/Crm.', shortcut: 'm');
+            ->option('module', 'Only capabilities belonging to this module, e.g. Crm.', shortcut: 'm');
 
         $commands->add('mcp:stdio', McpStdioCommand::class)
             ->describe('Serve MCP over stdin and stdout, for a local client that starts this command.')
@@ -87,7 +87,7 @@ final class CoreCommands
 
         $commands->add('route:list', RouteListCommand::class)
             ->describe('List every registered route and its owning module.')
-            ->option('module', 'Only routes belonging to this module, e.g. plugins/Example.', shortcut: 'm')
+            ->option('module', 'Only routes belonging to this module, e.g. Billing.', shortcut: 'm')
             ->flag('names', 'Only routes that have a name.', shortcut: 'n');
 
         $commands->add('asset:list', AssetListCommand::class)
@@ -104,7 +104,7 @@ final class CoreCommands
 
         $commands->add('config:list', ConfigListCommand::class)
             ->describe('Show the configuration this process actually resolved to.')
-            ->option('prefix', 'Only keys starting with this, e.g. logging or plugins/Example.', shortcut: 'p')
+            ->option('prefix', 'Only keys starting with this, e.g. logging or Billing.', shortcut: 'p')
             ->flag('sources', 'Also report which files, .env and cache were involved.', shortcut: 's')
             ->note('A few key names print as [hidden]. There is deliberately no flag to reveal them.');
 
@@ -120,6 +120,7 @@ final class CoreCommands
             ->flag('drain', 'Work until the queue is empty, then stop.')
             ->option('max-jobs', 'Stop after this many jobs.', default: '0')
             ->option('max-time', 'Stop after this many seconds.', default: '0')
+            ->option('memory', 'Stop, between jobs, once memory use reaches this: 128M, 1G. Default 80% of memory_limit.')
             ->option('tries', 'Attempts before a job is recorded as failed.')
             ->option('timeout', 'How long a job may hold its reservation, in seconds.')
             ->option('sleep', 'Seconds to wait when the queue is empty.')
@@ -137,7 +138,7 @@ final class CoreCommands
 
         $commands->add('schedule:list', ScheduleListCommand::class)
             ->describe('List every scheduled task, when it next runs, and whether it is running now.')
-            ->option('module', 'Only schedules belonging to this module, e.g. plugins/Example.', shortcut: 'm')
+            ->option('module', 'Only schedules belonging to this module, e.g. Billing.', shortcut: 'm')
             ->flag('due', 'Only what is due this minute.')
             ->note('One cron line drives all of these. If it is missing, every "Next" below is fiction.');
 
@@ -228,7 +229,7 @@ final class CoreCommands
         $commands->add('db:seed', DbSeedCommand::class)
             ->describe('Run every module\'s seeders, in module order, or one module\'s.')
             ->option('connection', 'Which connection. Defaults to the default one.')
-            ->option('module', 'Only this module\'s seeders, by id: plugins/Billing.')
+            ->option('module', 'Only this module\'s seeders, by id: Billing.')
             ->flag('force', 'Seed in production.')
             ->note('Nothing records that a seeder ran; each runs every time, so each looks before it inserts.');
 

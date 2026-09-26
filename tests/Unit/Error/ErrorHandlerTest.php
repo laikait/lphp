@@ -232,21 +232,21 @@ final class ErrorHandlerTest extends TestCase
      */
     public function test_a_framework_message_never_reaches_a_web_client(): void
     {
-        $exception = ModuleException::entryMustReturnClosure('plugins/Secret', '/srv/app/modules/x', 'array');
+        $exception = ModuleException::entryMustReturnClosure('Secret', '/srv/app/modules/x', 'array');
 
         $body = $this->handler(false)->toResponse($exception)->body();
 
-        self::assertStringNotContainsString('plugins/Secret', $body);
+        self::assertStringNotContainsString('Secret', $body);
         self::assertStringNotContainsString('/srv/app', $body);
     }
 
     public function test_the_same_message_does_reach_an_operator(): void
     {
-        $exception = ModuleException::entryMustReturnClosure('plugins/Secret', '/srv/app/modules/x', 'array');
+        $exception = ModuleException::entryMustReturnClosure('Secret', '/srv/app/modules/x', 'array');
 
         $output = $this->handler(false)->renderCli($exception);
 
-        self::assertStringContainsString('plugins/Secret', $output);
+        self::assertStringContainsString('Secret', $output);
     }
 
     /**

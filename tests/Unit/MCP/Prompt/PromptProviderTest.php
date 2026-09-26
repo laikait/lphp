@@ -30,7 +30,7 @@ final class PromptProviderTest extends TestCase
     protected function setUp(): void
     {
         $registry = new McpRegistry();
-        (new McpCollector($registry, 'plugins/Customer'))->prompt('customer.support', SupportPrompt::class, 'Start a support conversation.');
+        (new McpCollector($registry, 'Customer'))->prompt('customer.support', SupportPrompt::class, 'Start a support conversation.');
 
         $this->prompts = new PromptProvider($registry, new Container(), Authorizers::open(), function (\Throwable $e): void {
             $this->reported[] = $e;

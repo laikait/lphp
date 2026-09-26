@@ -10,5 +10,5 @@ use App\Engine\Module\ModuleContext;
  */
 return static function (ModuleContext $module): void {
     $module->name('Billing')->version('1.0.0');
-    $module->requires('plugins/Customers', '^1.0');
+    $module->requires('Customers', '^1.0');
 };

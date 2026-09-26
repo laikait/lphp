@@ -9,6 +9,6 @@ return static function (ModuleContext $module): void {
     $module->name('Beta');
 
     $module->onBoot(static function (Recorder $recorder): void {
-        $recorder->booted[] = 'plugins/Beta';
+        $recorder->booted[] = 'Beta';
     });
 };

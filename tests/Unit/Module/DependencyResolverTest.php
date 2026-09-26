@@ -8,7 +8,6 @@ use App\Engine\Module\DependencyResolver;
 use App\Engine\Module\ModuleContext;
 use App\Engine\Module\ModuleDefinition;
 use App\Engine\Module\ModuleException;
-use App\Engine\Module\ModuleKind;
 use App\Engine\Module\ModuleStage;
 use App\Tests\Support\TestCase;
 
@@ -33,11 +32,7 @@ final class DependencyResolverTest extends TestCase
         array $requires = [],
         array $optionally = [],
     ): ModuleContext {
-        [$kind, $directory] = \str_contains($id, '/') ? \explode('/', $id, 2) : [$id, $id];
-
-        $context = new ModuleContext(
-            ModuleDefinition::create(ModuleKind::from($kind), '/modules/' . $id, $directory),
-        );
+        $context = new ModuleContext(ModuleDefinition::create('/modules/' . $id, $id));
         $context->enterStage(ModuleStage::Loading);
 
         if ($version !== null) {
@@ -72,12 +67,12 @@ final class DependencyResolverTest extends TestCase
     public function test_with_no_declarations_the_order_is_unchanged(): void
     {
         self::assertSame(
-            ['shared', 'plugins/Alpha', 'plugins/Beta', 'gateways/Zeta'],
+            ['Shared', 'Alpha', 'Beta', 'Zeta'],
             $this->resolve([
-                $this->module('shared'),
-                $this->module('plugins/Alpha'),
-                $this->module('plugins/Beta'),
-                $this->module('gateways/Zeta'),
+                $this->module('Shared'),
+                $this->module('Alpha'),
+                $this->module('Beta'),
+                $this->module('Zeta'),
             ]),
         );
     }
@@ -85,11 +80,11 @@ final class DependencyResolverTest extends TestCase
     public function test_a_module_registers_after_what_it_requires(): void
     {
         self::assertSame(
-            ['shared', 'plugins/Billing', 'plugins/Accounts'],
+            ['Shared', 'Billing', 'Accounts'],
             $this->resolve([
-                $this->module('shared'),
-                $this->module('plugins/Accounts', requires: ['plugins/Billing' => '^1.0']),
-                $this->module('plugins/Billing'),
+                $this->module('Shared'),
+                $this->module('Accounts', requires: ['Billing' => '^1.0']),
+                $this->module('Billing'),
             ]),
         );
     }
@@ -104,13 +99,13 @@ final class DependencyResolverTest extends TestCase
     public function test_only_the_module_that_has_to_wait_moves(): void
     {
         self::assertSame(
-            ['plugins/Beta', 'plugins/Charlie', 'plugins/Delta', 'plugins/Alpha', 'plugins/Echo'],
+            ['Beta', 'Charlie', 'Delta', 'Alpha', 'Echo'],
             $this->resolve([
-                $this->module('plugins/Alpha', requires: ['plugins/Delta' => '*']),
-                $this->module('plugins/Beta'),
-                $this->module('plugins/Charlie'),
-                $this->module('plugins/Delta'),
-                $this->module('plugins/Echo'),
+                $this->module('Alpha', requires: ['Delta' => '*']),
+                $this->module('Beta'),
+                $this->module('Charlie'),
+                $this->module('Delta'),
+                $this->module('Echo'),
             ]),
         );
     }
@@ -119,44 +114,44 @@ final class DependencyResolverTest extends TestCase
     public function test_a_chain_resolves_in_dependency_order(): void
     {
         self::assertSame(
-            ['shared', 'plugins/Billing', 'plugins/Payment', 'gateways/Stripe'],
+            ['Shared', 'Billing', 'Payment', 'Stripe'],
             $this->resolve([
-                $this->module('shared'),
-                $this->module('plugins/Billing', requires: ['shared' => '^1.0']),
-                $this->module('plugins/Payment', requires: ['plugins/Billing' => '^1.0']),
-                $this->module('gateways/Stripe', requires: ['plugins/Payment' => '^1.0']),
+                $this->module('Shared'),
+                $this->module('Billing', requires: ['Shared' => '^1.0']),
+                $this->module('Payment', requires: ['Billing' => '^1.0']),
+                $this->module('Stripe', requires: ['Payment' => '^1.0']),
             ]),
         );
     }
 
     /**
-     * Shared first, gateways last, whatever is declared.
+     * Shared first, whatever is declared.
      *
-     * This is what lets every module rely on shared without declaring it, and
-     * it holds by construction: a dependency pointing at a later kind is
-     * refused, so the sort can only ever move modules within their own kind.
+     * This is what lets every module rely on Shared without declaring it, and
+     * it holds by construction: Shared may depend on nothing, so the sort can
+     * only ever move the other modules among themselves.
      */
-    public function test_kind_order_is_never_broken(): void
+    public function test_shared_is_always_first(): void
     {
         $order = $this->resolve([
-            $this->module('shared'),
-            $this->module('plugins/Alpha', requires: ['plugins/Zulu' => '*']),
-            $this->module('plugins/Zulu'),
-            $this->module('gateways/Aardvark', requires: ['plugins/Zulu' => '*']),
+            $this->module('Shared'),
+            $this->module('Alpha', requires: ['Zulu' => '*']),
+            $this->module('Zulu'),
+            $this->module('Aardvark', requires: ['Zulu' => '*']),
         ]);
 
-        self::assertSame('shared', $order[0]);
-        self::assertSame('gateways/Aardvark', $order[3]);
-        self::assertSame(['plugins/Zulu', 'plugins/Alpha'], \array_slice($order, 1, 2));
+        self::assertSame('Shared', $order[0]);
+        self::assertSame('Aardvark', $order[3]);
+        self::assertSame(['Zulu', 'Alpha'], \array_slice($order, 1, 2));
     }
 
     public function test_an_optional_dependency_that_is_present_orders_registration(): void
     {
         self::assertSame(
-            ['plugins/Crm', 'plugins/Accounts'],
+            ['Crm', 'Accounts'],
             $this->resolve([
-                $this->module('plugins/Accounts', optionally: ['plugins/Crm' => '^1.0']),
-                $this->module('plugins/Crm'),
+                $this->module('Accounts', optionally: ['Crm' => '^1.0']),
+                $this->module('Crm'),
             ]),
         );
     }
@@ -164,10 +159,10 @@ final class DependencyResolverTest extends TestCase
     public function test_the_same_declarations_always_give_the_same_order(): void
     {
         $modules = [
-            $this->module('shared'),
-            $this->module('plugins/C', requires: ['plugins/A' => '*']),
-            $this->module('plugins/A', requires: ['plugins/B' => '*']),
-            $this->module('plugins/B'),
+            $this->module('Shared'),
+            $this->module('C', requires: ['A' => '*']),
+            $this->module('A', requires: ['B' => '*']),
+            $this->module('B'),
         ];
 
         $first = $this->resolve($modules);
@@ -182,29 +177,29 @@ final class DependencyResolverTest extends TestCase
     public function test_a_missing_required_module_refuses_to_boot(): void
     {
         $this->expectException(ModuleException::class);
-        $this->expectExceptionMessage('Module "plugins/Payment" requires "plugins/Billing ^1.0", which is not installed');
+        $this->expectExceptionMessage('Module "Payment" requires "Billing ^1.0", which is not installed');
 
         $this->resolve([
-            $this->module('plugins/Payment', requires: ['plugins/Billing' => '^1.0']),
+            $this->module('Payment', requires: ['Billing' => '^1.0']),
         ]);
     }
 
     public function test_a_likely_typo_gets_a_suggestion(): void
     {
         $this->expectException(ModuleException::class);
-        $this->expectExceptionMessage('Did you mean "plugins/Billing"?');
+        $this->expectExceptionMessage('Did you mean "Billing"?');
 
         $this->resolve([
-            $this->module('plugins/Billing'),
-            $this->module('plugins/Payment', requires: ['plugins/Biling' => '*']),
+            $this->module('Billing'),
+            $this->module('Payment', requires: ['Biling' => '*']),
         ]);
     }
 
     public function test_a_missing_optional_module_is_simply_absent(): void
     {
         self::assertSame(
-            ['plugins/Accounts'],
-            $this->resolve([$this->module('plugins/Accounts', optionally: ['plugins/Crm' => '^1.0'])]),
+            ['Accounts'],
+            $this->resolve([$this->module('Accounts', optionally: ['Crm' => '^1.0'])]),
         );
     }
 
@@ -223,18 +218,18 @@ final class DependencyResolverTest extends TestCase
         $this->expectExceptionMessage('installed but disabled');
 
         $this->resolve(
-            [$this->module('plugins/Payment', requires: ['plugins/Billing' => '*'])],
-            ['plugins/Billing'],
+            [$this->module('Payment', requires: ['Billing' => '*'])],
+            ['Billing'],
         );
     }
 
     public function test_a_disabled_optional_module_is_simply_absent(): void
     {
         self::assertSame(
-            ['plugins/Accounts'],
+            ['Accounts'],
             $this->resolve(
-                [$this->module('plugins/Accounts', optionally: ['plugins/Crm' => '*'])],
-                ['plugins/Crm'],
+                [$this->module('Accounts', optionally: ['Crm' => '*'])],
+                ['Crm'],
             ),
         );
     }
@@ -244,11 +239,11 @@ final class DependencyResolverTest extends TestCase
     public function test_a_version_that_does_not_fit_refuses_to_boot(): void
     {
         $this->expectException(ModuleException::class);
-        $this->expectExceptionMessage('requires "plugins/Billing ^2.0", but the installed "plugins/Billing" is 1.4.0');
+        $this->expectExceptionMessage('requires "Billing ^2.0", but the installed "Billing" is 1.4.0');
 
         $this->resolve([
-            $this->module('plugins/Billing', '1.4.0'),
-            $this->module('plugins/Payment', requires: ['plugins/Billing' => '^2.0']),
+            $this->module('Billing', '1.4.0'),
+            $this->module('Payment', requires: ['Billing' => '^2.0']),
         ]);
     }
 
@@ -262,11 +257,11 @@ final class DependencyResolverTest extends TestCase
     public function test_an_optional_module_that_is_present_must_still_fit(): void
     {
         $this->expectException(ModuleException::class);
-        $this->expectExceptionMessage('requires "plugins/Crm ^1.0"');
+        $this->expectExceptionMessage('requires "Crm ^1.0"');
 
         $this->resolve([
-            $this->module('plugins/Accounts', optionally: ['plugins/Crm' => '^1.0']),
-            $this->module('plugins/Crm', '2.0.0'),
+            $this->module('Accounts', optionally: ['Crm' => '^1.0']),
+            $this->module('Crm', '2.0.0'),
         ]);
     }
 
@@ -276,18 +271,18 @@ final class DependencyResolverTest extends TestCase
         $this->expectExceptionMessage('declares no version at all');
 
         $this->resolve([
-            $this->module('plugins/Billing', null),
-            $this->module('plugins/Payment', requires: ['plugins/Billing' => '^1.0']),
+            $this->module('Billing', null),
+            $this->module('Payment', requires: ['Billing' => '^1.0']),
         ]);
     }
 
     public function test_any_version_accepts_a_module_that_declared_none(): void
     {
         self::assertSame(
-            ['plugins/Billing', 'plugins/Payment'],
+            ['Billing', 'Payment'],
             $this->resolve([
-                $this->module('plugins/Billing', null),
-                $this->module('plugins/Payment', requires: ['plugins/Billing' => '*']),
+                $this->module('Billing', null),
+                $this->module('Payment', requires: ['Billing' => '*']),
             ]),
         );
     }
@@ -297,12 +292,12 @@ final class DependencyResolverTest extends TestCase
     public function test_a_circle_is_refused_and_the_circle_is_named(): void
     {
         $this->expectException(ModuleException::class);
-        $this->expectExceptionMessage('plugins/A -> plugins/B -> plugins/C -> plugins/A');
+        $this->expectExceptionMessage('A -> B -> C -> A');
 
         $this->resolve([
-            $this->module('plugins/A', requires: ['plugins/B' => '*']),
-            $this->module('plugins/B', requires: ['plugins/C' => '*']),
-            $this->module('plugins/C', requires: ['plugins/A' => '*']),
+            $this->module('A', requires: ['B' => '*']),
+            $this->module('B', requires: ['C' => '*']),
+            $this->module('C', requires: ['A' => '*']),
         ]);
     }
 
@@ -313,76 +308,56 @@ final class DependencyResolverTest extends TestCase
         $this->expectExceptionMessage('in a circle');
 
         $this->resolve([
-            $this->module('plugins/A', requires: ['plugins/B' => '*']),
-            $this->module('plugins/B', optionally: ['plugins/A' => '*']),
+            $this->module('A', requires: ['B' => '*']),
+            $this->module('B', optionally: ['A' => '*']),
         ]);
     }
 
     public function test_a_module_cannot_require_itself(): void
     {
         $this->expectException(ModuleException::class);
-        $this->expectExceptionMessage('plugins/A -> plugins/A');
+        $this->expectExceptionMessage('A -> A');
 
-        $this->resolve([$this->module('plugins/A', requires: ['plugins/A' => '*'])]);
+        $this->resolve([$this->module('A', requires: ['A' => '*'])]);
     }
 
     /** A circle among some modules does not hide behind the ones that resolve. */
     public function test_a_circle_is_found_among_modules_that_are_fine(): void
     {
         $this->expectException(ModuleException::class);
-        $this->expectExceptionMessage('plugins/C -> plugins/D -> plugins/C');
+        $this->expectExceptionMessage('C -> D -> C');
 
         $this->resolve([
-            $this->module('shared'),
-            $this->module('plugins/A'),
-            $this->module('plugins/B', requires: ['plugins/A' => '*']),
-            $this->module('plugins/C', requires: ['plugins/D' => '*', 'plugins/A' => '*']),
-            $this->module('plugins/D', requires: ['plugins/C' => '*']),
+            $this->module('Shared'),
+            $this->module('A'),
+            $this->module('B', requires: ['A' => '*']),
+            $this->module('C', requires: ['D' => '*', 'A' => '*']),
+            $this->module('D', requires: ['C' => '*']),
         ]);
     }
 
     // ---- against kind ----------------------------------------------------------
 
-    public function test_a_plugin_cannot_depend_on_a_gateway(): void
-    {
-        $this->expectException(ModuleException::class);
-        $this->expectExceptionMessage('which is a kind that loads after it');
-
-        $this->resolve([
-            $this->module('plugins/Payment', requires: ['gateways/Stripe' => '*']),
-            $this->module('gateways/Stripe'),
-        ]);
-    }
-
-    /** Even optionally, and even when the gateway is not installed today. */
-    public function test_the_kind_rule_holds_for_optional_and_absent_modules(): void
-    {
-        $this->expectException(ModuleException::class);
-        $this->expectExceptionMessage('loads after it');
-
-        $this->resolve([$this->module('plugins/Payment', optionally: ['gateways/Stripe' => '*'])]);
-    }
-
     /** Shared is what everything else may rely on; it relies on nothing. */
     public function test_shared_cannot_depend_on_anything(): void
     {
         $this->expectException(ModuleException::class);
-        $this->expectExceptionMessage('Module "shared" (shared) depends on "plugins/Billing"');
+        $this->expectExceptionMessage('Module "Shared" depends on "Billing"');
 
         $this->resolve([
-            $this->module('shared', requires: ['plugins/Billing' => '*']),
-            $this->module('plugins/Billing'),
+            $this->module('Shared', requires: ['Billing' => '*']),
+            $this->module('Billing'),
         ]);
     }
 
-    public function test_a_gateway_may_depend_on_a_plugin_and_on_another_gateway(): void
+    public function test_any_module_may_depend_on_any_other(): void
     {
         self::assertSame(
-            ['plugins/Payment', 'gateways/Base', 'gateways/Stripe'],
+            ['Payment', 'Base', 'Stripe'],
             $this->resolve([
-                $this->module('plugins/Payment'),
-                $this->module('gateways/Base', requires: ['plugins/Payment' => '*']),
-                $this->module('gateways/Stripe', requires: ['gateways/Base' => '*', 'plugins/Payment' => '*']),
+                $this->module('Payment'),
+                $this->module('Base', requires: ['Payment' => '*']),
+                $this->module('Stripe', requires: ['Base' => '*', 'Payment' => '*']),
             ]),
         );
     }

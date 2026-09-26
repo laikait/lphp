@@ -53,6 +53,15 @@ use App\Engine\Error\ErrorPage;
 use App\Engine\Filter\FilterEngine;
 use App\Engine\Hook\HookEngine;
 use App\Engine\Http\Request;
+use App\Engine\Http\Response;
+use App\Engine\Localization\ChainCountryResolver;
+use App\Engine\Localization\CountryResolver;
+use App\Engine\Localization\HeaderCountryResolver;
+use App\Engine\Localization\LocaleResolver;
+use App\Engine\Localization\Localization;
+use App\Engine\Localization\MaxMindCountryResolver;
+use App\Engine\Localization\NullCountryResolver;
+use App\Engine\Localization\TranslationCatalog;
 use App\Engine\Logging\Context;
 use App\Engine\Logging\ErrorLog;
 use App\Engine\Logging\Level;
@@ -166,6 +175,12 @@ final class Bootstrap
         // whatever the ini file says.
         self::applyTimezone($settings);
 
+        // Before anything large is built, for the same reason: php.ini differs
+        // between a laptop and the server, and a limit that is only right on
+        // one of them is found by the first big report in production.
+        self::applyMemoryLimit($settings);
+        self::applyTimeLimit($settings, $context);
+
         $hooks = new HookEngine();
         $filters = new FilterEngine((bool) $settings->get('app.debug', false));
         $router = new Router();
@@ -227,7 +242,16 @@ final class Bootstrap
         // a layout and six partials does it seven times. The manager memoises
         // within a request on its own; the cache is what carries the answer
         // into the next one.
-        $templates = new TemplateManager($views, $manager, new Escaper(), $cache->namespace('templates'));
+        //
+        // Translation is handed to both as a closure that resolves the
+        // localization service on first use, so a page that translates nothing
+        // builds none of it, and an application that rebinds CountryResolver
+        // in a module is still the one that is used.
+        $translator = static fn(string $key, array $parameters = []): string => $container
+            ->get(Localization::class)
+            ->get($key, $parameters);
+
+        $templates = new TemplateManager($views, $manager, new Escaper(), $cache->namespace('templates'), $translator);
 
         // Twig first, PHP second, and the order is the precedence: where a
         // directory holds both home.twig and home.php, the Twig one renders.
@@ -243,6 +267,7 @@ final class Bootstrap
                 ? Path::join($basePath, 'system', 'Cache', 'templates')
                 : null,
             (bool) $settings->get('app.debug', false),
+            $translator,
         ));
         $templates->addEngine(new PhpTemplateEngine());
 
@@ -252,7 +277,15 @@ final class Bootstrap
         // instead of the framework's. It is given the real hook engine, because
         // error.reported is how the logging phase will hear about failures and
         // a private engine would fire into nothing.
-        $errors = new ErrorHandler($settings, $hooks, new ErrorPage($templates));
+        //
+        // In debug mode with filp/whoops installed, the diagnostic page is
+        // Whoops; app.editor makes its file paths open in an editor.
+        $errors = new ErrorHandler($settings, $hooks, new ErrorPage(
+            $templates,
+            $basePath,
+            $settings->string('app.editor'),
+            Env::names(),
+        ));
 
         // The log. It listens to the error handler rather than being called by
         // it: error.reported is a hook, ErrorLog is an ordinary listener, and
@@ -412,6 +445,11 @@ final class Bootstrap
         $mcp = new McpRegistry();
         $container->instance(McpRegistry::class, $mcp);
 
+        // Translations: the application's lang/ now, each module's lang/ as the
+        // manager registers it. See Localization for how a locale is chosen.
+        $translations = new TranslationCatalog(Path::join($basePath, 'lang'));
+        $container->instance(TranslationCatalog::class, $translations);
+
         $container->instance(ModuleManager::class, $modules = new ModuleManager(
             $container,
             $settings,
@@ -426,6 +464,7 @@ final class Bootstrap
             new ModuleRegistry(),
             $basePath,
             $mcp,
+            $translations,
         ));
 
         // Before anything boots, so module timing is there from the first
@@ -713,6 +752,8 @@ final class Bootstrap
         $hooks->add('command.finished', $report->onCommand(...), 90, 'engine');
         $hooks->add('job.finished', $report->onJob(...), 90, 'engine');
 
+        self::localization($container, $settings, $hooks, $filters, $served, $basePath);
+
         $application = new Application($container, $context, $basePath);
         $container->instance(Application::class, $application);
 
@@ -776,6 +817,84 @@ final class Bootstrap
         }
 
         \date_default_timezone_set($timezone);
+    }
+
+    /**
+     * PHP's memory_limit, when app.memory_limit sets one.
+     *
+     * null leaves php.ini alone. A value is PHP's own notation -- 256M, 1G,
+     * 134217728, -1 for none -- and anything else stops the boot rather than
+     * being passed to ini_set(), which would quietly keep the old limit.
+     *
+     * A limit below what this process already uses, plus the headroom the
+     * error handler reserves, is refused too: the next allocation would be a
+     * fatal error, and one with no room left to report itself.
+     */
+    private static function applyMemoryLimit(Config $settings): void
+    {
+        // A string from the environment, or an int from a config file:
+        // 'memory_limit' => -1 is as natural to write as '256M'.
+        $limit = $settings->get('app.memory_limit');
+
+        if (\is_int($limit)) {
+            $limit = (string) $limit;
+        }
+
+        if ($limit === null || (\is_string($limit) && \trim($limit) === '')) {
+            return;
+        }
+
+        if (!\is_string($limit)) {
+            throw ConfigurationException::invalidMemoryLimit(\get_debug_type($limit), 'is not PHP\'s notation, such as 256M, 1G or -1');
+        }
+
+        $given = \trim($limit);
+        $limit = \strtoupper($given);
+
+        if (\preg_match('/^(-1|[0-9]+[KMG]?)$/', $limit) !== 1) {
+            throw ConfigurationException::invalidMemoryLimit($given, 'is not PHP\'s notation, such as 256M, 1G or -1');
+        }
+
+        $floor = \memory_get_usage(true) + 2 * ErrorHandler::RESERVED_MEMORY;
+
+        if ($limit !== '-1' && RequestLimits::toBytes($limit) < $floor) {
+            throw ConfigurationException::invalidMemoryLimit(
+                $limit,
+                \sprintf('is less than the %s this process needs already', RequestLimits::format($floor)),
+            );
+        }
+
+        if (\ini_set('memory_limit', $limit) === false) {
+            throw ConfigurationException::invalidMemoryLimit($limit, 'was refused by PHP');
+        }
+    }
+
+    /**
+     * PHP's time limit for a web request, when app.max_execution_time sets one.
+     *
+     * Web requests only. The console's "no limit" is PHP's own default and the
+     * right one for a migration or a report, and a queue worker already limits
+     * each job with its timeout. Setting a limit here would cut both off.
+     *
+     * A host that disables set_time_limit() refuses the value rather than
+     * ignoring it: a limit the configuration asks for and PHP does not apply is
+     * one nobody finds out about until a request runs forever.
+     */
+    private static function applyTimeLimit(Config $settings, ExecutionContext $context): void
+    {
+        $seconds = $settings->int('app.max_execution_time');
+
+        if ($seconds === null || !$context->isHttp()) {
+            return;
+        }
+
+        if ($seconds < 0) {
+            throw ConfigurationException::invalidTimeLimit($seconds, 'is negative; use a number of seconds, or 0 for no limit');
+        }
+
+        if (!\set_time_limit($seconds)) {
+            throw ConfigurationException::invalidTimeLimit($seconds, 'was refused: set_time_limit() is disabled on this host');
+        }
     }
 
     /**
@@ -1160,6 +1279,88 @@ final class Bootstrap
      * rather than to memory, because a typo in a deployment's configuration
      * should cost nothing rather than silently switch overlap protection off.
      */
+    /**
+     * Localization: one instance per request, command or job, built on first use.
+     *
+     * @param object{request: ?Request} $served
+     */
+    private static function localization(
+        Container $container,
+        Config $settings,
+        HookEngine $hooks,
+        FilterEngine $filters,
+        object $served,
+        string $basePath,
+    ): void {
+        $header = $settings->string('localization.country_header');
+        $header = $header === '' ? null : $header;
+
+        $database = $settings->string('localization.maxmind_database');
+        $database = $database === null || $database === ''
+            ? null
+            : (Path::isAbsolute($database) ? $database : Path::join($basePath, $database));
+
+        // A trusted CDN header first, because it is free; a local MaxMind
+        // database second, for requests that did not come through the CDN.
+        // Replaceable: a module that binds its own CountryResolver is the one
+        // locale resolution asks.
+        $container->singleton(CountryResolver::class, static function () use ($header, $database): CountryResolver {
+            $resolvers = \array_values(\array_filter([
+                $header === null ? null : new HeaderCountryResolver($header),
+                $database === null ? null : new MaxMindCountryResolver($database),
+            ]));
+
+            return match (\count($resolvers)) {
+                0 => new NullCountryResolver(),
+                1 => $resolvers[0],
+                default => new ChainCountryResolver(...$resolvers),
+            };
+        });
+
+        $container->singleton(Localization::class, static function (Container $container) use ($settings, $served, $basePath): Localization {
+            $catalog = $container->get(TranslationCatalog::class);
+
+            return new Localization(
+                $catalog,
+                new LocaleResolver(
+                    $catalog,
+                    $container->get(CountryResolver::class),
+                    Path::join($basePath, 'lang', 'countries.php'),
+                ),
+                request: $served->request,
+                log: (bool) $settings->get('app.debug', false) ? $container->get(Logger::class) : null,
+            );
+        });
+
+        // Each request and each job starts without the last one's locale. Only
+        // an instance that already exists is told; one built later reads the
+        // request from $served.
+        $hooks->add('request.received', static function (Request $request) use ($container): void {
+            if ($container->resolved(Localization::class)) {
+                $container->get(Localization::class)->onRequest($request);
+            }
+        }, 4, 'engine');
+
+        $hooks->add('job.started', static function () use ($container): void {
+            if ($container->resolved(Localization::class)) {
+                $container->get(Localization::class)->reset();
+            }
+        }, 1, 'engine');
+
+        // A page whose language came from the cookie, the browser or the
+        // country is a different page for a different visitor, and a cache in
+        // front of the application has to be told so.
+        $vary = \implode(', ', \array_filter(['Cookie', 'Accept-Language', $header]));
+
+        $filters->add('response.instance', static function (Response $response) use ($container, $vary): Response {
+            if (!$container->resolved(Localization::class) || !$container->get(Localization::class)->resolvedFromRequest()) {
+                return $response;
+            }
+
+            return $response->withAddedHeader('Vary', $vary);
+        }, 85, 'engine');
+    }
+
     private static function scheduleLock(Config $settings, string $basePath): ScheduleLock
     {
         return match ($settings->string('scheduler.lock', 'file')) {
@@ -1310,6 +1511,17 @@ final class Bootstrap
                 // changes shape depending on where the code is running is a bug
                 // found at month end.
                 'timezone' => Env::string('APP_TIMEZONE', 'UTC'),
+                // PHP's memory_limit, in PHP's notation: 256M, 1G, -1 for none.
+                // null leaves php.ini's. Set it here rather than in php.ini so
+                // the laptop and the server agree.
+                'memory_limit' => Env::string('MEMORY_LIMIT'),
+                // How long a web request may run, in seconds; 0 means no limit.
+                // null leaves php.ini's. Web requests only: the console keeps
+                // PHP's own "no limit", and a queue worker limits each job.
+                'max_execution_time' => Env::int('MAX_EXECUTION_TIME'),
+                // The editor the debug page (Whoops) links file paths to:
+                // phpstorm, vscode, sublime, atom, ... null for plain paths.
+                'editor' => Env::string('APP_EDITOR'),
                 // Tests assert on responses rather than on PHP's own error
                 // output, so they switch this off instead of having the handler
                 // fight the test runner for set_error_handler().
@@ -1374,6 +1586,10 @@ final class Bootstrap
                 // What queue:work uses when nothing is said on the command line.
                 'tries' => Env::int('QUEUE_TRIES', 3),
                 'timeout' => Env::int('QUEUE_TIMEOUT', 60),
+                // A worker stops, between jobs, once it uses this much: 128M,
+                // 1G. null means 80% of memory_limit when there is one, so a
+                // worker exits cleanly instead of dying mid-job.
+                'max_memory' => Env::string('QUEUE_MAX_MEMORY'),
                 'sleep' => 1,
                 // Waiting is the right answer to most reasons a job fails: a
                 // rate limit, a failover, a host restarting. See Queue\Backoff.
@@ -1596,6 +1812,16 @@ final class Bootstrap
                 // own requests are logged under.
                 'trust_incoming_ids' => false,
             ],
+            'localization' => [
+                // The header a trusted CDN or proxy puts the visitor's country
+                // in, e.g. CF-IPCountry. Read only from http.trusted_proxies;
+                // null means no country detection.
+                'country_header' => Env::string('LOCALIZATION_COUNTRY_HEADER'),
+                // A local MaxMind GeoLite2/GeoIP2 Country or City database,
+                // relative to the project root or absolute. Needs
+                // maxmind-db/reader. null means no database lookup.
+                'maxmind_database' => Env::string('LOCALIZATION_MAXMIND_DATABASE'),
+            ],
             'templates' => [
                 // Twig's compilation cache. Off by default, like the module
                 // cache, because a cache with no invalidation story is a
@@ -1604,18 +1830,20 @@ final class Bootstrap
                 'cache' => false,
             ],
             'modules' => [
-                'paths' => [
-                    'shared' => 'modules/Shared',
-                    'plugins' => 'modules/Plugins',
-                    'gateways' => 'modules/Gateways',
-                ],
+                // Where modules are. Every directory directly inside one of
+                // these that has a module.php is a module named after its
+                // directory -- modules/Billing is "Billing" -- and
+                // modules/Shared is the shared module. A path that has a
+                // module.php of its own is a single module, for one kept
+                // outside modules/.
+                'paths' => ['modules'],
                 // There is no "cache" key here any more. The discovery cache is
                 // used when cache:warm has built it and app.debug is off -- the
                 // file is the switch, as it is for the configuration cache. See
                 // ModuleManager::readDiscoveryCache().
                 //
                 // Module ids installed here but switched off, e.g.
-                // ['gateways/Stripe']. A disabled module's module.php never
+                // ['Stripe']. A disabled module's module.php never
                 // runs, and anything that requires it refuses to boot rather
                 // than half-working. An unknown id is refused too: a typo would
                 // otherwise leave the module on. Shared cannot be disabled.

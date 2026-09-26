@@ -37,7 +37,7 @@ final class MigrationFile
         return new self($module, $name, '', $migration);
     }
 
-    /** "plugins/Billing:2026_09_19_120000_create_invoices": unique across the application. */
+    /** "Billing:2026_09_19_120000_create_invoices": unique across the application. */
     public function id(): string
     {
         return $this->module . ':' . $this->name;

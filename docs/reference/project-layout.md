@@ -6,10 +6,10 @@ Where everything lives, and which folder your own code goes in.
 
 | You are writing | It goes in |
 |---|---|
-| A feature: pages, commands, jobs | `modules/Plugins/<Name>/` |
-| A payment or delivery integration | `modules/Gateways/<Name>/` |
+| A feature or an integration: pages, commands, jobs | `modules/<Name>/`, any name you choose |
 | Something two modules both need | `modules/Shared/` |
 | The look of the site | `templates/` |
+| The application's translations | `lang/` |
 | This installation's settings | `config/` |
 | Your own stylesheets and scripts | `public/assets/` |
 
@@ -28,7 +28,7 @@ server                 dev router: php -S 127.0.0.1:8080 -t public server
 laika                  CLI entry point: php laika <command>
 .env.example           every environment variable, with its assumed value
 config/                this installation's decisions; absent until there is one
-                       (config/plugins/Billing.php configures plugins/Billing)
+                       (config/Billing.php configures Billing)
 engine/                the framework
   bootstrap.php        builds the application for either context
   Bootstrap/ Core/ Container/ Http/ Routing/ Dispatch/
@@ -37,19 +37,24 @@ engine/                the framework
   Cache/ Queue/ Scheduler/ Security/ Observability/
   System/              commands, processes, cron, services, files on the server
   MCP/                 tools, resources and prompts that modules declare, over STDIO and HTTP
+  Localization/        translations, locale resolution and country detection
 templates/             the site's views: render('customer/profile') is customer/profile.twig
   layout.twig          the layout every default page extends
   home.twig            the front page until a module claims /
   errors/              the 404 and generic error pages
   assets/              the site's static files, /assets/template/... (never a view)
+lang/                  translations: en.php, bn.php, ... and countries.php (see localization.md)
 modules/
   Shared/              cross-module capability, registers first; owns /
     Model/User.php     a shared domain model
     Auth/              what a user IS here: the provider and the login routes
     Schema/            the pagination contract every list endpoint shares
     Data/              a shared repository
-  Plugins/<Name>/      a plugin module; the directory appears with the first one
-  Gateways/<Name>/     a gateway module; likewise
+  <Name>/              any other module, named whatever you like: Billing, Stripe
+    module.php         declares it; a folder without one is not a module
+    Templates/         its views, @<Name>/... (optional)
+    assets/            its static files, /assets/module/<Name>/... (optional)
+    lang/              its translations, keyed <Name>.* (optional)
 system/                cache, logs, sessions, queued work (not web-readable)
   Cache/               compiled configuration, the module list, cached data
   Queue/               jobs waiting for a worker, and the ones that failed
@@ -60,24 +65,24 @@ system/                cache, logs, sessions, queued work (not web-readable)
   Logs/                where the file writer puts records
 tests/
   Benchmark/           composer bench; never served, with the rest of tests/
-  Fixtures/Showcase/   plugins/Example and gateways/Example: every subsystem in
+  Fixtures/Showcase/   Example and ExampleGateway: every subsystem in
                        one application, booted by the feature tests
 ```
 
 **Folders are created when they are used, never in advance.** A fresh
-installation has no `config/` and no `modules/Plugins/`; they appear when you
-make the first one.
+installation has no `config/` and only `modules/Shared/`; the rest appears
+when you make it.
 
 ## Autoloading
 
 | Folder | Namespace |
 |---|---|
 | `engine/` | `App\Engine\` |
-| `modules/` | `App\Modules\` — so `modules/Shared/`, `modules/Plugins/` and `modules/Gateways/` hold `App\Modules\Shared\`, `…\Plugins\` and `…\Gateways\` |
+| `modules/` | `App\Modules\` — so `modules/Shared/` holds `App\Modules\Shared\` and `modules/Billing/` holds `App\Modules\Billing\` |
 
 A new module autoloads with no `composer.json` change and no custom autoloader:
-`modules/Plugins/Billing/Api/Invoices.php` declares
-`App\Modules\Plugins\Billing\Api\Invoices` and simply works.
+`modules/Billing/Api/Invoices.php` declares
+`App\Modules\Billing\Api\Invoices` and simply works.
 
 Two consequences worth knowing:
 

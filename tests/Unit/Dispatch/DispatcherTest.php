@@ -43,7 +43,7 @@ final class DispatcherTest extends TestCase
         $this->filters = new FilterEngine();
         $this->dispatcher = new Dispatcher($this->container, $this->hooks, $this->filters);
         $this->router = new Router();
-        $this->routes = new RouteCollector($this->router, 'plugins/Example');
+        $this->routes = new RouteCollector($this->router, 'Example');
     }
 
     private function dispatch(string $method, string $path): Response
@@ -332,7 +332,7 @@ final class DispatcherTest extends TestCase
         $this->routes->get('/x', static fn(): string => 'ok');
         $this->dispatch('GET', '/x');
 
-        self::assertSame(['/x', '/x', 'plugins/Example'], $captured);
+        self::assertSame(['/x', '/x', 'Example'], $captured);
     }
 
     public function test_the_dispatch_after_hook_receives_the_finished_response(): void

@@ -32,7 +32,7 @@ namespace App\Engine\Module;
  * Why a module system needs this at all when Composer exists: modules inside
  * `modules/` are not Composer packages. They are directories in one repository,
  * versioned by the `version()` their module.php declares, and nothing else is
- * going to check that `plugins/Payment` still fits the `plugins/Billing` next to
+ * going to check that `Payment` still fits the `Billing` next to
  * it.
  */
 final class VersionConstraint

@@ -1,6 +1,6 @@
 # Contributing to the framework
 
-For people changing `engine/`, the shipped `shared` module, the default template
+For people changing `engine/`, the shipped `Shared` module, the default template
 or the documentation. Building an application *on* the framework is covered by
 the [guides](../README.md#guides) instead.
 
@@ -156,7 +156,7 @@ When you add…
   loads the small modules in `tests/Fixtures/Modules`.
 - `tests/Architecture` holds the rules above. A new invariant worth keeping is a
   new test there, with a docblock saying why the rule exists.
-- The showcase (`plugins/Example`, `gateways/Example`) exercises every subsystem
+- The showcase (`Example`, `Example`) exercises every subsystem
   through one application. Extend it when a feature needs an end-to-end proof.
 
 Test names are sentences: `test_a_guest_gets_401_and_an_account_gets_403`.

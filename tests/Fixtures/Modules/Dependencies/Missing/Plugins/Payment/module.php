@@ -8,5 +8,5 @@ use App\Engine\Module\ModuleContext;
 return static function (ModuleContext $module): void {
     $module->name('Payment')->version('1.0.0');
 
-    $module->requires('plugins/Billing', '^1.0');
+    $module->requires('Billing', '^1.0');
 };

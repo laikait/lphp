@@ -635,6 +635,8 @@ final class ArchitectureTest extends TestCase
             'Bulk.php',
             'BulkWrites.php',
             'Criterion.php',
+            'Cursor.php',
+            'CursorPage.php',
             'DataException.php',
             'DataSource.php',
             'Direction.php',
@@ -643,6 +645,7 @@ final class ArchitectureTest extends TestCase
             'Page.php',
             'Query.php',
             'Repository.php',
+            'Seek.php',
         ];
 
         $found = [];
@@ -1147,17 +1150,8 @@ final class ArchitectureTest extends TestCase
 
         self::assertSame('modules/', $manifest['autoload']['psr-4']['App\\Modules\\'] ?? null, 'App\\Modules\\ no longer maps to modules/.');
 
-        // Each kind's default root is the namespace segment its classes use.
-        /** @var array<string, string> $paths */
-        $paths = \App\Engine\Bootstrap\Bootstrap::defaults()['modules']['paths'];
-
-        foreach (\App\Engine\Module\ModuleKind::cases() as $kind) {
-            self::assertSame(
-                'modules/' . \ucfirst($kind->value),
-                $paths[$kind->value] ?? null,
-                \sprintf('the default %s root does not match App\\Modules\\%s\\.', $kind->value, \ucfirst($kind->value)),
-            );
-        }
+        // The default root is modules/, so modules/<Name> holds App\Modules\<Name>.
+        self::assertSame(['modules'], \App\Engine\Bootstrap\Bootstrap::defaults()['modules']['paths']);
 
         // And every class under modules/ sits where PSR-4 will look for it.
         $read = 0;
@@ -1274,7 +1268,7 @@ final class ArchitectureTest extends TestCase
         \sort($methods);
 
         self::assertSame(
-            ['__construct', 'asset', 'data', 'escaper', 'exists', 'get', 'has', 'render', 'withData'],
+            ['__construct', 'asset', 'data', 'escaper', 'exists', 'get', 'has', 'local', 'render', 'withData'],
             $methods,
             'TemplateView gained a method. Everything a template can reach is listed here on purpose.',
         );
@@ -3608,13 +3602,13 @@ final class ArchitectureTest extends TestCase
     }
 
     /**
-     * Shared first, gateways last, in the application as it actually boots.
+     * Shared first, in the application as it actually boots.
      *
-     * The resolver enforces this by refusing a dependency against kind; this
-     * checks the outcome, so a change to the resolver that reordered across
-     * kinds is caught even if every unit test of it still passed.
+     * The resolver enforces this by refusing any dependency of Shared's; this
+     * checks the outcome, so a change to the resolver that moved a module ahead
+     * of Shared is caught even if every unit test of it still passed.
      */
-    public function test_the_real_application_registers_in_kind_order(): void
+    public function test_the_real_application_registers_shared_first(): void
     {
         $registry = $this->application()->boot()->container()->get(ModuleManager::class)->registry();
 
@@ -3627,7 +3621,7 @@ final class ArchitectureTest extends TestCase
         \sort($sorted);
 
         self::assertSame($sorted, $ranks, 'modules registered out of kind order');
-        self::assertSame('shared', $registry->ids()[0] ?? null);
+        self::assertSame('Shared', $registry->ids()[0] ?? null);
     }
 
     /**
@@ -3638,21 +3632,18 @@ final class ArchitectureTest extends TestCase
      * the cached shape is pinned: adding a field here is adding something that
      * will one day be silently wrong.
      *
-     * Phase 27 added two, deliberately, and both are answers the same directory
-     * walk gives -- whether assets/ and Templates/ exist. They go stale exactly
+     * Phase 27 added two, and localization a third, deliberately, and all are
+     * answers the same directory walk gives -- whether assets/, Templates/ and
+     * lang/ exist. They go stale exactly
      * when the path would (somebody changed the module's directory), not when
      * somebody edits a declaration, which is the line this test holds.
      */
     public function test_the_discovery_cache_carries_no_dependency_data(): void
     {
-        $definition = \App\Engine\Module\ModuleDefinition::create(
-            \App\Engine\Module\ModuleKind::Plugin,
-            '/modules/Plugins/Example',
-            'Example',
-        );
+        $definition = \App\Engine\Module\ModuleDefinition::create('/modules/Example', 'Example');
 
         self::assertSame(
-            ['id', 'kind', 'path', 'entryFile', 'directory', 'assets', 'templates'],
+            ['id', 'kind', 'path', 'entryFile', 'directory', 'assets', 'templates', 'lang'],
             \array_keys($definition->toArray()),
             'The discovery cache gained a field. If it is resolved data, it will go stale.',
         );
@@ -4372,19 +4363,17 @@ final class ArchitectureTest extends TestCase
     private function modulesReferencedBy(string $path): array
     {
         $separator = \preg_quote(\chr(92), '/');
-        $pattern = '/App' . $separator . '(?:Modules|Tests' . $separator . 'Fixtures' . $separator . 'Showcase)' . $separator
-            . '(Shared|Plugins' . $separator . '([A-Za-z_][A-Za-z0-9_]*)|Gateways' . $separator . '([A-Za-z_][A-Za-z0-9_]*))/';
+        // App\Modules\<Name>, or the showcase's App\Tests\Fixtures\Showcase\[Plugins|Gateways\]<Name>:
+        // either way the module's id is its directory name.
+        $pattern = '/App' . $separator . '(?:Modules|Tests' . $separator . 'Fixtures' . $separator . 'Showcase'
+            . '(?:' . $separator . '(?:Plugins|Gateways))?)' . $separator . '([A-Z][A-Za-z0-9_]*)/';
 
         \preg_match_all($pattern, $this->codeWithoutComments($path), $matches, \PREG_SET_ORDER);
 
         $ids = [];
 
         foreach ($matches as $match) {
-            $ids[] = match (true) {
-                $match[1] === 'Shared' => 'shared',
-                ($match[2] ?? '') !== '' => 'plugins/' . $match[2],
-                default => 'gateways/' . ($match[3] ?? ''),
-            };
+            $ids[] = $match[1];
         }
 
         return \array_values(\array_unique($ids));

@@ -40,14 +40,14 @@ final class McpAuthorizationTest extends TestCase
     protected function setUp(): void
     {
         $access = new AccessRegistry();
-        (new AccessCollector($access, 'plugins/Customer'))
+        (new AccessCollector($access, 'Customer'))
             ->capability('customer.view')
             ->capability('customer.support')
             ->role('agent', ['customer.view', 'customer.support'])
             ->role('viewer', ['customer.view']);
 
         $this->registry = new McpRegistry();
-        (new McpCollector($this->registry, 'plugins/Customer'))
+        (new McpCollector($this->registry, 'Customer'))
             ->tool('greet', GreetTool::class, 'Open to any authenticated caller.')
             ->tool('customer.get', GreetTool::class, permission: 'customer.view')
             ->resource('customer://{id}', CustomerResource::class, permission: 'customer.view')
@@ -164,6 +164,6 @@ final class McpAuthorizationTest extends TestCase
         $this->expectException(AuthException::class);
         $this->expectExceptionMessage('leaky.use');
 
-        $this->shippedApplication(['modules' => ['paths' => ['plugins' => 'tests/Fixtures/Modules/McpUndeclared/Plugins']]])->boot();
+        $this->shippedApplication(['modules' => ['paths' => ['modules/Shared', 'tests/Fixtures/Modules/McpUndeclared/Plugins']]])->boot();
     }
 }

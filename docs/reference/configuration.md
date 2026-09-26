@@ -16,7 +16,7 @@ final class SendInvoice
     public function __invoke(): void
     {
         $from = $this->config->string('billing.sender', 'billing@example.com');
-        $size = $this->config->int('plugins/Example.page_size', 25);
+        $size = $this->config->int('Example.page_size', 25);
     }
 }
 ```
@@ -45,6 +45,9 @@ Text is legitimate in exactly one place, the environment, and that is where the
 parsing lives.
 
 ## Where settings come from
+
+Every key, every environment variable and its default is listed in
+[Default settings](defaults.md).
 
 Four sources, each overriding the one before it:
 
@@ -90,12 +93,12 @@ buys you a parser.
 A module's id is a path, and a subfolder in `config/` matches it:
 
 ```php
-// config/plugins/Example.php — the module at modules/Plugins/Example
+// config/Example.php — the module at modules/Example
 return ['page_size' => 10];
 ```
 
 ```php
-// modules/Plugins/Example/module.php
+// modules/Example/module.php
 $module->config(['page_size' => 25]);
 ```
 
@@ -155,6 +158,47 @@ file — has no good answer.
 
 A line that is not an assignment stops the boot rather than being skipped. A
 setting that silently fails to apply is worse than a boot that stops.
+
+## Memory limit
+
+`MEMORY_LIMIT` sets PHP's `memory_limit` when the application boots, so a laptop
+and a server agree instead of each using whatever its `php.ini` says:
+
+```bash
+MEMORY_LIMIT=256M
+```
+
+```php
+// or config/app.php
+return ['memory_limit' => '512M'];   // -1 (as an int or a string) means no limit
+```
+
+- The value is PHP's own notation: `256M`, `1G`, `134217728`, `-1`. Unset leaves
+  `php.ini` alone.
+- A value PHP would not understand (`lots`, `256MB`, `1.5G`) **stops the boot**,
+  naming it, instead of being passed to `ini_set()` and quietly ignored.
+- So does a limit below what the process already uses: the next allocation would
+  be a fatal error with no room left to report it.
+
+Queue workers use it too: with no `--memory` or `QUEUE_MAX_MEMORY`, a worker
+stops between jobs at 80% of this limit. See
+[Running a worker](queue.md#running-a-worker).
+
+## Time limit
+
+`MAX_EXECUTION_TIME` is how long a **web request** may run, in seconds; `0`
+means no limit. Unset leaves `php.ini`'s `max_execution_time`.
+
+```bash
+MAX_EXECUTION_TIME=30
+```
+
+- Web requests only. Console commands keep PHP's own "no limit", which is what
+  a migration or a long report needs, and a queue worker limits each job with
+  `QUEUE_TIMEOUT`.
+- A negative number stops the boot, and so does a host that has disabled
+  `set_time_limit()` — a limit you asked for that PHP does not apply is worse
+  than one you were told about.
 
 ## The configuration cache
 
@@ -221,6 +265,7 @@ is sharing their screen from.
 | A change in `config/` does nothing | The configuration cache is still the old one | `php laika cache:clear`, then `cache:warm` |
 | "of the wrong type", naming a key | A value is `'30'` where `30` was wanted | Fix the file; typed reads do not convert |
 | The boot stops, naming a variable | A boolean or number in the environment cannot be read | Use `true/false/yes/no/on/off/1/0`, or a plain number |
+| The boot stops, naming `app.memory_limit` | `MEMORY_LIMIT` is not PHP's notation, or is below what the process uses | `256M`, `1G` or `-1` |
 | A `.env` value is ignored | A real environment variable of the same name wins | Unset the real one, or change it |
 | A module's `config()` value is ignored | Your `config/` file overrides it, which is the design | Change the file, not the module |
 | `config:cache` refuses | A closure or object is in the configuration | The message names the key |

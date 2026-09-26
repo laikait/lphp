@@ -141,8 +141,11 @@ final class RateLimiterTest extends TestCase
 
     public function test_checking_does_not_use_an_attempt(): void
     {
-        self::assertSame(3, $this->limiter->check('a', '3/1m')->remaining);
-        self::assertSame(3, $this->limiter->check('a', '3/1m')->remaining);
+        $first = $this->limiter->check('a', '3/1m');
+        $second = $this->limiter->check('a', '3/1m');
+
+        self::assertSame(3, $first->remaining);
+        self::assertSame(3, $second->remaining, 'checking again spent nothing');
         self::assertTrue($this->limiter->attempt('a', '3/1m')->allowed);
         self::assertSame(2, $this->limiter->check('a', '3/1m')->remaining);
     }

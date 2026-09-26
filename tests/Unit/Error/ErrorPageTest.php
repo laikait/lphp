@@ -168,4 +168,66 @@ final class ErrorPageTest extends TestCase
     {
         self::assertSame(['errors/404', 'errors/error'], (new ErrorPage())->candidates(ErrorDocument::of(404)));
     }
+
+    // ---- Whoops -----------------------------------------------------------
+
+    public function test_debug_with_the_exception_renders_whoops(): void
+    {
+        $e = new \RuntimeException('boom <b>x</b>');
+        $html = (new ErrorPage())->render(ErrorDocument::fromThrowable($e, debug: true), null, $e);
+
+        self::assertStringContainsString('<title>RuntimeException: boom &lt;b&gt;x&lt;/b&gt;', $html);
+        self::assertStringContainsString('boom &lt;b&gt;x&lt;/b&gt;', $html, 'the message is escaped');
+        self::assertStringNotContainsString('<b>x</b>', $html);
+    }
+
+    public function test_whoops_is_never_used_outside_debug(): void
+    {
+        $e = new \RuntimeException('boom');
+        $html = (new ErrorPage())->render(ErrorDocument::fromThrowable($e), null, $e);
+
+        self::assertStringNotContainsString('Whoops', $html);
+        self::assertStringNotContainsString('boom', $html);
+    }
+
+    public function test_debug_without_the_exception_keeps_the_built_in_page(): void
+    {
+        $html = (new ErrorPage())->render(ErrorDocument::fromThrowable(new \RuntimeException('boom'), debug: true));
+
+        self::assertStringNotContainsString('Whoops', $html);
+        self::assertStringContainsString('#0', $html);
+    }
+
+    public function test_whoops_masks_cookies_the_environment_and_secret_looking_names(): void
+    {
+        // Values built at run time, so they are not in the source Whoops shows.
+        $secrets = [\str_rot13('ncc-xrl-inyhr'), \str_rot13('qo-cnffjbeq-inyhr'), \str_rot13('frffvba-inyhr'), \str_rot13('cbfgrq-cnffjbeq')];
+        $saved = [$_ENV, $_SERVER, $_COOKIE, $_POST];
+        $_ENV['LPHP_TEST_KEY'] = $secrets[0];
+        $_SERVER['LPHP_DB_PASSWORD'] = $secrets[1];
+        $_COOKIE['lphp_session'] = $secrets[2];
+        $_POST['password'] = $secrets[3];
+        $_SERVER['LPHP_VISIBLE'] = \str_rot13('cynva-inyhr');
+
+        try {
+            $e = new \RuntimeException('boom');
+            $html = (new ErrorPage(environment: ['LPHP_TEST_KEY']))->render(ErrorDocument::fromThrowable($e, debug: true), null, $e);
+        } finally {
+            [$_ENV, $_SERVER, $_COOKIE, $_POST] = $saved;
+        }
+
+        foreach ($secrets as $secret) {
+            self::assertStringNotContainsString($secret, $html);
+        }
+
+        self::assertStringContainsString(\str_rot13('cynva-inyhr'), $html, 'an ordinary value is still shown');
+    }
+
+    public function test_whoops_links_files_to_the_editor_and_shortens_paths(): void
+    {
+        $e = new \RuntimeException('boom');
+        $html = (new ErrorPage(basePath: $this->basePath(), editor: 'vscode'))->render(ErrorDocument::fromThrowable($e, debug: true), null, $e);
+
+        self::assertStringContainsString('vscode://file/', $html);
+    }
 }

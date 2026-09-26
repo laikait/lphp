@@ -211,7 +211,7 @@ final class SystemAuditTest extends TestCase
     public function test_authorization_records_the_principal_and_questions_record_nothing(): void
     {
         $access = new AccessRegistry();
-        $collector = new AccessCollector($access, 'plugins/Server');
+        $collector = new AccessCollector($access, 'Server');
         SystemCapability::declare($collector, SystemCapability::ServiceRestart);
         $collector->role('operator', [SystemCapability::ServiceRestart->value]);
         $system = new SystemAuthorizer(new Authorizer($access), $this->audit);

@@ -12,7 +12,7 @@ use App\Engine\Model\ModelException;
 use App\Engine\Model\RelationManager;
 use App\Engine\Routing\Router;
 use App\Engine\Support\Extensions;
-use App\Tests\Fixtures\Showcase\Gateways\Example\Hooks\AuditHooks;
+use App\Tests\Fixtures\Showcase\Gateways\ExampleGateway\Hooks\AuditHooks;
 use App\Tests\Fixtures\Showcase\Plugins\Example\Data\CustomerQuery;
 use App\Tests\Fixtures\Showcase\Plugins\Example\Data\CustomerRepository;
 use App\Tests\Fixtures\Showcase\Plugins\Example\Hooks\CustomerHooks;
@@ -80,7 +80,7 @@ final class VerticalSliceTest extends TestCase
         self::assertInstanceOf(JsonResponse::class, $response);
         self::assertSame('application/json; charset=UTF-8', $response->contentType());
         self::assertSame(
-            'plugins/Example',
+            'Example',
             $app->container()->get(Router::class)->route('customers.json')?->module(),
         );
 
@@ -114,7 +114,7 @@ final class VerticalSliceTest extends TestCase
     public function test_the_gateway_and_the_plugin_do_not_reference_each_other(): void
     {
         $plugin = \file_get_contents($this->basePath(self::SHOWCASE . '/Plugins/Example/Api/CustomerApi.php'));
-        $gateway = \file_get_contents($this->basePath(self::SHOWCASE . '/Gateways/Example/Hooks/AuditHooks.php'));
+        $gateway = \file_get_contents($this->basePath(self::SHOWCASE . '/Gateways/ExampleGateway/Hooks/AuditHooks.php'));
 
         self::assertIsString($plugin);
         self::assertIsString($gateway);
@@ -538,7 +538,7 @@ final class VerticalSliceTest extends TestCase
         // engine the framework and the module both used.
         self::assertTrue(has_filter('response.instance'));
         self::assertContains(
-            'shared',
+            'Shared',
             \array_map(
                 static fn(array $listener): ?string => $listener['module'],
                 Extensions::filters()->listeners('response.instance'),

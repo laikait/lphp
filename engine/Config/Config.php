@@ -191,7 +191,7 @@ final class Config
      *
      * This is what a module's config() declaration is: defaults, not decisions.
      * A module ships sensible values for its own settings and the application
-     * overrides the ones it cares about, in config/plugins/Example.php, named
+     * overrides the ones it cares about, in config/Billing.php, named
      * after the module.
      *
      * The direction matters and the two are easy to confuse. Modules register

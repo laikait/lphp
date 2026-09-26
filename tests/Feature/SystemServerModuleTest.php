@@ -34,8 +34,8 @@ final class SystemServerModuleTest extends TestCase
         $app = $this->shippedApplication([
             'modules' => ['paths' => [
                 // The showcase's shared module, for the accounts the checks below log in as.
-                'shared' => 'tests/Fixtures/Showcase/Shared',
-                'plugins' => 'tests/Fixtures/Modules/System/Plugins',
+                'tests/Fixtures/Showcase/Shared',
+                'tests/Fixtures/Modules/System/Plugins',
             ]],
             'security' => ['key' => Signer::generate()],
             'system' => ['execution' => ['max_concurrent' => null], 'services' => ['nginx' => ['restart']]],

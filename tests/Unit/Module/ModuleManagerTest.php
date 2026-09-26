@@ -46,9 +46,9 @@ final class ModuleManagerTest extends TestCase
         $this->config = new Config([
             'modules' => [
                 'paths' => [
-                    'shared' => 'tests/Fixtures/Modules/Shared',
-                    'plugins' => 'tests/Fixtures/Modules/Plugins',
-                    'gateways' => 'tests/Fixtures/Modules/Gateways',
+                    'tests/Fixtures/Modules/Shared',
+                    'tests/Fixtures/Modules/Plugins',
+                    'tests/Fixtures/Modules/Gateways',
                 ],
             ],
         ]);
@@ -75,12 +75,12 @@ final class ModuleManagerTest extends TestCase
 
     // ---- discovery --------------------------------------------------------
 
-    public function test_discovery_finds_modules_across_all_three_roots(): void
+    public function test_discovery_finds_modules_across_every_root(): void
     {
         $this->manager->discover();
 
         self::assertSame(
-            ['shared', 'plugins/Alpha', 'plugins/Beta', 'gateways/Zeta'],
+            ['Shared', 'Alpha', 'Beta', 'Zeta'],
             $this->registry->ids(),
         );
     }
@@ -96,9 +96,9 @@ final class ModuleManagerTest extends TestCase
 
         $ids = $this->registry->ids();
 
-        self::assertSame('shared', $ids[0]);
-        self::assertSame(['plugins/Alpha', 'plugins/Beta'], \array_slice($ids, 1, 2));
-        self::assertSame('gateways/Zeta', $ids[3]);
+        self::assertSame('Shared', $ids[0]);
+        self::assertSame(['Alpha', 'Beta'], \array_slice($ids, 1, 2));
+        self::assertSame('Zeta', $ids[3]);
     }
 
     public function test_a_directory_without_a_module_file_is_ignored(): void
@@ -106,20 +106,17 @@ final class ModuleManagerTest extends TestCase
         $this->manager->discover();
 
         self::assertDirectoryExists($this->basePath('tests/Fixtures/Modules/Plugins/NotAModule'));
-        self::assertFalse($this->registry->has('plugins/NotAModule'));
+        self::assertFalse($this->registry->has('NotAModule'));
     }
 
-    /**
-     * The specification's own tree has a plugin and a gateway both called
-     * "Example", so bare directory names cannot be the identity.
-     */
-    public function test_ids_are_qualified_by_kind(): void
+    /** A module's id is its directory name; only Shared is a different kind. */
+    public function test_ids_are_directory_names(): void
     {
         $this->manager->discover();
 
-        self::assertSame('plugins/Alpha', $this->registry->definition('plugins/Alpha')?->id);
-        self::assertSame(ModuleKind::Gateway, $this->registry->definition('gateways/Zeta')?->kind);
-        self::assertSame('shared', $this->registry->definition('shared')?->id);
+        self::assertSame('Alpha', $this->registry->definition('Alpha')?->id);
+        self::assertSame(ModuleKind::Module, $this->registry->definition('Zeta')?->kind);
+        self::assertSame('Shared', $this->registry->definition('Shared')?->id);
     }
 
     public function test_discovery_runs_no_module_code(): void
@@ -129,12 +126,12 @@ final class ModuleManagerTest extends TestCase
         // If a module.php had run, its routes and hooks would exist by now.
         self::assertSame(0, $this->router->count());
         self::assertSame([], $this->hooks->names());
-        self::assertNull($this->registry->context('plugins/Alpha'));
+        self::assertNull($this->registry->context('Alpha'));
     }
 
     public function test_a_missing_root_is_not_an_error(): void
     {
-        $config = new Config(['modules' => ['paths' => ['plugins' => 'tests/Fixtures/DoesNotExist']]]);
+        $config = new Config(['modules' => ['paths' => ['tests/Fixtures/DoesNotExist']]]);
 
         $manager = new ModuleManager(
             $this->container,
@@ -159,12 +156,12 @@ final class ModuleManagerTest extends TestCase
     public function test_a_duplicate_id_from_a_different_path_is_rejected(): void
     {
         $registry = new ModuleRegistry();
-        $registry->add(ModuleDefinition::create(ModuleKind::Plugin, '/a/Alpha', 'Alpha'));
+        $registry->add(ModuleDefinition::create('/a/Alpha', 'Alpha'));
 
         $this->expectException(ModuleException::class);
-        $this->expectExceptionMessage('Two modules claim the id "plugins/Alpha"');
+        $this->expectExceptionMessage('Two modules claim the id "Alpha"');
 
-        $registry->add(ModuleDefinition::create(ModuleKind::Plugin, '/b/Alpha', 'Alpha'));
+        $registry->add(ModuleDefinition::create('/b/Alpha', 'Alpha'));
     }
 
     // ---- loading ----------------------------------------------------------
@@ -174,7 +171,7 @@ final class ModuleManagerTest extends TestCase
         $this->manager->discover();
         $this->manager->load();
 
-        $alpha = $this->registry->context('plugins/Alpha');
+        $alpha = $this->registry->context('Alpha');
 
         self::assertInstanceOf(ModuleContext::class, $alpha);
         self::assertNotSame([], $alpha->declaredRoutes());
@@ -190,8 +187,8 @@ final class ModuleManagerTest extends TestCase
         $this->manager->discover();
         $this->manager->load();
 
-        $alpha = $this->registry->context('plugins/Alpha');
-        $shared = $this->registry->context('shared');
+        $alpha = $this->registry->context('Alpha');
+        $shared = $this->registry->context('Shared');
 
         self::assertNotNull($alpha);
         self::assertNotNull($shared);
@@ -203,9 +200,9 @@ final class ModuleManagerTest extends TestCase
 
     public function test_the_module_name_defaults_to_its_id(): void
     {
-        $definition = ModuleDefinition::create(ModuleKind::Plugin, '/x/Thing', 'Thing');
+        $definition = ModuleDefinition::create('/x/Thing', 'Thing');
 
-        self::assertSame('plugins/Thing', (new ModuleContext($definition))->moduleName());
+        self::assertSame('Thing', (new ModuleContext($definition))->moduleName());
     }
 
     public function test_an_entry_file_that_returns_the_wrong_thing_is_reported_clearly(): void
@@ -221,12 +218,12 @@ final class ModuleManagerTest extends TestCase
         } catch (ModuleException $e) {
             self::assertStringContainsString('must return a closure', $e->getMessage());
             self::assertStringContainsString('returned array', $e->getMessage());
-            self::assertStringContainsString('plugins/Temp', $e->getMessage());
+            self::assertStringContainsString('Temp', $e->getMessage());
         } finally {
             $this->removeTemporaryModule($directory);
         }
 
-        self::assertTrue($registry->has('plugins/Temp'));
+        self::assertTrue($registry->has('Temp'));
     }
 
     // ---- registration -----------------------------------------------------
@@ -238,16 +235,16 @@ final class ModuleManagerTest extends TestCase
         self::assertGreaterThan(0, $this->router->count());
         self::assertTrue($this->hooks->has('order.recorded'));
         self::assertTrue($this->filters->has('items.list'));
-        self::assertSame('USD', $this->config->get('shared.currency'));
-        self::assertSame(25, $this->config->get('plugins/Alpha.page_size'));
+        self::assertSame('USD', $this->config->get('Shared.currency'));
+        self::assertSame(25, $this->config->get('Alpha.page_size'));
     }
 
     public function test_routes_are_attributed_to_the_module_that_declared_them(): void
     {
         $this->manager->run();
 
-        self::assertSame('plugins/Alpha', $this->router->route('items.index')?->module());
-        self::assertSame('shared', $this->router->route('shared.ping')?->module());
+        self::assertSame('Alpha', $this->router->route('items.index')?->module());
+        self::assertSame('Shared', $this->router->route('shared.ping')?->module());
     }
 
     public function test_group_names_and_metadata_survive_module_registration(): void
@@ -265,8 +262,8 @@ final class ModuleManagerTest extends TestCase
     {
         $this->manager->run();
 
-        self::assertSame('shared', $this->hooks->listeners('order.recorded')[0]['module']);
-        self::assertSame('plugins/Alpha', $this->filters->listeners('items.list')[0]['module']);
+        self::assertSame('Shared', $this->hooks->listeners('order.recorded')[0]['module']);
+        self::assertSame('Alpha', $this->filters->listeners('items.list')[0]['module']);
     }
 
     /**
@@ -294,7 +291,7 @@ final class ModuleManagerTest extends TestCase
         // fires, which is only true if the replay was by category.
         self::assertSame(['registered', 'registered', 'registered', 'registered'], $order);
         self::assertTrue($this->container->has(Recorder::class));
-        self::assertSame(25, $this->config->get('plugins/Alpha.page_size'));
+        self::assertSame(25, $this->config->get('Alpha.page_size'));
     }
 
     public function test_module_registered_fires_once_per_module_in_order(): void
@@ -307,7 +304,7 @@ final class ModuleManagerTest extends TestCase
 
         $this->manager->run();
 
-        self::assertSame(['shared', 'plugins/Alpha', 'plugins/Beta', 'gateways/Zeta'], $seen);
+        self::assertSame(['Shared', 'Alpha', 'Beta', 'Zeta'], $seen);
     }
 
     /**
@@ -328,7 +325,7 @@ final class ModuleManagerTest extends TestCase
         // The shared fixture registers this listener from onBoot, so it only
         // appears here if the injected engine was the real one.
         self::assertTrue($this->hooks->has('order.recorded'));
-        self::assertSame('shared', $this->hooks->listeners('order.recorded')[0]['module']);
+        self::assertSame('Shared', $this->hooks->listeners('order.recorded')[0]['module']);
     }
 
     public function test_an_already_bound_engine_is_not_replaced(): void
@@ -349,7 +346,7 @@ final class ModuleManagerTest extends TestCase
 
         $recorder = $this->container->get(Recorder::class);
 
-        self::assertSame(['shared', 'plugins/Alpha', 'plugins/Beta', 'gateways/Zeta'], $recorder->booted);
+        self::assertSame(['Shared', 'Alpha', 'Beta', 'Zeta'], $recorder->booted);
     }
 
     public function test_module_booted_fires_per_module(): void
@@ -362,7 +359,7 @@ final class ModuleManagerTest extends TestCase
 
         $this->manager->run();
 
-        self::assertSame(['shared', 'plugins/Alpha', 'plugins/Beta', 'gateways/Zeta'], $seen);
+        self::assertSame(['Shared', 'Alpha', 'Beta', 'Zeta'], $seen);
     }
 
     public function test_every_module_ends_ready(): void
@@ -400,34 +397,34 @@ final class ModuleManagerTest extends TestCase
      */
     public function test_a_disabled_module_is_known_and_never_runs(): void
     {
-        $this->config->set('modules.disabled', ['gateways/Zeta']);
+        $this->config->set('modules.disabled', ['Zeta']);
 
         $this->manager->run();
 
-        self::assertTrue($this->registry->has('gateways/Zeta'), 'still installed');
-        self::assertTrue($this->registry->isDisabled('gateways/Zeta'));
-        self::assertFalse($this->registry->isEnabled('gateways/Zeta'));
-        self::assertNull($this->registry->context('gateways/Zeta'), 'its module.php never ran');
-        self::assertNotContains('gateways/Zeta', $this->registry->ids());
-        self::assertNotContains('gateways/Zeta', $this->container->get(Recorder::class)->booted);
-        self::assertSame(['gateways/Zeta'], $this->registry->disabledIds());
+        self::assertTrue($this->registry->has('Zeta'), 'still installed');
+        self::assertTrue($this->registry->isDisabled('Zeta'));
+        self::assertFalse($this->registry->isEnabled('Zeta'));
+        self::assertNull($this->registry->context('Zeta'), 'its module.php never ran');
+        self::assertNotContains('Zeta', $this->registry->ids());
+        self::assertNotContains('Zeta', $this->container->get(Recorder::class)->booted);
+        self::assertSame(['Zeta'], $this->registry->disabledIds());
         self::assertSame(3, $this->registry->count(), 'count is of enabled modules');
     }
 
     /** A typo here would leave the module running while the configuration says it is off. */
     public function test_disabling_a_module_that_is_not_installed_is_refused(): void
     {
-        $this->config->set('modules.disabled', ['gateways/Zeat']);
+        $this->config->set('modules.disabled', ['Zeat']);
 
         $this->expectException(ModuleException::class);
-        $this->expectExceptionMessage('gateways/Zeta');
+        $this->expectExceptionMessage('Zeta');
 
         $this->manager->run();
     }
 
     public function test_shared_cannot_be_disabled(): void
     {
-        $this->config->set('modules.disabled', ['shared']);
+        $this->config->set('modules.disabled', ['Shared']);
 
         $this->expectException(ModuleException::class);
         $this->expectExceptionMessage('shared module cannot be disabled');
@@ -454,7 +451,7 @@ final class ModuleManagerTest extends TestCase
 
         $this->manager->run();
 
-        $modules = ['shared', 'plugins/Alpha', 'plugins/Beta', 'gateways/Zeta'];
+        $modules = ['Shared', 'Alpha', 'Beta', 'Zeta'];
 
         self::assertSame([
             'discover',
@@ -472,7 +469,7 @@ final class ModuleManagerTest extends TestCase
         $this->manager->register();
 
         self::assertSame(
-            ['shared', 'plugins/Alpha', 'plugins/Beta', 'gateways/Zeta'],
+            ['Shared', 'Alpha', 'Beta', 'Zeta'],
             $this->registry->ids(),
         );
     }
@@ -500,7 +497,7 @@ final class ModuleManagerTest extends TestCase
 
         $this->expectException(\LogicException::class);
 
-        $this->registry->setOrder(['shared', 'plugins/Alpha', 'plugins/Beta']);
+        $this->registry->setOrder(['Shared', 'Alpha', 'Beta']);
     }
 
     /**
@@ -512,11 +509,11 @@ final class ModuleManagerTest extends TestCase
      */
     public function test_the_discovery_cache_still_lists_a_disabled_module(): void
     {
-        $this->config->set('modules.disabled', ['gateways/Zeta']);
+        $this->config->set('modules.disabled', ['Zeta']);
         $this->manager->run();
 
         self::assertContains(
-            'gateways/Zeta',
+            'Zeta',
             \array_column($this->registry->toArray(), 'id'),
         );
     }
@@ -549,7 +546,7 @@ final class ModuleManagerTest extends TestCase
     {
         return new ModuleManager(
             $this->container,
-            new Config(['modules' => ['paths' => ['plugins' => $pluginsRoot]]]),
+            new Config(['modules' => ['paths' => [$pluginsRoot]]]),
             $this->router,
             $this->hooks,
             $this->filters,

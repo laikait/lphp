@@ -78,10 +78,10 @@ final class ConfigTest extends TestCase
     public function test_merge_namespaces_values_under_a_key(): void
     {
         $config = new Config();
-        $config->merge('plugins/Example', ['currency' => 'USD', 'page_size' => 25]);
+        $config->merge('Example', ['currency' => 'USD', 'page_size' => 25]);
 
-        self::assertSame('USD', $config->get('plugins/Example.currency'));
-        self::assertSame(25, $config->get('plugins/Example.page_size'));
+        self::assertSame('USD', $config->get('Example.currency'));
+        self::assertSame(25, $config->get('Example.page_size'));
     }
 
     public function test_merge_is_recursive_and_does_not_clobber_siblings(): void
@@ -226,20 +226,20 @@ final class ConfigTest extends TestCase
      */
     public function test_defaults_do_not_displace_what_is_already_configured(): void
     {
-        $config = new Config(['plugins/Example' => ['page_size' => 10]]);
+        $config = new Config(['Example' => ['page_size' => 10]]);
 
-        $config->defaults('plugins/Example', ['page_size' => 25, 'currency' => 'USD']);
+        $config->defaults('Example', ['page_size' => 25, 'currency' => 'USD']);
 
-        self::assertSame(['page_size' => 10, 'currency' => 'USD'], $config->get('plugins/Example'));
+        self::assertSame(['page_size' => 10, 'currency' => 'USD'], $config->get('Example'));
     }
 
     public function test_defaults_apply_where_nothing_is_configured(): void
     {
         $config = new Config([]);
 
-        $config->defaults('plugins/Example', ['page_size' => 25]);
+        $config->defaults('Example', ['page_size' => 25]);
 
-        self::assertSame(25, $config->int('plugins/Example.page_size'));
+        self::assertSame(25, $config->int('Example.page_size'));
     }
 
     public function test_defaults_reach_into_nested_values(): void

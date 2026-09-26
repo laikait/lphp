@@ -65,12 +65,12 @@ module, route or variable.
 
 - A module cache from `cache:warm` exists and debug is off. Run
   `php laika cache:clear`.
-- The file is not exactly `modules/Plugins/<Name>/module.php`, or it does not
+- The file is not exactly `modules/<Name>/module.php`, or it does not
   `return` a function.
 - It is listed in `modules.disabled`. `module:list` shows disabled modules under
   the table.
 
-**`Class "App\Modules\Plugins\…" not found`, on Linux only.** The folder's upper
+**`Class "App\Modules\…" not found`, on Linux only.** The folder's upper
 and lower case does not match the namespace. Windows and macOS ignore case;
 Linux does not.
 
@@ -126,7 +126,7 @@ have the capability. `php laika auth:access` shows who has what.
 ## Templates and assets
 
 **The wrong template is rendered.** Folders are searched in order: `templates/`,
-then its override folder for that module (`templates/plugin.<Name>/`), then the
+then its override folder for that module (`templates/<Name>/`), then the
 module itself. In each, `.twig` is tried before `.php`. `php laika template:list`
 prints the order.
 
@@ -139,7 +139,7 @@ itself throws also falls back to the built-in page.
 
 **A module's stylesheet is a 404.** It must be in the module's `assets/` folder,
 have an allowed extension, and be linked with
-`asset()->plugin('<Name>', 'css/x.css')`. `php laika asset:list` shows what is
+`asset()->module('<Name>', 'css/x.css')`. `php laika asset:list` shows what is
 published. HTML files are never served as assets.
 
 **The browser keeps an old stylesheet.** The URL must come from `asset()`, which

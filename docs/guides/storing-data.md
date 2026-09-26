@@ -10,7 +10,7 @@ This guide shows how to keep your application's data in a database:
 5. change many rows at once, and use transactions,
 6. write SQL yourself when you need to.
 
-The examples build a `Contact` plugin that stores messages sent through a contact
+The examples build a `Contact` module that stores messages sent through a contact
 form. Do [Getting started](../getting-started.md) first; it builds a smaller
 version of the same thing.
 
@@ -63,7 +63,7 @@ Each module creates its own tables with **migrations**: files in the module's
 framework writes the right SQL for MySQL, PostgreSQL, SQLite or SQL Server, so
 one file works on all four.
 
-Create `modules/Plugins/Contact/Database/Migrations/2026_09_19_120000_create_messages.php`:
+Create `modules/Contact/Database/Migrations/2026_09_19_120000_create_messages.php`:
 
 ```php
 <?php

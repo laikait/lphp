@@ -8,5 +8,5 @@ use App\Engine\Module\ModuleContext;
 return static function (ModuleContext $module): void {
     $module->name('Invoices')->version('1.0.0');
 
-    $module->requires('plugins/Ledger');
+    $module->requires('Ledger');
 };

@@ -78,7 +78,7 @@ INFO [profile] GET /customers.json 200 in 17.53 ms {"request_id":"6aa979e8...",
   "elapsed_ms":17.547,"memory_growth_kb":1284.6,"memory_peak_mb":6,
   "categories":{"module":{"count":9,"ms":10.523},"filter":{"count":5,"ms":0.277},...},
   "slowest":{"module":[{"name":"register","detail":null,"ms":4.397},
-                       {"name":"boot","detail":"plugins/Example","ms":1.72},...],
+                       {"name":"boot","detail":"Example","ms":1.72},...],
              "hook":[{"name":"request.received","detail":"engine App\\Engine\\Security\\Guard::onRequest",...}]}}
 ```
 

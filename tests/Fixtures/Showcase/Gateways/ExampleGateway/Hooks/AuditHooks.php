@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace App\Tests\Fixtures\Showcase\Gateways\Example\Hooks;
+namespace App\Tests\Fixtures\Showcase\Gateways\ExampleGateway\Hooks;
 
 use App\Engine\Model\Model;
 

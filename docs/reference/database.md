@@ -534,7 +534,7 @@ A module keeps migrations in `Database/Migrations/` and seeders in
 enough.** A disabled module's are skipped.
 
 ```php
-// modules/Plugins/Billing/Database/Migrations/2026_09_19_120000_create_invoices.php
+// modules/Billing/Database/Migrations/2026_09_19_120000_create_invoices.php
 return new class implements Reversible {
     public function up(Tables $tables): void
     {
@@ -563,7 +563,7 @@ create the file yourself.
 | `migrate` | Runs every pending migration, as one batch. `--pretend` prints the SQL each would send to this database and runs nothing; hand-written SQL is marked `[raw]`. |
 | `migrate:status` | Lists every migration, whether it ran and in which batch. A recorded migration whose file has gone is called out. |
 | `migrate:rollback` | Undoes the last batch, or `--batches=N`, newest first. Needs `--force` in production. |
-| `db:seed` | Runs every seeder, or one module's with `--module=plugins/Billing`. Needs `--force` in production. |
+| `db:seed` | Runs every seeder, or one module's with `--module=Billing`. Needs `--force` in production. |
 
 All four take `--connection=<name>`. **Migrations are a deployment step**: give
 that connection an account allowed to create tables, which the application's own
@@ -574,7 +574,7 @@ What to know about a run:
 - **The framework's own tables come first**, and only for the stores in use.
   While `session.store` is `database`, that is the session table, recorded as
   `framework:2026_09_19_000000_create_sessions`. See [Sessions](sessions.md).
-- **Order.** Modules run in the order they load: `shared` first, then each
+- **Order.** Modules run in the order they load: `Shared` first, then each
   module after the modules it `requires()`. Within a module, files run in name
   order. A migration whose foreign key names another module's table belongs to a
   module that requires that one.
@@ -608,7 +608,7 @@ A seeder returns a `Seeder`, whose `run(Connection $db)` writes through the
 query builder:
 
 ```php
-// modules/Plugins/Billing/Database/Seeders/currencies.php
+// modules/Billing/Database/Seeders/currencies.php
 return new class implements Seeder {
     public function run(Connection $db): void
     {

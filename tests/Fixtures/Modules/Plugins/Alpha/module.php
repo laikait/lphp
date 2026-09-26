@@ -74,6 +74,6 @@ return static function (ModuleContext $module): void {
     $module->filter('items.list', static fn(array $items): array => array_slice($items, 0, 2), priority: 20);
 
     $module->onBoot(static function (Recorder $recorder): void {
-        $recorder->booted[] = 'plugins/Alpha';
+        $recorder->booted[] = 'Alpha';
     });
 };

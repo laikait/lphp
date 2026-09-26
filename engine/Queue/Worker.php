@@ -38,6 +38,8 @@ use App\Engine\Hook\HookEngine;
  */
 final class Worker
 {
+    private ?string $stoppedBy = null;
+
     public function __construct(
         private readonly Queue $queue,
         private readonly JobRunner $runner,
@@ -71,6 +73,12 @@ final class Worker
         }
     }
 
+    /** Why the last run() ended: "12 jobs", "3600s", "memory (130M used)", "the queue is empty". */
+    public function stoppedBy(): ?string
+    {
+        return $this->stoppedBy;
+    }
+
     /**
      * Work until one of the limits says to stop.
      *
@@ -86,6 +94,7 @@ final class Worker
         }
 
         $processed = 0;
+        $this->stoppedBy = null;
 
         while (true) {
             $outcome = $this->runOnce($options);
@@ -93,6 +102,8 @@ final class Worker
 
             if ($outcome === JobOutcome::Idle) {
                 if ($options->stopWhenEmpty) {
+                    $this->stoppedBy = 'the queue is empty';
+
                     break;
                 }
 
@@ -102,10 +113,25 @@ final class Worker
             }
 
             if ($options->maxJobs > 0 && $processed >= $options->maxJobs) {
+                $this->stoppedBy = $processed . ' jobs';
+
                 break;
             }
 
             if ($options->maxSeconds > 0 && (\time() - $started) >= $options->maxSeconds) {
+                $this->stoppedBy = $options->maxSeconds . 's';
+
+                break;
+            }
+
+            // Between jobs, so a job is never cut off by this. The process
+            // exits and the supervisor starts a fresh one, which is the clean
+            // alternative to PHP killing it mid-job at memory_limit.
+            $used = \memory_get_usage(true);
+
+            if ($options->maxMemory > 0 && $used >= $options->maxMemory) {
+                $this->stoppedBy = \sprintf('memory (%dM used)', \intdiv($used, 1048576));
+
                 break;
             }
         }

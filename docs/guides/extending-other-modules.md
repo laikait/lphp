@@ -73,7 +73,7 @@ in:
 
 ```php
 $module->onBoot(static function (Auditor $auditor, HookEngine $hooks): void {
-    $hooks->add('customer.created', [$auditor, 'record'], 10, 'plugins/Audit');
+    $hooks->add('customer.created', [$auditor, 'record'], 10, 'Audit');
 });
 ```
 
@@ -125,14 +125,14 @@ fires just before a route's handler runs:
 ```php
 $module->onBoot(static function (HookEngine $hooks, Config $config): void {
     $hooks->add('dispatch.before', static function (Route $route) use ($config): void {
-        if ($route->metaValue('maintenance') === 'blocked' && $config->bool('plugins/Desk.maintenance')) {
+        if ($route->metaValue('maintenance') === 'blocked' && $config->bool('Desk.maintenance')) {
             throw new HttpException(503, 'The contact form is closed for maintenance.');
         }
-    }, 10, 'plugins/Desk');
+    }, 10, 'Desk');
 });
 ```
 
-When the setting `plugins/Desk.maintenance` is on, every route labelled
+When the setting `Desk.maintenance` is on, every route labelled
 `'maintenance' => 'blocked'` answers `503`.
 
 - **Throwing an `HttpException` refuses the request.** The framework's own `auth`,
@@ -185,8 +185,8 @@ If your module uses another module's classes, hooks or services, declare it in
 `module.php`:
 
 ```php
-$module->requires('plugins/Billing', '^1.2');        // refuse to boot without it
-$module->optionally('plugins/Crm', '^2.0');          // work without it; check the version if present
+$module->requires('Billing', '^1.2');        // refuse to boot without it
+$module->optionally('Crm', '^2.0');          // work without it; check the version if present
 ```
 
 - **`requires()`**: your module needs it. If it is missing, switched off, the
@@ -198,7 +198,7 @@ $module->optionally('plugins/Crm', '^2.0');          // work without it; check t
 - Your module registers **after** the modules it depends on, so your listeners run
   after theirs are in place.
 
-**Declare every module whose classes you use**, `shared` included. Nothing stops
+**Declare every module whose classes you use**, `Shared` included. Nothing stops
 you from using another module's classes without declaring it, and it works, until
 that module is switched off or upgraded. Then it fails on whichever request
 touches the class. `ArchitectureTest::test_a_module_declares_every_module_whose_classes_it_uses`
@@ -206,22 +206,22 @@ checks this for the showcase modules; copy it for your own.
 
 For an optional module, listening to its hooks needs no check: without the module
 they simply never fire. If you do need to know, ask for `ModuleRegistry` in
-`onBoot()` and call `isEnabled('plugins/Crm')`.
+`onBoot()` and call `isEnabled('Crm')`.
 
-Modules load in a fixed order of kinds: `shared`, then plugins, then gateways.
-So a plugin cannot depend on a gateway, and `shared` cannot depend on anything.
+`Shared` always loads first, so it cannot depend on anything. Any other module
+may depend on any other.
 
 ## Replace what another module shows or does
 
 | To replace | Do this |
 |---|---|
-| **its templates** | Copy them into `templates/plugin.<Name>/` and edit your copy. See [Pages and forms](pages-and-forms.md#change-a-page-you-did-not-write). |
+| **its templates** | Copy them into `templates/<Name>/` and edit your copy. See [Pages and forms](pages-and-forms.md#change-a-page-you-did-not-write). |
 | **a route** | Declare the same method and path in your module, with a different route name (names must be unique). The route declared last wins. |
 | **a service** | Register the same interface in your module. The later registration wins; this is how an application replaces the `UserProvider`. |
-| **its settings** | Create `config/plugins/<Name>.php`. Its keys override the module's defaults. See [Configuration](../reference/configuration.md). |
+| **its settings** | Create `config/<Name>.php`. Its keys override the module's defaults. See [Configuration](../reference/configuration.md). |
 
-"Last wins" follows the order modules register in: `shared`, then plugins by
-folder name, then gateways, changed only where `requires()` forces it. Relying on
+"Last wins" follows the order modules register in: `Shared`, then the others by
+folder name, changed only where `requires()` forces it. Relying on
 folder names is fragile, because renaming a folder changes the winner. So declare
 `requires()` on the module you replace: then yours always registers after it.
 
@@ -229,7 +229,7 @@ folder names is fragile, because renaming a folder changes the winner. So declar
 
 ```php
 // config/modules.php
-return ['disabled' => ['gateways/Stripe']];
+return ['disabled' => ['Stripe']];
 ```
 
 A switched-off module does not run at all. Modules that `requires()` it refuse to

@@ -43,9 +43,9 @@ final class ListCustomers
         $query = \is_array($request->query()) ? $request->query() : [];
 
         // What a request does not say, the installation decides. page_size is
-        // declared by this module and overridden in config/plugins/Example.php,
+        // declared by this module and overridden in config/Example.php,
         // which is why the default here is a lookup rather than a number.
-        $query['per_page'] ??= $this->config->int('plugins/Example.page_size', 25);
+        $query['per_page'] ??= $this->config->int('Example.page_size', 25);
 
         $paging = PaginationSchema::schema()->validate($query);
 

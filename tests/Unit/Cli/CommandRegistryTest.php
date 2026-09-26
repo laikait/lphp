@@ -48,19 +48,19 @@ final class CommandRegistryTest extends TestCase
     public function test_two_modules_cannot_claim_the_same_name(): void
     {
         $registry = new CommandRegistry();
-        $registry->add(new Command('customer:sync', static fn(): int => 0, 'plugins/Alpha'));
+        $registry->add(new Command('customer:sync', static fn(): int => 0, 'Alpha'));
 
         $caught = 'nothing was thrown';
 
         try {
-            $registry->add(new Command('customer:sync', static fn(): int => 0, 'plugins/Beta'));
+            $registry->add(new Command('customer:sync', static fn(): int => 0, 'Beta'));
         } catch (ConsoleException $e) {
             $caught = $e->getMessage();
         }
 
-        self::assertStringContainsString('plugins/Alpha', $caught);
-        self::assertStringContainsString('plugins/Beta', $caught);
-        self::assertSame('plugins/Alpha', $registry->get('customer:sync')?->module, 'the first claim stands');
+        self::assertStringContainsString('Alpha', $caught);
+        self::assertStringContainsString('Beta', $caught);
+        self::assertSame('Alpha', $registry->get('customer:sync')?->module, 'the first claim stands');
     }
 
     public function test_registration_order_is_kept_and_sorting_is_separate(): void
@@ -136,11 +136,11 @@ final class CommandRegistryTest extends TestCase
     public function test_the_collector_stamps_each_command_with_its_module(): void
     {
         $registry = new CommandRegistry();
-        $commands = new CommandCollector($registry, 'plugins/Example');
+        $commands = new CommandCollector($registry, 'Example');
 
         $commands->add('customer:sync', static fn(): int => 0);
 
-        self::assertSame('plugins/Example', $registry->get('customer:sync')?->module);
+        self::assertSame('Example', $registry->get('customer:sync')?->module);
     }
 
     public function test_the_collector_returns_the_command_so_declarations_chain(): void

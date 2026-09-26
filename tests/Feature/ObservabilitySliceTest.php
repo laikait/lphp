@@ -292,9 +292,9 @@ final class ObservabilitySliceTest extends TestCase
                 'security' => ['counters' => 'memory'],
                 'session' => ['store' => 'memory'],
                 'modules' => ['paths' => [
-                    'shared' => 'tests/Fixtures/Modules/Shared',
-                    'plugins' => 'tests/Fixtures/Modules/Plugins',
-                    'gateways' => 'tests/Fixtures/Modules/Gateways',
+                    'tests/Fixtures/Modules/Shared',
+                    'tests/Fixtures/Modules/Plugins',
+                    'tests/Fixtures/Modules/Gateways',
                 ]],
             ],
         );

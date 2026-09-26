@@ -29,7 +29,7 @@ final class ResourceReaderTest extends TestCase
         CustomerResource::$reads = [];
 
         $registry = new McpRegistry();
-        (new McpCollector($registry, 'plugins/Customer'))
+        (new McpCollector($registry, 'Customer'))
             ->resource('customer://{id}', CustomerResource::class, 'One customer.')
             ->resource('customer://recent', CustomerResource::class, 'The latest customers.')
             ->resource('order://{customer}/orders/{order}', CustomerResource::class);

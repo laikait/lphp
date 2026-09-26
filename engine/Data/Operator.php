@@ -26,6 +26,13 @@ enum Operator: string
     case IsNull = 'is null';
     case IsNotNull = 'is not null';
 
+    /**
+     * After a boundary row in an order: keyset pagination's criterion. Its
+     * value is a Seek and its field only a label; see Seek. Built by
+     * Query::cursor() and chunk(), not written by hand.
+     */
+    case Seek = 'seek';
+
     /** Whether the operator compares against a value at all. */
     public function takesValue(): bool
     {

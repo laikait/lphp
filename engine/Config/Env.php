@@ -139,6 +139,19 @@ final class Env
     }
 
     /**
+     * The names of the variables in $_ENV, without their values.
+     *
+     * For the debug error page, which masks every one of them. Names only, and
+     * not logged as reads: nothing here decides configuration.
+     *
+     * @return list<string>
+     */
+    public static function names(): array
+    {
+        return \array_values(\array_map(\strval(...), \array_keys($_ENV)));
+    }
+
+    /**
      * Forget the read log.
      *
      * For tests and for the cache-building command, which wants a fingerprint
