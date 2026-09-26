@@ -28,89 +28,6 @@ final class HelpersTest extends TestCase
         Extensions::reset();
     }
 
-    // ---- dump and dd ---------------------------------------------------------
-
-    public function test_dump_prints_the_value_and_where_it_was_called(): void
-    {
-        Extensions::init($this->hooks, $this->filters, debug: true);
-
-        \ob_start();
-        $line = __LINE__ + 1;
-        dump(['id' => 3]);
-        $out = (string) \ob_get_clean();
-
-        self::assertStringContainsString('HelpersTest.php:' . $line, $out);
-        self::assertStringContainsString('"id" => int(3)', $out);
-    }
-
-    public function test_dump_with_debug_off_prints_nothing_and_logs_where_it_is(): void
-    {
-        $writer = new class implements \App\Engine\Logging\LogWriter {
-            /** @var list<\App\Engine\Logging\LogRecord> */
-            public array $records = [];
-
-            public function describe(): string
-            {
-                return 'memory';
-            }
-
-            public function accepts(\App\Engine\Logging\LogRecord $record): bool
-            {
-                return true;
-            }
-
-            public function write(\App\Engine\Logging\LogRecord $record): void
-            {
-                $this->records[] = $record;
-            }
-        };
-        $logs = new \App\Engine\Logging\LogManager();
-        $logs->add($writer);
-
-        Extensions::init($this->hooks, $this->filters, debug: false, log: $logs->channel());
-
-        \ob_start();
-        dump('secret order data');
-        $out = (string) \ob_get_clean();
-
-        self::assertSame('', $out);
-        self::assertCount(1, $writer->records);
-        self::assertSame('dump() left in code', $writer->records[0]->message);
-        self::assertStringContainsString('HelpersTest.php:', (string) $writer->records[0]->context['at']);
-    }
-
-    public function test_dd_with_debug_off_throws_instead_of_printing(): void
-    {
-        Extensions::init($this->hooks, $this->filters, debug: false);
-
-        \ob_start();
-
-        try {
-            dd('secret order data');
-        } catch (\App\Engine\Support\DebugException $e) {
-            self::assertStringContainsString('dd() was called at', $e->getMessage());
-            self::assertStringContainsString('HelpersTest.php:', $e->getMessage());
-            self::assertFalse($e->disclosesMessage(), 'the location is for the log, not the visitor');
-        } finally {
-            self::assertSame('', (string) \ob_get_clean());
-        }
-    }
-
-    public function test_dd_prints_and_exits_with_status_one(): void
-    {
-        $script = \sprintf(
-            'require %s; dd(["ok" => true]); echo "not reached";',
-            \var_export($this->basePath('vendor/autoload.php'), true),
-        );
-
-        \exec(\escapeshellarg(\PHP_BINARY) . ' -r ' . \escapeshellarg($script) . ' 2>&1', $output, $status);
-        $out = \implode("\n", $output);
-
-        self::assertSame(1, $status);
-        self::assertStringContainsString('"ok" => bool(true)', $out);
-        self::assertStringNotContainsString('not reached', $out);
-    }
-
     // ---- hooks ------------------------------------------------------------
 
     public function test_add_hook_registers_on_the_wired_engine(): void
@@ -252,14 +169,9 @@ final class HelpersTest extends TestCase
      * reach that subsystem globally -- the hook and filter helpers, asset() and
      * template(). Everything else in the framework is injected.
      *
-     * dump() and dd() are the one addition beyond the specification, and the
-     * justification is the same shape: a debugging aid has to work wherever
-     * code can be written -- a handler, a template, module.php, a script --
-     * and most of those have nothing to inject into. They print only with
-     * debug on, so one left in code cannot show a visitor anything.
-     *
-     * Changing this array is a design decision with a written justification,
-     * not a line in somebody's commit.
+     * The list is now complete: the specification mandates no global beyond
+     * these. Changing this array is a design decision with a written
+     * justification, not a line in somebody's commit.
      */
     public const PERMITTED = [
         'add_hook',
@@ -272,8 +184,6 @@ final class HelpersTest extends TestCase
         'has_filter',
         'asset',
         'template',
-        'dump',
-        'dd',
     ];
 
     public function test_every_permitted_helper_exists(): void

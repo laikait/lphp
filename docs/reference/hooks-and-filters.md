@@ -72,7 +72,6 @@ signature:
 add_hook    do_hook      remove_hook    has_hook
 add_filter  apply_filter remove_filter  has_filter
 asset       template
-dump        dd
 ```
 
 `asset()` and `template()` return their manager rather than doing the work,
@@ -80,16 +79,13 @@ because each of those APIs is several verbs, and more global functions would be
 worse than one. The return type is a single concrete class either way, so the
 call site stays exactly as analysable as an injected one.
 
-**The set is closed.** What decides membership is a rule, not a number: a
+**The set is complete.** What decides membership is a rule, not a number: a
 subsystem is here when the specification says authors reach it globally, because
-those are the places with no constructor to inject into. `dump()` and `dd()`
-meet the same rule for debugging — see
-[Dump a value](../troubleshooting.md#dump-a-value). Three architecture tests keep
-that honest:
+those are the places with no constructor to inject into. Three architecture
+tests keep that honest:
 
-1. `Support\Extensions` exposes exactly `hooks`, `filters`, `assets`,
-   `templates`, and the `debug` flag and `log` that `dump()` and `dd()` need,
-   and the test asserts the **names**.
+1. `Support\Extensions` exposes exactly `hooks`, `filters`, `assets` and
+   `templates`, and the test asserts the **names**.
 2. No file under `engine/` may call a global helper, except `helpers.php`.
    Engine code takes its collaborators by constructor injection.
 3. Nothing in `Extensions` may take a string. A lookup by name is a service

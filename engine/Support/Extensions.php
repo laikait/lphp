@@ -7,7 +7,6 @@ namespace App\Engine\Support;
 use App\Engine\Asset\AssetManager;
 use App\Engine\Filter\FilterEngine;
 use App\Engine\Hook\HookEngine;
-use App\Engine\Logging\Logger;
 use App\Engine\Template\TemplateManager;
 
 /**
@@ -56,11 +55,6 @@ final class Extensions
 
     private static ?TemplateManager $templates = null;
 
-    /** Null until bootstrap: a plain script with no application is treated as debugging. */
-    private static ?bool $debug = null;
-
-    private static ?Logger $log = null;
-
     /**
      * The last two are nullable because the hook and filter engines exist from
      * the first line of bootstrap while the asset and template managers need
@@ -73,33 +67,11 @@ final class Extensions
         FilterEngine $filters,
         ?AssetManager $assets = null,
         ?TemplateManager $templates = null,
-        ?bool $debug = null,
-        ?Logger $log = null,
     ): void {
         self::$hooks = $hooks;
         self::$filters = $filters;
         self::$assets = $assets;
         self::$templates = $templates;
-        self::$debug = $debug;
-        self::$log = $log;
-    }
-
-    /**
-     * Whether dump() and dd() may print.
-     *
-     * app.debug once the application is bootstrapped. Before that -- a script
-     * that loads the autoloader and nothing else -- there is no visitor to
-     * leak to, so they print.
-     */
-    public static function debug(): bool
-    {
-        return self::$debug ?? true;
-    }
-
-    /** Where dump() says it was left in code, with debug off. Null before bootstrap. */
-    public static function log(): ?Logger
-    {
-        return self::$log;
     }
 
     public static function hooks(): HookEngine
@@ -153,7 +125,5 @@ final class Extensions
         self::$filters = null;
         self::$assets = null;
         self::$templates = null;
-        self::$debug = null;
-        self::$log = null;
     }
 }

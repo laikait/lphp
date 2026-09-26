@@ -12,9 +12,8 @@ declare(strict_types=1);
  * tests/Architecture for the rules that keep them honest.
  *
  * The set is closed, and a member earns its place by being a subsystem the
- * specification says authors reach globally -- or, for dump() and dd(), by
- * being a debugging aid that has to work anywhere code can be written,
- * including where nothing can be injected.
+ * specification says authors reach globally. It is now complete: the
+ * specification mandates no global beyond these.
  *
  * Every function is guarded so that an application which defines its own is not
  * fatally broken by loading the framework.
@@ -148,65 +147,5 @@ if (!function_exists('template')) {
     function template(): \App\Engine\Template\TemplateManager
     {
         return Extensions::templates();
-    }
-}
-
-if (!function_exists('dump')) {
-    /**
-     * Print values for debugging, and carry on.
-     *
-     *     dump($customer, $request->query());
-     *
-     * Each value is printed with its type and with where dump() was called:
-     * HTML in a browser, plain text on the command line. Private properties are
-     * shown; a Secret stays "[redacted]".
-     *
-     * Only with APP_DEBUG=true. With debug off it prints nothing and logs a
-     * warning naming the file and line, so one left in code is found in the
-     * log rather than by a visitor.
-     */
-    function dump(mixed ...$values): void
-    {
-        $where = \App\Engine\Support\Dumper::caller(debug_backtrace(\DEBUG_BACKTRACE_IGNORE_ARGS, 2), 'dump');
-
-        if (!Extensions::debug()) {
-            Extensions::log()?->warning('dump() left in code', ['at' => $where]);
-
-            return;
-        }
-
-        \App\Engine\Support\Dumper::emit(array_values($values), $where);
-    }
-}
-
-if (!function_exists('dd')) {
-    /**
-     * Print values for debugging, and stop: "dump and die".
-     *
-     *     dd($customer);
-     *
-     * In a browser the dump is the whole page, with status 500 so no cache
-     * keeps it; on the command line it exits with status 1. Never in a test --
-     * it would stop PHPUnit too; use dump() there.
-     *
-     * Only with APP_DEBUG=true. With debug off it prints nothing and throws a
-     * DebugException instead: the visitor sees the ordinary error page, the log
-     * says where the dd() is, and the code after it still does not run.
-     */
-    function dd(mixed ...$values): never
-    {
-        $where = \App\Engine\Support\Dumper::caller(debug_backtrace(\DEBUG_BACKTRACE_IGNORE_ARGS, 2), 'dd');
-
-        if (!Extensions::debug()) {
-            throw \App\Engine\Support\DebugException::leftInCode($where);
-        }
-
-        \App\Engine\Support\Dumper::emit(array_values($values), $where);
-
-        if (\PHP_SAPI !== 'cli' && !headers_sent()) {
-            http_response_code(500);
-        }
-
-        exit(1);
     }
 }
