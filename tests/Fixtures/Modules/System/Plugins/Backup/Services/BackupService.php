@@ -85,6 +85,6 @@ final class BackupService
             throw new \InvalidArgumentException('A backup name is lowercase letters, digits and dashes.');
         }
 
-        return \rtrim((string) $this->config->string('plugins/Backup.directory'), '/') . '/' . $name . '.json';
+        return \rtrim((string) $this->config->string('Backup.directory'), '/') . '/' . $name . '.json';
     }
 }

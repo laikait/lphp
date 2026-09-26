@@ -3,7 +3,7 @@
 Start with the section that matches what you are doing. If a word is new to you,
 look it up in the [glossary](#glossary) at the bottom of this page.
 
-Everything here describes version 2.1.4. What is public, and how stable it is,
+Everything here describes version 2.1.2. What is public, and how stable it is,
 is listed in [`STABILITY.md`](../STABILITY.md).
 
 ## New to the framework
@@ -43,9 +43,9 @@ a guide links to it, or when you need the details.
 |---|---|
 | Structure | [Modules](reference/modules.md) · [Hooks and filters](reference/hooks-and-filters.md) · [Project layout](reference/project-layout.md) |
 | HTTP | [Routing](reference/routing.md) · [REST](reference/rest.md) · [Errors](reference/errors.md) |
-| Output | [Templates](reference/templates.md) · [Assets](reference/assets.md) |
+| Output | [Templates](reference/templates.md) · [Assets](reference/assets.md) · [Localization](reference/localization.md) |
 | Data | [Models](reference/models.md) · [Schemas](reference/schemas.md) · [Repositories and queries](reference/data.md) · [The database](reference/database.md) |
-| Runtime | [Configuration](reference/configuration.md) · [Cache](reference/cache.md) · [Logging](reference/logging.md) · [CLI](reference/console.md) |
+| Runtime | [Configuration](reference/configuration.md) · [Default settings](reference/defaults.md) · [Cache](reference/cache.md) · [Logging](reference/logging.md) · [CLI](reference/console.md) |
 | Background | [Queue and worker](reference/queue.md) · [Scheduler](reference/scheduler.md) |
 | Security | [Security](reference/security.md) · [Sessions](reference/sessions.md) · [Authentication and authorization](reference/auth.md) |
 | Operations | [Performance](reference/performance.md) · [Observability](reference/observability.md) · [System operations](reference/system.md) · [MCP](reference/mcp.md) |
@@ -79,9 +79,9 @@ in full.
 
 | Word | Meaning |
 |---|---|
-| **Module** | A folder under `modules/` holding one part of your application: its pages, commands, tables and jobs. There are three kinds: `Shared` (exactly one, loaded first), `Plugins/<Name>` (your features) and `Gateways/<Name>` (usually a connection to an outside service, such as payments). See [Modules](reference/modules.md). |
+| **Module** | A folder under `modules/` holding one part of your application: its pages, commands, tables and jobs. `modules/Shared/` is the one every application has, loaded first; every other folder with a `module.php` is a module named after the folder, whatever you call it. See [Modules](reference/modules.md). |
 | **`module.php`** | The one file that tells the framework what a module adds: its routes, commands, services, hooks and settings. See [Modules](reference/modules.md). |
-| **Module id** | A module's name, taken from where its folder is: `modules/Plugins/Notes/` is `plugins/Notes`. |
+| **Module id** | A module's name, taken from where its folder is: `modules/Notes/` is `Notes`. |
 | **Route** | A rule that connects a URL and an HTTP method, such as `GET /notes`, to the code that answers it. See [Routing](reference/routing.md). |
 | **Handler** | The class or method a route calls. It receives the request, and returns a response, a string (HTML) or an array (JSON). See [Routing](reference/routing.md). |
 | **Request, Response** | The framework's objects for what the browser sent and what goes back to it. |

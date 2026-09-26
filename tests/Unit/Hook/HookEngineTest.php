@@ -225,12 +225,12 @@ final class HookEngineTest extends TestCase
 
     public function test_listeners_report_debugging_information(): void
     {
-        $this->hooks->add('customer.created', [HookSpy::class, 'record'], 20, 'plugins/Example', 1);
+        $this->hooks->add('customer.created', [HookSpy::class, 'record'], 20, 'Example', 1);
 
         $listeners = $this->hooks->listeners('customer.created');
 
         self::assertCount(1, $listeners);
-        self::assertSame('plugins/Example', $listeners[0]['module']);
+        self::assertSame('Example', $listeners[0]['module']);
         self::assertSame(20, $listeners[0]['priority']);
         self::assertSame(HookSpy::class . '::record', $listeners[0]['callback']);
         self::assertSame(1, $listeners[0]['accepted_args']);
@@ -343,14 +343,14 @@ final class HookEngineTest extends TestCase
             $heard[] = [$hook, $listener->module, $ns >= 0];
         });
 
-        $this->hooks->add('invoice.paid', $this->record('a'), 10, 'plugins/Billing');
-        $this->hooks->add('invoice.paid', $this->record('b'), 20, 'gateways/Stripe');
+        $this->hooks->add('invoice.paid', $this->record('a'), 10, 'Billing');
+        $this->hooks->add('invoice.paid', $this->record('b'), 20, 'Stripe');
         $this->hooks->do('invoice.paid');
 
         self::assertSame(['a', 'b'], $this->log);
         self::assertSame([
-            ['invoice.paid', 'plugins/Billing', true],
-            ['invoice.paid', 'gateways/Stripe', true],
+            ['invoice.paid', 'Billing', true],
+            ['invoice.paid', 'Stripe', true],
         ], $heard);
     }
 

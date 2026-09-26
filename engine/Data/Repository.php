@@ -84,7 +84,7 @@ abstract class Repository
         /** @var class-string<Model> $model */
         $model = $this->model();
 
-        return Query::on($this->source, $this->collection(), $this->models, $model);
+        return Query::on($this->source, $this->collection(), $this->models, $model, $this->key());
     }
 
     /**

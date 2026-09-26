@@ -22,7 +22,7 @@ namespace App\Engine\Model;
  *
  * Declarations are made from a module's onBoot callback, which is the stage at
  * which every module is registered. That matters for relations that cross a
- * module boundary: a plugin can relate its own model to a shared one only once
+ * module boundary: a module can relate its own model to a shared one only once
  * the shared module exists.
  */
 final class RelationManager

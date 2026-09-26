@@ -20,6 +20,12 @@ use App\Engine\Template\TemplateManager;
  * is the asset manager, and an error page that needs the application to be
  * healthy is an error page that vanishes exactly when it is needed.
  *
+ * In debug mode, when filp/whoops is installed, the built-in page is Whoops
+ * instead: source around each frame, the request, the environment. It is a
+ * development tool, so it is never used for a document without a trace -- that
+ * is, never outside debug mode -- and anything it fails on falls back to the
+ * built-in page. Values that name a secret are masked before it sees them.
+ *
  * Rendering a template can itself throw -- a typo in errors/500 is discovered
  * the day the first 500 happens -- so a failure here falls back rather than
  * propagating. An error page that throws turns a handled 404 into an unhandled
@@ -29,7 +35,23 @@ final class ErrorPage
 {
     public const DIRECTORY = 'errors';
 
-    public function __construct(private readonly ?TemplateManager $templates = null) {}
+    /** Names whose values Whoops shows as asterisks: in the environment, the server array and form input. */
+    private const SECRET = '/KEY|SECRET|PASS|TOKEN|DSN|AUTH|COOKIE|CREDENTIAL|PRIVATE|SESSION|SIGNATURE/i';
+
+    public function __construct(
+        private readonly ?TemplateManager $templates = null,
+        /** The project root: Whoops shows paths relative to it and marks frames under it as the application's. */
+        private readonly ?string $basePath = null,
+        /** A Whoops editor name (phpstorm, vscode, sublime, ...) for clickable file links; null for none. */
+        private readonly ?string $editor = null,
+        /**
+         * The environment's variable names, whose values Whoops masks. Handed
+         * in rather than read, so this page still depends on nothing.
+         *
+         * @var list<string>
+         */
+        private readonly array $environment = [],
+    ) {}
 
     /**
      * The application's page when it has one, the built-in page otherwise.
@@ -45,10 +67,10 @@ final class ErrorPage
      * That is the right way round: a template is a production artefact, and the
      * trace is what development is for.
      */
-    public function render(ErrorDocument $document, ?Request $request = null): string
+    public function render(ErrorDocument $document, ?Request $request = null, ?\Throwable $exception = null): string
     {
         if ($document->detail('trace') !== null) {
-            return self::builtIn($document);
+            return ($exception === null ? null : $this->whoops($exception)) ?? self::builtIn($document);
         }
 
         return $this->fromTemplate($document, $request) ?? self::builtIn($document);
@@ -104,6 +126,86 @@ final class ErrorPage
         }
 
         return null;
+    }
+
+    /**
+     * The Whoops page for $exception, or null when Whoops is not installed or
+     * could not render it.
+     *
+     * Whoops only renders here: it is not registered as a handler, it writes
+     * nothing, sends no header and never exits. ErrorHandler stays the one
+     * thing that catches, reports and responds.
+     */
+    private function whoops(\Throwable $exception): ?string
+    {
+        if (!\class_exists(\Whoops\Run::class)) {
+            return null;
+        }
+
+        try {
+            $handler = new \Whoops\Handler\PrettyPageHandler();
+            // Tests and the built-in server's worker both run as "cli", where
+            // Whoops would otherwise decline to produce HTML.
+            $handler->handleUnconditionally(true);
+            $handler->setPageTitle(\sprintf('%s: %s', $exception::class, $exception->getMessage()));
+
+            if ($this->editor !== null && $this->editor !== '') {
+                $handler->setEditor($this->editor);
+            }
+
+            if ($this->basePath !== null) {
+                $handler->setApplicationRootPath($this->basePath);
+                $handler->setApplicationPaths([
+                    $this->basePath . '/modules',
+                    $this->basePath . '/templates',
+                    $this->basePath . '/config',
+                ]);
+            }
+
+            $this->maskSecrets($handler);
+
+            $run = new \Whoops\Run();
+            $run->allowQuit(false);
+            $run->writeToOutput(false);
+            $run->sendHttpCode(false);
+            $run->pushHandler($handler);
+
+            $html = $run->handleException($exception);
+
+            return \is_string($html) && $html !== '' ? $html : null;
+        } catch (\Throwable) {
+            // As with a broken error template: the caller still needs a page.
+            return null;
+        }
+    }
+
+    /**
+     * Hide every value that could be a credential.
+     *
+     * A debug page is still a page, and a debug flag left on in production is
+     * the classic way it is seen by the wrong person. Every cookie and every
+     * environment value is hidden -- the session cookie is a live login, and
+     * the environment is where secrets live -- and so is anything in the
+     * server array or the form input whose name looks like a secret: APP_KEY,
+     * DB_DSN, DB_PASSWORD, HTTP_AUTHORIZATION, password.
+     */
+    private function maskSecrets(\Whoops\Handler\PrettyPageHandler $handler): void
+    {
+        foreach (\array_keys($_COOKIE) as $key) {
+            $handler->hideSuperglobalKey('_COOKIE', (string) $key);
+        }
+
+        foreach ($this->environment as $key) {
+            $handler->hideSuperglobalKey('_ENV', $key);
+        }
+
+        foreach (['_SERVER' => $_SERVER, '_POST' => $_POST] as $global => $values) {
+            foreach (\array_keys($values) as $key) {
+                if (\preg_match(self::SECRET, (string) $key) === 1) {
+                    $handler->hideSuperglobalKey($global, (string) $key);
+                }
+            }
+        }
     }
 
     /**

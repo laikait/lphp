@@ -174,9 +174,9 @@ final class CommandTest extends TestCase
 
     public function test_a_command_remembers_which_module_declared_it(): void
     {
-        $command = new Command('customer:sync', static fn(): int => 0, 'plugins/Example');
+        $command = new Command('customer:sync', static fn(): int => 0, 'Example');
 
-        self::assertSame('plugins/Example', $command->module);
+        self::assertSame('Example', $command->module);
     }
 
     public function test_lookups_find_nothing_rather_than_failing(): void

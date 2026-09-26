@@ -72,6 +72,21 @@ final class TemplateView
         return $this->escaper;
     }
 
+    /**
+     * The translation of $key, as plain text: escape it like any other value.
+     *
+     *     <?= $view->escaper()->html($view->local('user_update_success', ['user' => $name])) ?>
+     *
+     * The Twig equivalent is {{ 'user_update_success'|local({user: name}) }},
+     * which Twig escapes on its own.
+     *
+     * @param array<array-key, mixed> $parameters
+     */
+    public function local(string $key, array $parameters = []): string
+    {
+        return $this->templates->translate($key, $parameters);
+    }
+
     public function has(string $key): bool
     {
         return \array_key_exists($key, $this->data);

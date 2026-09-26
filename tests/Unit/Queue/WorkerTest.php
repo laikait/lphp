@@ -172,6 +172,34 @@ final class WorkerTest extends TestCase
         self::assertSame(2, $summary[JobOutcome::Completed->value]);
     }
 
+    public function test_a_run_stops_between_jobs_once_memory_reaches_the_limit(): void
+    {
+        $this->queue->push(new RecordingJob('one'));
+        $this->queue->push(new RecordingJob('two'));
+
+        $this->worker->run(new WorkerOptions(sleep: 0, stopWhenEmpty: true, maxMemory: 1));
+
+        self::assertSame(['one'], RecordingJob::$ran, 'the first job finished; the second waits for a fresh process');
+        self::assertSame(1, $this->queue->pending());
+        self::assertStringStartsWith('memory (', (string) $this->worker->stoppedBy());
+    }
+
+    public function test_no_memory_limit_means_the_queue_is_drained(): void
+    {
+        $this->queue->push(new RecordingJob('one'));
+        $this->queue->push(new RecordingJob('two'));
+
+        $this->worker->run(new WorkerOptions(sleep: 0, stopWhenEmpty: true, maxMemory: 0));
+
+        self::assertSame(['one', 'two'], RecordingJob::$ran);
+        self::assertSame('the queue is empty', $this->worker->stoppedBy());
+    }
+
+    public function test_the_memory_limit_is_described(): void
+    {
+        self::assertSame('128M of memory, until empty', (new WorkerOptions(maxMemory: 134217728, stopWhenEmpty: true))->describe());
+    }
+
     public function test_a_run_stops_after_max_jobs(): void
     {
         $this->queue->push(new RecordingJob('one'));

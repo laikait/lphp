@@ -8,6 +8,7 @@ use App\Engine\Data\Criterion;
 use App\Engine\Data\Operator;
 use App\Engine\Data\Order;
 use App\Engine\Data\Query;
+use App\Engine\Data\Seek;
 use App\Engine\Database\Query\Aggregate;
 use App\Engine\Database\Query\Condition;
 use App\Engine\Database\Query\JoinClause;
@@ -559,6 +560,10 @@ class Grammar
     /** @return array{sql: string, bindings: list<mixed>} */
     private function compileCriterion(Criterion $criterion): array
     {
+        if ($criterion->value instanceof Seek) {
+            return $this->compileSeek($criterion->value);
+        }
+
         $column = $this->identifier($criterion->field);
 
         return match ($criterion->operator) {
@@ -571,6 +576,49 @@ class Grammar
                 'bindings' => [$criterion->value],
             ],
         };
+    }
+
+    /**
+     * Rows after a boundary, in an order: the expanded form of a row-value
+     * comparison, behind a plain range on the first column.
+     *
+     *     created_at DESC, id DESC after (T, 7)
+     *     (created_at <= ? AND ((created_at < ?) OR (created_at = ? AND id < ?)))
+     *
+     * Expanded rather than (created_at, id) < (?, ?), because a row value
+     * cannot mix ascending and descending columns and is not supported the
+     * same way everywhere.
+     *
+     * The leading "created_at <= ?" is redundant logically and is the whole
+     * point physically. Planners do not seek into an index through an OR;
+     * given only the OR, SQLite scanned the index from the start, and a page
+     * 190,000 rows in took 15 ms instead of 0.03. The plain range is something
+     * every planner turns into an index seek, and the OR then only refines the
+     * boundary row's ties.
+     *
+     * @return array{sql: string, bindings: list<mixed>}
+     */
+    private function compileSeek(Seek $seek): array
+    {
+        $first = $seek->orders[0];
+        $range = $this->identifier($first->field) . ($first->isDescending() ? ' <= ?' : ' >= ?');
+        $branches = [];
+        $bindings = [$seek->values[0]];
+
+        foreach ($seek->orders as $index => $order) {
+            $parts = [];
+
+            for ($previous = 0; $previous < $index; ++$previous) {
+                $parts[] = $this->identifier($seek->orders[$previous]->field) . ' = ?';
+                $bindings[] = $seek->values[$previous];
+            }
+
+            $parts[] = $this->identifier($order->field) . ($order->isDescending() ? ' < ?' : ' > ?');
+            $bindings[] = $seek->values[$index];
+            $branches[] = '(' . \implode(' AND ', $parts) . ')';
+        }
+
+        return ['sql' => '(' . $range . ' AND (' . \implode(' OR ', $branches) . '))', 'bindings' => $bindings];
     }
 
     /** @return array{sql: string, bindings: list<mixed>} */

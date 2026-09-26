@@ -62,7 +62,7 @@ final class McpLogTest extends TestCase
         self::assertSame(Level::Info, $record->level);
         self::assertSame('MCP tool called', $record->message);
         self::assertSame('greet', $record->context['capability']);
-        self::assertSame('plugins/Demo', $record->context['module']);
+        self::assertSame('Demo', $record->context['module']);
         self::assertSame('ok', $record->context['outcome']);
         self::assertSame('7', $record->context['principal']);
         self::assertSame('stdio', $record->context['transport']);

@@ -100,7 +100,7 @@ final class SchedulerSliceTest extends TestCase
         );
 
         foreach ($schedules->all() as $schedule) {
-            self::assertSame('plugins/Example', $schedule->module, 'a schedule knows who declared it');
+            self::assertSame('Example', $schedule->module, 'a schedule knows who declared it');
         }
     }
 
@@ -209,7 +209,7 @@ final class SchedulerSliceTest extends TestCase
         self::assertCount(1, $records);
         self::assertSame('Schedule customer:refresh-counts ran', $records[0]->message);
         self::assertSame('customer:refresh-counts', $records[0]->context['schedule']);
-        self::assertSame('plugins/Example', $records[0]->context['module']);
+        self::assertSame('Example', $records[0]->context['module']);
     }
 
     /** A command's output reaches the log, which is where cron normally loses it. */
@@ -245,14 +245,14 @@ final class SchedulerSliceTest extends TestCase
         self::assertStringContainsString('customer:sync', $output);
         self::assertStringContainsString('daily at 02:00', $output);
         self::assertStringContainsString('job:review-customers', $output);
-        self::assertStringContainsString('plugins/Example', $output);
+        self::assertStringContainsString('Example', $output);
         // The thing somebody reads this command to find out.
         self::assertStringContainsString('schedule:run', $output);
     }
 
     public function test_schedule_list_can_be_narrowed_to_a_module(): void
     {
-        [, $output] = $this->console($this->app(), 'schedule:list', '--module=gateways/Example');
+        [, $output] = $this->console($this->app(), 'schedule:list', '--module=ExampleGateway');
 
         self::assertStringContainsString('Nothing matches.', $output);
     }

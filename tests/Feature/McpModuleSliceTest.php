@@ -20,7 +20,7 @@ final class McpModuleSliceTest extends TestCase
     private function registry(string $plugins, array $config = []): McpRegistry
     {
         return $this->shippedApplication([
-            'modules' => ['paths' => ['plugins' => $plugins], ...($config['modules'] ?? [])],
+            'modules' => ['paths' => ['modules/Shared', $plugins], ...($config['modules'] ?? [])],
         ])->boot()->container()->get(McpRegistry::class);
     }
 
@@ -37,21 +37,21 @@ final class McpModuleSliceTest extends TestCase
 
     public function test_every_module_registers_its_own_in_dependency_order(): void
     {
-        $registry = $this->registry('tests/Fixtures/Modules/Mcp/Plugins', ['modules' => ['disabled' => ['plugins/Muted']]]);
+        $registry = $this->registry('tests/Fixtures/Modules/Mcp/Plugins', ['modules' => ['disabled' => ['Muted']]]);
 
         // Zulu before Alpha, although Alpha sorts first: Alpha requires Zulu.
         self::assertSame(
-            ['plugins/Zulu: zulu.greet', 'plugins/Zulu: customer://{id}', 'plugins/Alpha: alpha.support'],
+            ['Zulu: zulu.greet', 'Zulu: customer://{id}', 'Alpha: alpha.support'],
             self::owned($registry),
         );
 
-        self::assertSame('plugins/Alpha', $registry->find(CapabilityKind::Prompt, 'alpha.support')?->module);
+        self::assertSame('Alpha', $registry->find(CapabilityKind::Prompt, 'alpha.support')?->module);
     }
 
     public function test_a_disabled_module_offers_nothing(): void
     {
         $withMuted = $this->registry('tests/Fixtures/Modules/Mcp/Plugins');
-        $withoutMuted = $this->registry('tests/Fixtures/Modules/Mcp/Plugins', ['modules' => ['disabled' => ['plugins/Muted']]]);
+        $withoutMuted = $this->registry('tests/Fixtures/Modules/Mcp/Plugins', ['modules' => ['disabled' => ['Muted']]]);
 
         self::assertNotNull($withMuted->find(CapabilityKind::Tool, 'muted.greet'));
         self::assertNull($withoutMuted->find(CapabilityKind::Tool, 'muted.greet'));
@@ -60,7 +60,7 @@ final class McpModuleSliceTest extends TestCase
     public function test_two_modules_claiming_one_name_stop_boot_naming_both(): void
     {
         $this->expectException(RegistryException::class);
-        $this->expectExceptionMessage('MCP tool "customer.greet" is registered by plugins/Crm and again by plugins/Customer');
+        $this->expectExceptionMessage('MCP tool "customer.greet" is registered by Crm and again by Customer');
 
         $this->registry('tests/Fixtures/Modules/McpDuplicate/Plugins');
     }

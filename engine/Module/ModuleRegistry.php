@@ -9,13 +9,13 @@ use App\Engine\Support\Path;
 /**
  * Holds what discovery found, in a deterministic order.
  *
- * Order is by kind rank first (shared, then plugins, then gateways) and by
- * directory name second, case-sensitively. It is never filesystem order:
+ * Order is Shared first, then every other module by directory name,
+ * case-sensitively. It is never filesystem order:
  * readdir() ordering varies between filesystems and platforms, and a framework
  * whose behaviour depends on it is a framework that behaves differently in
  * production than on a developer's laptop.
  *
- * That "shared" always comes first is what makes it genuinely shared.
+ * That Shared always comes first is what makes it genuinely shared.
  *
  * Two refinements since modules could depend on each other. Once dependencies
  * are resolved the order is the resolver's, which differs from the discovery
@@ -233,7 +233,7 @@ final class ModuleRegistry
      * assets/ and a Templates/ directory -- filesystem facts, found by the same
      * walk, and the reason a boot from this cache probes no module directory.
      *
-     * @return list<array{id: string, kind: string, path: string, entryFile: string, directory: string, assets: bool, templates: bool}>
+     * @return list<array{id: string, kind: string, path: string, entryFile: string, directory: string, assets: bool, templates: bool, lang: bool}>
      */
     public function toArray(): array
     {
@@ -244,7 +244,7 @@ final class ModuleRegistry
     }
 
     /**
-     * @param list<array{id: string, kind: string, path: string, entryFile: string, directory: string, assets: bool, templates: bool}> $data
+     * @param list<array{id: string, kind: string, path: string, entryFile: string, directory: string, assets: bool, templates: bool, lang: bool}> $data
      */
     public function loadArray(array $data): void
     {
@@ -261,7 +261,7 @@ final class ModuleRegistry
      * var_export() rather than serialize() so the file is opcache-friendly and
      * readable when something goes wrong.
      *
-     * @param array<string, string> $roots the absolute roots the modules were found under;
+     * @param list<string> $roots the absolute roots the modules were found under;
      *                                     see ModuleDiscovery::roots()
      */
     public function writeCache(string $file, array $roots = []): bool
@@ -309,7 +309,7 @@ final class ModuleRegistry
      * of staleness that costs nothing to detect -- the roots are already in
      * hand -- and it is the kind nobody would think to clear for.
      *
-     * @param array<string, string> $roots the roots this process would scan
+     * @param list<string> $roots the roots this process would scan
      */
     public function readCache(string $file, array $roots = []): bool
     {
@@ -337,7 +337,7 @@ final class ModuleRegistry
             }
         }
 
-        /** @var list<array{id: string, kind: string, path: string, entryFile: string, directory: string, assets: bool, templates: bool}> $data */
+        /** @var list<array{id: string, kind: string, path: string, entryFile: string, directory: string, assets: bool, templates: bool, lang: bool}> $data */
         $this->loadArray($data);
 
         return true;

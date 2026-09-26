@@ -6,7 +6,7 @@ declare(strict_types=1);
  * Configuration for one module.
  *
  * The path is the module's id: modules/Plugins/Example has the id
- * "plugins/Example", so config/plugins/Example.php is where an application
+ * "Example", so config/Example.php is where an application
  * overrides what that module declared for itself.
  *
  * The direction is the point. The module declares page_size = 25 in its

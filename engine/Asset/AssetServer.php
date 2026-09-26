@@ -20,7 +20,7 @@ use App\Engine\Http\StreamResponse;
  *
  * **Why serve assets from PHP at all.** Because the specified layout puts
  * modules inside the web root and .htaccess denies the whole of modules/ -- it
- * has to, since module.php and every repository sits there. A plugin's
+ * has to, since module.php and every repository sits there. A module's
  * assets/ directory is therefore unreachable by Apache by design, and this is
  * what makes those files reachable without unlocking the directory that holds
  * the application's source. For the application's own assets/ directory, which

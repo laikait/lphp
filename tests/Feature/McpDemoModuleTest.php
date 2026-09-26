@@ -32,7 +32,7 @@ final class McpDemoModuleTest extends TestCase
     {
         return $this->application([
             'security' => ['key' => Signer::generate()],
-            'modules' => ['paths' => ['plugins' => 'tests/Fixtures/Modules/McpDemo/Plugins']],
+            'modules' => ['paths' => [self::SHOWCASE . '/Shared', 'tests/Fixtures/Modules/McpDemo/Plugins']],
             'mcp' => ['transports' => ['http' => true]],
         ])->boot();
     }
@@ -122,7 +122,7 @@ final class McpDemoModuleTest extends TestCase
         \rewind($stream);
         $listing = (string) \stream_get_contents($stream);
 
-        foreach (['tool\s+demo\.echo\s+plugins/McpDemo\s+any user', 'tool\s+demo\.status\s+plugins/McpDemo\s+mcpdemo\.status\.read', 'resource\s+status://app', 'prompt\s+demo\.diagnostics'] as $row) {
+        foreach (['tool\s+demo\.echo\s+McpDemo\s+any user', 'tool\s+demo\.status\s+McpDemo\s+mcpdemo\.status\.read', 'resource\s+status://app', 'prompt\s+demo\.diagnostics'] as $row) {
             self::assertMatchesRegularExpression('#' . $row . '#', $listing);
         }
     }

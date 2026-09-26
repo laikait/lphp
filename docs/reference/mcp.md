@@ -55,7 +55,7 @@ POST /mcp ────► HttpTransport ─┴► McpServer ─► ToolRunner / 
 One module offering one read-only tool, one resource and one prompt.
 
 ```php
-// modules/Plugins/Invoices/module.php
+// modules/Invoices/module.php
 return static function (ModuleContext $module): void {
     $module->name('Invoices');
 
@@ -119,7 +119,7 @@ cannot be added later.
 - A name is claimed by one module only. A duplicate stops the boot, and the
   message names both modules.
 - A **disabled module offers nothing**: its capabilities are never registered.
-- `php laika mcp:list [--module=plugins/Invoices]` shows every capability, its
+- `php laika mcp:list [--module=Invoices]` shows every capability, its
   module, what a caller needs, and how each transport is configured.
 
 ## Permissions
@@ -362,7 +362,7 @@ them from `onBoot`, as for any other hook:
 $module->onBoot(static function (HookEngine $hooks): void {
     $hooks->add('mcp.tool.after', static function (Capability $tool, ToolResult $result, McpContext $context): void {
         // count, audit, notify
-    }, 10, 'plugins/Invoices');
+    }, 10, 'Invoices');
 });
 ```
 
@@ -412,7 +412,7 @@ request with MCP enabled builds nothing of MCP.
 Call the server the application built, as a client would:
 
 ```php
-$app = $this->application(['modules' => ['paths' => ['plugins' => 'modules/Plugins']]])->boot();
+$app = $this->application(['modules' => ['paths' => ['modules']]])->boot();
 
 $session = new McpSession(new Identity('7', 'ada', ['accountant']), 'stdio');
 $session->initialize('2025-06-18', 'test', '1');

@@ -121,8 +121,8 @@ curl -i --path-as-is http://localhost/framework/assets/core/../index.php
 curl -i http://localhost/framework/assets/core/css/app.css
 ```
 
-With a plugin installed, try the same against it:
-`/assets/plugin/<Name>/module.php` and `/assets/plugin/<Name>/../module.php` must
+With a module installed, try the same against it:
+`/assets/module/<Name>/module.php` and `/assets/module/<Name>/../module.php` must
 both be 404.
 
 > Replace `http://localhost/framework` with your own address. `curl -i` prints

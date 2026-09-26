@@ -30,7 +30,7 @@ final class SystemAuthorizerTest extends TestCase
         $this->access = new AccessRegistry();
         $this->filters = new FilterEngine();
 
-        $collector = new AccessCollector($this->access, 'plugins/Server');
+        $collector = new AccessCollector($this->access, 'Server');
         SystemCapability::declare(
             $collector,
             SystemCapability::ServiceRead,
@@ -157,7 +157,7 @@ final class SystemAuthorizerTest extends TestCase
         }
 
         self::assertSame(
-            [SystemCapability::ServiceStop->description(), 'plugins/Server'],
+            [SystemCapability::ServiceStop->description(), 'Server'],
             $permissions['system.service.stop'] ?? null,
         );
         self::assertArrayNotHasKey('system.info.read', $permissions, 'only what a module declares exists');

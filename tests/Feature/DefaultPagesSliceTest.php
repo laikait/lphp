@@ -48,9 +48,9 @@ final class DefaultPagesSliceTest extends TestCase
     {
         $registry = $this->shipped()->container()->get(ModuleRegistry::class);
 
-        self::assertSame(['shared'], $registry->ids());
+        self::assertSame(['Shared'], $registry->ids());
         self::assertDirectoryDoesNotExist($this->basePath('modules/Plugins/Example'));
-        self::assertDirectoryDoesNotExist($this->basePath('modules/Gateways/Example'));
+        self::assertDirectoryDoesNotExist($this->basePath('modules/Gateways/ExampleGateway'));
     }
 
     /** Twig is the default engine, so both pages resolve to .twig files. */
@@ -111,8 +111,8 @@ final class DefaultPagesSliceTest extends TestCase
     public function test_a_module_that_declares_the_front_page_replaces_the_default(): void
     {
         $app = $this->shipped(['modules' => ['paths' => [
-            'shared' => 'modules/Shared',
-            'plugins' => 'tests/Fixtures/Modules/FrontPage/Plugins',
+            'modules/Shared',
+            'tests/Fixtures/Modules/FrontPage/Plugins',
         ]]]);
 
         $response = $this->get($app, '/');
@@ -175,7 +175,9 @@ final class DefaultPagesSliceTest extends TestCase
     {
         $body = $this->get($this->shipped(['app' => ['debug' => true]]), '/missing')->body();
 
-        self::assertStringNotContainsString('site-header', $body);
-        self::assertStringContainsString('404', $body);
+        // Whoops, which is a dev dependency: the diagnostic page, not the
+        // layout the visitor's 404 template extends.
+        self::assertStringContainsString('<title>App\\Engine\\Http\\HttpException', $body);
+        self::assertStringNotContainsString('<header class="site-header"', $body);
     }
 }

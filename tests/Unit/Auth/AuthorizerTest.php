@@ -33,7 +33,7 @@ final class AuthorizerTest extends TestCase
         $this->access = new AccessRegistry();
         $this->filters = new FilterEngine();
 
-        (new AccessCollector($this->access, 'plugins/Billing'))
+        (new AccessCollector($this->access, 'Billing'))
             ->capability('invoice.void')
             ->capability('invoice.issue')
             ->capability('invoice.read')
@@ -105,7 +105,7 @@ final class AuthorizerTest extends TestCase
             static fn(bool $allowed, Capability $capability, Identity $identity, mixed $subject): bool
                 => $subject === 'somebody else\'s invoice' ? false : $allowed,
             10,
-            'plugins/Billing',
+            'Billing',
         );
 
         $authorizer = $this->authorizer();
@@ -135,7 +135,7 @@ final class AuthorizerTest extends TestCase
                 return true;
             },
             10,
-            'plugins/Billing',
+            'Billing',
         );
 
         self::assertFalse($this->authorizer()->allows($this->identity('clerk'), 'invoice.void'));
@@ -149,7 +149,7 @@ final class AuthorizerTest extends TestCase
             Authorizer::DECISION_FILTER,
             static fn(): string => 'yes, obviously',
             10,
-            'plugins/Billing',
+            'Billing',
         );
 
         self::assertFalse($this->authorizer()->allows($this->identity('root'), 'invoice.void'));

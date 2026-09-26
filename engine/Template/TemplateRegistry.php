@@ -13,19 +13,19 @@ use App\Engine\Support\Path;
  *
  *   - **Unnamespaced**, which is what a bare name like "customer/profile"
  *     searches. In practice this is the application's templates/ directory.
- *   - **Namespaced**, one per module: "@plugin.Example/invoice" searches the
- *     Example plugin's Templates/ directory.
+ *   - **Namespaced**, one per module: "@Billing/invoice" searches the
+ *     Billing module's Templates/ directory.
  *
  * The override rule is one sentence, and it lives in searchPath() rather than
  * in a document: **an unnamespaced source at override precedence is also
  * searched for namespaced names, under a directory named after the namespace.**
- * So a site replaces a plugin's invoice by creating
+ * So a site replaces a module's invoice by creating
  *
- *     templates/plugin.Example/invoice.php
+ *     templates/Billing/invoice.php
  *
- * and the plugin never knows. No hook, no registration, no edit to the module.
- * The plugin's own copy is the fallback, which is what makes it safe for the
- * plugin to keep shipping one.
+ * and the module never knows. No hook, no registration, no edit to the module.
+ * The module's own copy is the fallback, which is what makes it safe for the
+ * module to keep shipping one.
  */
 final class TemplateRegistry
 {

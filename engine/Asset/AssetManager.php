@@ -13,8 +13,7 @@ use App\Engine\Cache\Stores\NullStore;
  *     asset()->core('js/app.js');                 ->  /assets/core/js/app.js?v=9c81f4a2
  *     asset()->template('css/app.css');           ->  /assets/template/css/app.css?v=...
  *     asset()->template('admin', 'css/admin.css');->  /assets/template/admin/css/admin.css?v=...
- *     asset()->plugin('Example', 'js/example.js');->  /assets/plugin/Example/js/example.js?v=...
- *     asset()->gateway('Stripe', 'js/stripe.js'); ->  /assets/gateway/Stripe/js/stripe.js?v=...
+ *     asset()->module('Billing', 'js/billing.js');->  /assets/module/Billing/js/billing.js?v=...
  *
  * **This class resolves; it never delivers.** It has no idea what a Request or
  * a Response is, and an architecture test keeps it that way. Delivery is
@@ -86,14 +85,10 @@ final class AssetManager
             : $this->url(AssetKind::Template, $nameOrPath, $path);
     }
 
-    public function plugin(string $module, string $path): string
+    /** A file in a module's assets/ directory: module('Billing', 'js/billing.js'). */
+    public function module(string $module, string $path): string
     {
-        return $this->url(AssetKind::Plugin, $module, $path);
-    }
-
-    public function gateway(string $module, string $path): string
-    {
-        return $this->url(AssetKind::Gateway, $module, $path);
+        return $this->url(AssetKind::Module, $module, $path);
     }
 
     // ---- resolution -------------------------------------------------------

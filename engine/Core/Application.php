@@ -30,7 +30,7 @@ use App\Engine\Support\Path;
  */
 final class Application
 {
-    public const VERSION = '2.1.4';
+    public const VERSION = '2.1.2';
 
     private bool $booted = false;
 

@@ -11,33 +11,57 @@ public, is in [`STABILITY.md`](STABILITY.md).
 
 ## [Unreleased]
 
-Nothing yet.
+### Changed
 
-## [2.1.4] - 2026-09-20
+- **`chunk()` walks by key, not by offset.** Each batch starts after the last
+  row of the one before, in the query's order with the key added last, so every
+  batch costs the same and a callback that deletes or updates rows no longer
+  makes the walk skip or repeat any. A chunk always has a total order now.
+- **Modules are flat.** A module is any folder under `modules/` with a
+  `module.php`, named whatever its author likes; its id is the folder name
+  (`Billing`, `Shared`). The plugin and gateway kinds, `modules/Plugins/` and
+  `modules/Gateways/` are gone, so `cache:warm` no longer records roots that do
+  not exist. Templates are `@Billing/`, assets `/assets/module/Billing/` through
+  `asset()->module()`, configuration `config/Billing.php`, translations
+  `Billing.key`. `modules.paths` is a list of places to look, and an entry with
+  its own `module.php` is a single module. Breaking: see
+  [`UPGRADING.md`](UPGRADING.md#modules-are-flat-modulesname-no-plugins-or-gateways).
 
-### Fixed
+### Added
 
-- **The version an application reports.** 2.1.3 was tagged without bumping
-  `Application::VERSION`, so `about` and `help` printed 2.1.2 from a 2.1.3
-  install, and this file listed 2.1.3's fixes under `[2.1.2]` — a release that
-  did not contain them. Both are corrected here, and 2.1.3 has its own section
-  below. `DocumentationTest` compares the changelog with `Application::VERSION`
-  and never with the git tags, which is why nothing caught it.
-
-## [2.1.3] - 2026-09-20
-
-### Fixed
-
-- **`about` died on the state it exists to report.** With `queue.store` set to
-  `database` and no `jobs` table yet — a fresh installation, before the first
-  `migrate` — counting what was waiting threw, so the one command that would
-  have named the problem produced a stack trace instead. It now prints the
-  store, and beside it the reason it could not be counted, and the rest of the
-  screen still renders. A message the framework did not write is not repeated,
-  so a database that is down does not put its DSN on the line.
-- **The routing reference showed a global `url()`.** There is none: the ten
-  global helpers are fixed, and building a URL from a route name is
-  `Router::url()`, injected. Three examples told readers otherwise.
+- **Localization.** Translations as PHP files: the application's in `lang/`,
+  each module's in its own `lang/`, keyed `shared.*`, `plugin.<Name>.*` and
+  `gateway.<Name>.*`. The Twig `local` filter, `TemplateView::local()` and an
+  injectable `Localization` service with `:name` parameters. The locale comes
+  from the `language` cookie, then the visitor's country through
+  `lang/countries.php`, then `Accept-Language`, then `en`; country detection
+  reads a CDN header only from `http.trusted_proxies`
+  (`localization.country_header`) and is replaceable through
+  `CountryResolver`. A local MaxMind GeoLite2/GeoIP2 Country or City
+  database (`localization.maxmind_database`, optional `maxmind-db/reader`)
+  answers after the header. Localized responses carry `Vary`. See
+  [Localization](docs/reference/localization.md).
+- `Request::fromTrustedProxy()` is public.
+- **`MEMORY_LIMIT`** (`app.memory_limit`) sets PHP's `memory_limit` at boot, in
+  PHP's notation; a value PHP would not understand, or one below what the
+  process already uses, stops the boot. `queue:work --memory=128M`
+  (`QUEUE_MAX_MEMORY`) stops a worker between jobs at that size, and defaults to
+  80% of `memory_limit`.
+- **`GET /health`** in the Shared module: database, cache, queue and disk
+  checks as JSON, 200 or 503, for load balancers and uptime monitors.
+- **Cursor pagination.** `Query::cursor()` and `cursorInto()` return a
+  `CursorPage` with `nextCursor()` and `previousCursor()`: keyset pagination
+  that seeks through the index instead of skipping with `OFFSET`, costs the
+  same at any depth and runs no count. See
+  [Two ways to paginate](docs/reference/data.md#two-ways-to-paginate).
+- **`MAX_EXECUTION_TIME`** (`app.max_execution_time`) sets how long a web
+  request may run, in seconds. Console commands and queue workers keep their own
+  limits.
+- **Whoops debug page.** With `APP_DEBUG` on and `filp/whoops` installed (a dev
+  dependency), a browser error renders as a Whoops page, with cookies,
+  environment values and secret-looking fields masked and file links for
+  `APP_EDITOR`. Without it, or if it fails, the built-in page renders as
+  before. See [Errors](docs/reference/errors.md#the-debug-page-whoops).
 
 ## [2.1.2] - 2026-09-20
 
@@ -357,7 +381,5 @@ may change it, always with an upgrade note. Nothing is Stable yet — see
   expose source through a forgotten deny rule, and a server that cannot change its
   document root still works through the forwarding `.htaccess`.
 
-[Unreleased]: https://github.com/laikait/lphp/compare/v2.1.4...main
-[2.1.4]: https://github.com/laikait/lphp/compare/v2.1.3...v2.1.4
-[2.1.3]: https://github.com/laikait/lphp/compare/v2.1.2...v2.1.3
+[Unreleased]: https://github.com/laikait/lphp/compare/v2.1.2...main
 [2.1.2]: https://github.com/laikait/lphp/releases/tag/v2.1.2

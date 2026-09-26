@@ -5,7 +5,7 @@ declare(strict_types=1);
 namespace App\Engine\Asset;
 
 /**
- * The four logical asset namespaces.
+ * The three logical asset namespaces.
  *
  * These are the *only* namespaces that exist. An asset URL cannot name a
  * directory, only a namespace and a path inside it, which is what "assets must
@@ -22,9 +22,8 @@ enum AssetKind: string
     /** The active template, or a named one: /templates/assets/, /templates/admin/assets/. */
     case Template = 'template';
 
-    case Plugin = 'plugin';
-
-    case Gateway = 'gateway';
+    /** A module's assets/ directory: /assets/module/Billing/... */
+    case Module = 'module';
 
     /**
      * Whether a source of this kind is meaningless without a name.
@@ -35,7 +34,7 @@ enum AssetKind: string
      */
     public function requiresName(): bool
     {
-        return $this === self::Plugin || $this === self::Gateway;
+        return $this === self::Module;
     }
 
     public function allowsName(): bool
@@ -43,7 +42,7 @@ enum AssetKind: string
         return $this !== self::Core;
     }
 
-    /** A human label for error messages: "plugin 'Example'", "core". */
+    /** A human label for error messages: "module 'Billing'", "core". */
     public function describe(?string $name = null): string
     {
         return $name === null || $name === '' ? $this->value : $this->value . " '" . $name . "'";

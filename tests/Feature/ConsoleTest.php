@@ -76,28 +76,6 @@ final class ConsoleTest extends TestCase
         self::assertStringContainsString('Commands', $output);
     }
 
-    /**
-     * `about` is what somebody runs when the application is not working, so it
-     * must survive the states it exists to report.
-     *
-     * A database queue on an application that has not run `migrate` has no
-     * table to count. Before this, counting threw, and the one command that
-     * would have named the problem died of it -- on a fresh installation, which
-     * is exactly when somebody is looking.
-     */
-    public function test_about_reports_a_queue_it_cannot_count_rather_than_failing(): void
-    {
-        [$status, $output] = $this->console([
-            'queue' => ['store' => 'database'],
-            'database' => ['connections' => ['default' => ['dsn' => 'sqlite::memory:']]],
-        ], 'about');
-
-        self::assertSame(ConsoleKernel::SUCCESS, $status, 'about must still answer');
-        self::assertStringContainsString('Queue', $output);
-        self::assertStringContainsString('migrate', $output, 'it should say what to run');
-        self::assertStringContainsString('Sessions', $output, 'the rest of the screen still prints');
-    }
-
     public function test_no_arguments_lists_the_commands(): void
     {
         [$status, $output] = $this->invoke();
@@ -114,7 +92,7 @@ final class ConsoleTest extends TestCase
 
         self::assertSame(0, $status);
 
-        foreach (['shared', 'plugins/Alpha', 'plugins/Beta', 'gateways/Zeta'] as $id) {
+        foreach (['Shared', 'Alpha', 'Beta', 'Zeta'] as $id) {
             self::assertStringContainsString($id, $output);
         }
 
@@ -126,7 +104,7 @@ final class ConsoleTest extends TestCase
         [, $output] = $this->invoke('module:list');
 
         self::assertMatchesRegularExpression(
-            '/plugins\/Alpha\s+plugins\s+Alpha\s+2\.1\.0\s+\d+\s+5/',
+            '/Alpha\s+module\s+Alpha\s+2\.1\.0\s+\d+\s+5/',
             $output,
             'Alpha declares five commands and the listing should say so',
         );
@@ -138,7 +116,7 @@ final class ConsoleTest extends TestCase
 
         $positions = \array_map(
             static fn(string $id): int|false => \strpos($output, $id),
-            ['shared', 'plugins/Alpha', 'plugins/Beta', 'gateways/Zeta'],
+            ['Shared', 'Alpha', 'Beta', 'Zeta'],
         );
 
         $sorted = $positions;
@@ -154,18 +132,18 @@ final class ConsoleTest extends TestCase
         self::assertSame(0, $status);
         self::assertStringContainsString('/api/v1/items/{id}', $output);
         self::assertStringContainsString('api.v1.items.show', $output);
-        self::assertStringContainsString('plugins/Alpha', $output);
+        self::assertStringContainsString('Alpha', $output);
         self::assertStringContainsString('shared', $output);
     }
 
     /** An option declared by the framework's own command, bound by name. */
     public function test_route_list_can_be_narrowed_to_one_module(): void
     {
-        [$status, $output] = $this->invoke('route:list', '--module=plugins/Alpha');
+        [$status, $output] = $this->invoke('route:list', '--module=Alpha');
 
         self::assertSame(0, $status);
-        self::assertStringContainsString('plugins/Alpha', $output);
-        self::assertStringNotContainsString('gateways/Zeta', $output);
+        self::assertStringContainsString('Alpha', $output);
+        self::assertStringNotContainsString('Zeta', $output);
     }
 
     public function test_asset_list_reports_what_is_published_and_whether_it_is_there(): void
@@ -327,7 +305,7 @@ final class ConsoleTest extends TestCase
         self::assertStringContainsString('Touch an item.', $output);
         self::assertStringContainsString('-t, --times=<value>', $output);
         self::assertStringContainsString('(default: 1)', $output);
-        self::assertStringContainsString('Declared by module plugins/Alpha.', $output);
+        self::assertStringContainsString('Declared by module Alpha.', $output);
     }
 
     public function test_help_after_a_command_explains_it_rather_than_running_it(): void

@@ -32,4 +32,4 @@ declare(strict_types=1);
     <p class="empty">No customers yet.</p>
 <?php endif ?>
 
-<?= $view->render('@plugin.Example/customer/promo', ['heading' => 'From the plugin']) ?>
+<?= $view->render('@Example/customer/promo', ['heading' => 'From the plugin']) ?>

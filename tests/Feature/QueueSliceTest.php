@@ -279,6 +279,33 @@ final class QueueSliceTest extends TestCase
         self::assertSame(['worked'], RecordingJob::$ran);
     }
 
+    public function test_queue_work_stops_between_jobs_at_its_memory_limit(): void
+    {
+        $app = $this->app(['queue' => ['store' => 'file']]);
+        $queue = $app->container()->get(Queue::class);
+        $queue->push(new RecordingJob('first'));
+        $queue->push(new RecordingJob('second'));
+
+        [$status, $output] = $this->console($app, 'queue:work', '--drain', '--memory=1K');
+
+        self::assertSame(ConsoleKernel::SUCCESS, $status);
+        self::assertCount(1, RecordingJob::$ran, 'one job ran; the other waits for a fresh worker');
+        self::assertSame(1, $queue->pending());
+        self::assertStringContainsString('Worker stopped: memory (', $output);
+    }
+
+    public function test_queue_work_refuses_a_memory_limit_that_is_not_a_size(): void
+    {
+        $app = $this->app(['queue' => ['store' => 'file']]);
+        $app->container()->get(Queue::class)->push(new RecordingJob('never'));
+
+        [$status, $output] = $this->console($app, 'queue:work', '--drain', '--memory=lots');
+
+        self::assertNotSame(ConsoleKernel::SUCCESS, $status);
+        self::assertStringContainsString('"lots" is not a size such as 128M or 1G', $output);
+        self::assertSame([], RecordingJob::$ran);
+    }
+
     public function test_queue_work_reports_a_failure_in_its_exit_code(): void
     {
         $app = $this->app(['queue' => ['store' => 'file']]);

@@ -42,14 +42,14 @@ final class AssetServerTest extends TestCase
         $this->registry->publish(AssetKind::Core, null, $this->root . '/core');
         $this->registry->publish(AssetKind::Template, null, $this->root . '/core');
         $this->registry->publish(AssetKind::Template, 'admin', $this->root . '/admin');
-        $this->registry->publish(AssetKind::Plugin, 'Example', $this->root . '/plugin');
+        $this->registry->publish(AssetKind::Module, 'Example', $this->root . '/plugin');
 
         $this->filters = new FilterEngine();
     }
 
     protected function tearDown(): void
     {
-        foreach (['core/css', 'core/img', 'plugin/js', 'admin/css', 'core'] as $directory) {
+        foreach (['core/css', 'core/img', 'module/js', 'admin/css', 'core'] as $directory) {
             \array_map('unlink', \glob($this->root . '/' . $directory . '/*.*') ?: []);
             @\rmdir($this->root . '/' . $directory);
         }
@@ -116,7 +116,7 @@ final class AssetServerTest extends TestCase
             '/assets/core/css/app.css' => 'body{margin:0}',
             '/assets/template/css/app.css' => 'body{margin:0}',
             '/assets/template/admin/css/admin.css' => 'nav{}',
-            '/assets/plugin/Example/js/example.js' => 'export const a = 1;',
+            '/assets/module/Example/js/example.js' => 'export const a = 1;',
         ] as $path => $expected) {
             $response = $this->get($path);
 
@@ -328,10 +328,10 @@ final class AssetServerTest extends TestCase
     public function test_a_filter_can_refuse_an_asset(): void
     {
         $this->filters->add('asset.response', static function (Response $response, string $path): Response {
-            return \str_starts_with($path, '/assets/plugin/') ? new Response('', 403) : $response;
+            return \str_starts_with($path, '/assets/module/') ? new Response('', 403) : $response;
         });
 
-        self::assertSame(403, $this->get('/assets/plugin/Example/js/example.js')->status());
+        self::assertSame(403, $this->get('/assets/module/Example/js/example.js')->status());
         self::assertSame(200, $this->get('/assets/core/css/app.css')->status());
     }
 

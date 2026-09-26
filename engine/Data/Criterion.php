@@ -26,6 +26,32 @@ final class Criterion
         if ($operator->expectsList() && $value === []) {
             throw DataException::emptyList($field, $operator);
         }
+
+        if (($operator === Operator::Seek) !== ($value instanceof Seek)) {
+            throw new \InvalidArgumentException('A Seek criterion takes a Seek value, and only it does.');
+        }
+    }
+
+    /** A criterion for rows after $seek's boundary. */
+    public static function seek(Seek $seek): self
+    {
+        return new self($seek->label(), Operator::Seek, $seek);
+    }
+
+    /**
+     * Whether a whole row matches, which is what a source asks.
+     *
+     * Every operator but Seek reads one field; Seek compares several.
+     *
+     * @param array<string, mixed> $row
+     */
+    public function matchesRow(array $row): bool
+    {
+        if ($this->value instanceof Seek) {
+            return $this->value->after($row);
+        }
+
+        return $this->matches($row[$this->field] ?? null);
     }
 
     /** Whether a value satisfies this criterion. Used by in-memory sources. */
@@ -46,6 +72,7 @@ final class Criterion
             Operator::Like => $this->like($value),
             Operator::IsNull => $value === null,
             Operator::IsNotNull => $value !== null,
+            Operator::Seek => throw new \LogicException('A Seek compares a whole row; use matchesRow().'),
         };
     }
 
@@ -100,7 +127,7 @@ final class Criterion
         return [
             'field' => $this->field,
             'operator' => $this->operator->value,
-            'value' => $this->value,
+            'value' => $this->value instanceof Seek ? $this->value->values : $this->value,
         ];
     }
 }

@@ -147,7 +147,7 @@ final class ModuleContext
      * This module cannot work without that one.
      *
      * ```php
-     * $module->requires('plugins/Customer', '^1.0');
+     * $module->requires('Customer', '^1.0');
      * ```
      *
      * The application refuses to boot if the other module is missing, disabled

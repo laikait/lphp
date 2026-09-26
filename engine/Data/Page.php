@@ -9,8 +9,9 @@ namespace App\Engine\Data;
  *
  * The total is a separate count against the same criteria, which is one extra
  * read per page. That is the price of knowing how many pages there are, it is
- * paid explicitly here rather than hidden, and a caller that does not need it
- * should use limit() and offset() instead.
+ * paid explicitly here rather than hidden. It also reads past every earlier
+ * row to reach the page, which is slow deep into a large table; a caller that
+ * does not need numbered pages should use Query::cursor() and CursorPage.
  *
  * @implements \IteratorAggregate<int, mixed>
  */

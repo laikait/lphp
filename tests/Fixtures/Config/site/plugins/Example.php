@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 /*
  * A subdirectory joins with a slash, so this file configures the module whose
- * id is "plugins/Example".
+ * id is "Example".
  */
 
 return [

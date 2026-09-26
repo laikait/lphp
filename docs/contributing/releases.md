@@ -59,15 +59,6 @@ changes version only when its own contract does.
    changelog disagree.
 6. Commit, then an annotated tag: `git tag -a vX.Y.Z -m "X.Y.Z"`, and push the tag.
 
-**A fix tagged after a release is a release, and takes all six steps.** Tagging
-an ordinary bug-fix commit skips steps 4 and 5, and then the tag ships code that
-reports the *previous* version: `about` and `help` print the old number, and the
-changelog attributes the fix to a release that did not contain it. Nothing
-catches it, because `DocumentationTest` compares the changelog with
-`Application::VERSION` and never with the git tags — a test cannot read a tag
-that a shallow clone or a tarball does not have. 2.1.3 went out that way, and
-2.1.4 is the correction.
-
 Nothing in this list is automated, on purpose: a release is the one moment
 somebody should be reading what changed, and a script that tags on green is a
 script that releases whatever happened to pass.

@@ -20,7 +20,7 @@ final class RouterTest extends TestCase
     protected function setUp(): void
     {
         $this->router = new Router();
-        $this->routes = new RouteCollector($this->router, 'plugins/Example');
+        $this->routes = new RouteCollector($this->router, 'Example');
     }
 
     private function handler(string $tag = 'handler'): \Closure
@@ -346,14 +346,14 @@ final class RouterTest extends TestCase
     {
         $this->routes->get('/customers', $this->handler())->name('customers.index');
 
-        self::assertSame('plugins/Example', $this->router->route('customers.index')?->module());
+        self::assertSame('Example', $this->router->route('customers.index')?->module());
     }
 
     public function test_a_duplicate_route_name_is_rejected_and_names_both_modules(): void
     {
         $this->routes->get('/customers', $this->handler())->name('customers.index');
 
-        (new RouteCollector($this->router, 'plugins/Other'))
+        (new RouteCollector($this->router, 'Other'))
             ->get('/others', $this->handler())
             ->name('customers.index');
 
@@ -362,8 +362,8 @@ final class RouterTest extends TestCase
             self::fail('expected a duplicate name failure');
         } catch (RoutingException $e) {
             self::assertStringContainsString('customers.index', $e->getMessage());
-            self::assertStringContainsString('plugins/Example', $e->getMessage());
-            self::assertStringContainsString('plugins/Other', $e->getMessage());
+            self::assertStringContainsString('Example', $e->getMessage());
+            self::assertStringContainsString('Other', $e->getMessage());
         }
     }
 

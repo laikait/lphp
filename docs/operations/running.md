@@ -45,6 +45,8 @@ to open besides the web server's.
    | `APP_ENV=production`, `APP_DEBUG=false` | debug shows stack traces, paths and settings to anyone who triggers an error |
    | `APP_KEY` | get one with `php laika security:key --bare`, and keep it like a password. Changing it makes every open form's CSRF token invalid |
    | `APP_TIMEZONE` | set it; do not rely on what `php.ini` happens to say |
+   | `MEMORY_LIMIT` | PHP's `memory_limit`, e.g. `256M`, for the same reason; queue workers stop at 80% of it |
+   | `MAX_EXECUTION_TIME` | seconds a web request may run, e.g. `30`; the console and workers are not affected |
    | `DB_DSN`, `DB_USERNAME`, `DB_PASSWORD` | your database; or `config/database.php` for several |
    | `SESSION_STORE`, `CACHE_STORE`, `QUEUE_STORE` | see [More than one host](#more-than-one-host) |
    | `SESSION_ABSOLUTE` | a maximum session length, in seconds; there is none by default |
@@ -158,6 +160,8 @@ User=www-data
 
 - `--max-jobs` and `--max-time` make the worker stop regularly, which keeps
   memory in check and makes sure a deployment's new code reaches every worker.
+  It also stops, between jobs, at 80% of `MEMORY_LIMIT` (or `--memory=`), so it
+  is restarted cleanly rather than killed mid-job.
 - With `QUEUE_STORE=file`, any number of workers on **one** machine is fine.
   With `database`, workers on any number of machines share the same queue.
 - A worker exits with 1 when it gave up on a job.
@@ -214,6 +218,25 @@ as a second machine serves the same site:
 
 ## Watching it
 
+- **`GET /health`** is for a load balancer or an uptime monitor. It answers
+  **200** when this instance can serve and **503** when it cannot, as JSON:
+
+  ```json
+  {"status":"ok","checks":{"database":{"status":"ok"},"cache":{"status":"ok"},
+   "queue":{"status":"ok","pending":{"default":3}},"disk":{"status":"ok"}}}
+  ```
+
+  | Check | Fails when |
+  |---|---|
+  | `database` | the default connection cannot run `SELECT 1` (skipped with no database) |
+  | `cache` | a value written to the cache does not come back |
+  | `queue` | the queue store cannot be read; a backlog is reported, never a failure (skipped for `sync`) |
+  | `disk` | `system/` is not writable, or has less than 50 MB free |
+
+  It names checks and states only — never a DSN, a path or an error message.
+  With `APP_DEBUG=true` a `details` field says why a check failed. It is never
+  cached. To check something else, declare `GET /health` in your own module:
+  the route declared last wins, as for `/`.
 - **`X-Request-Id`** is on every response. When a user quotes it, you can find
   every log record for that request. The same id follows the work into the queue
   as `correlation_id`.

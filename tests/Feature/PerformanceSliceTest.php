@@ -59,7 +59,7 @@ final class PerformanceSliceTest extends TestCase
     {
         $app = $this->application();
 
-        $response = $app->handle($this->request('/assets/plugin/Example/js/example.js'));
+        $response = $app->handle($this->request('/assets/module/Example/js/example.js'));
 
         self::assertSame(200, $response->status());
         self::assertFalse($app->isBooted());
@@ -84,12 +84,12 @@ final class PerformanceSliceTest extends TestCase
     {
         $app = $this->application();
 
-        self::assertSame(200, $app->handle($this->request('/assets/plugin/Example/js/example.js'))->status());
+        self::assertSame(200, $app->handle($this->request('/assets/module/Example/js/example.js'))->status());
         self::assertSame(200, $app->handle($this->request('/customers.json'))->status());
 
         self::assertTrue($app->isBooted());
         self::assertGreaterThan(0, $app->container()->get(Router::class)->count());
-        self::assertSame(200, $app->handle($this->request('/assets/plugin/Example/js/example.js'))->status());
+        self::assertSame(200, $app->handle($this->request('/assets/module/Example/js/example.js'))->status());
     }
 
     /**
@@ -136,7 +136,7 @@ final class PerformanceSliceTest extends TestCase
         $manager = $next->container()->get(ModuleManager::class);
 
         self::assertTrue($manager->discoveredFromCache());
-        self::assertSame(['shared', 'plugins/Alpha', 'plugins/Beta', 'gateways/Zeta'], $manager->registry()->ids());
+        self::assertSame(['Shared', 'Alpha', 'Beta', 'Zeta'], $manager->registry()->ids());
 
         [, $about] = $this->console($next, 'about');
         self::assertStringContainsString('config cached, modules cached', $about);
@@ -220,9 +220,9 @@ final class PerformanceSliceTest extends TestCase
         );
 
         \file_put_contents($base . '/config/modules.php', "<?php\n\nreturn " . \var_export(['paths' => [
-            'shared' => $this->fixture('Shared'),
-            'plugins' => $this->fixture('Plugins'),
-            'gateways' => $this->fixture('Gateways'),
+            $this->fixture('Shared'),
+            $this->fixture('Plugins'),
+            $this->fixture('Gateways'),
         ]], true) . ";\n");
 
         return $base;

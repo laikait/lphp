@@ -20,7 +20,7 @@ namespace App\Engine\Template;
 final class TemplateFile
 {
     public function __construct(
-        /** What the caller asked for, e.g. "customer/profile" or "@plugin.Example/invoice". */
+        /** What the caller asked for, e.g. "customer/profile" or "@Billing/invoice". */
         public readonly string $name,
         /** The directory it was found in, normalised. */
         public readonly string $root,

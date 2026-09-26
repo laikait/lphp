@@ -18,7 +18,7 @@ final class ModuleContextTest extends TestCase
     private function context(ModuleStage $stage = ModuleStage::Loading): ModuleContext
     {
         $context = new ModuleContext(
-            ModuleDefinition::create(ModuleKind::Plugin, '/modules/Plugins/Example', 'Example'),
+            ModuleDefinition::create('/modules/Plugins/Example', 'Example'),
         );
 
         $context->enterStage($stage);
@@ -32,8 +32,8 @@ final class ModuleContextTest extends TestCase
     {
         $context = $this->context();
 
-        self::assertSame('plugins/Example', $context->id());
-        self::assertSame(ModuleKind::Plugin, $context->kind());
+        self::assertSame('Example', $context->id());
+        self::assertSame(ModuleKind::Module, $context->kind());
         self::assertSame('/modules/Plugins/Example', $context->path());
         self::assertSame('/modules/Plugins/Example/Templates', $context->path('Templates'));
     }
@@ -126,7 +126,7 @@ final class ModuleContextTest extends TestCase
             $context->routes(static function (RouteCollector $routes): void {});
             self::fail('expected a stage failure');
         } catch (ModuleException $e) {
-            self::assertStringContainsString('plugins/Example', $e->getMessage());
+            self::assertStringContainsString('Example', $e->getMessage());
             self::assertStringContainsString('routes()', $e->getMessage());
             self::assertStringContainsString('booting', $e->getMessage());
         }
@@ -183,9 +183,9 @@ final class ModuleContextTest extends TestCase
         foreach (ModuleStage::cases() as $stage) {
             $context = $this->context($stage);
 
-            self::assertSame('plugins/Example', $context->id());
+            self::assertSame('Example', $context->id());
             self::assertSame($stage, $context->stage());
-            self::assertSame(ModuleKind::Plugin, $context->kind());
+            self::assertSame(ModuleKind::Module, $context->kind());
         }
     }
 
@@ -194,15 +194,15 @@ final class ModuleContextTest extends TestCase
     public function test_a_module_declares_what_it_depends_on(): void
     {
         $context = $this->context();
-        $context->requires('shared', '^1.0')->optionally('plugins/Crm');
+        $context->requires('Shared', '^1.0')->optionally('Crm');
 
         $dependencies = $context->declaredDependencies();
 
         self::assertCount(2, $dependencies);
-        self::assertSame('shared', $dependencies[0]->id);
+        self::assertSame('Shared', $dependencies[0]->id);
         self::assertFalse($dependencies[0]->optional);
         self::assertSame('^1.0', (string) $dependencies[0]->constraint);
-        self::assertSame('plugins/Crm', $dependencies[1]->id);
+        self::assertSame('Crm', $dependencies[1]->id);
         self::assertTrue($dependencies[1]->optional);
         self::assertTrue($dependencies[1]->constraint->isAny());
     }
@@ -216,33 +216,42 @@ final class ModuleContextTest extends TestCase
         $this->expectException(ModuleException::class);
         $this->expectExceptionMessage('which is not a module id');
 
-        $this->context()->requires('Billing');
+        // The old kind-qualified form, and a name that cannot be a directory.
+        $this->context()->requires('plugins/Billing');
+    }
+
+    public function test_a_module_name_starts_with_a_capital(): void
+    {
+        $this->expectException(ModuleException::class);
+        $this->expectExceptionMessage('which is not a module id');
+
+        $this->context()->requires('billing');
     }
 
     public function test_a_dependency_cannot_be_declared_twice(): void
     {
         $context = $this->context();
-        $context->requires('plugins/Billing', '^1.0');
+        $context->requires('Billing', '^1.0');
 
         $this->expectException(ModuleException::class);
         $this->expectExceptionMessage('twice');
 
-        $context->optionally('plugins/Billing', '^2.0');
+        $context->optionally('Billing', '^2.0');
     }
 
     /** Refused where it is written, not when another module first compares against it. */
     public function test_a_constraint_is_checked_where_it_is_written(): void
     {
         $this->expectException(ModuleException::class);
-        $this->expectExceptionMessage('In module "plugins/Example"');
+        $this->expectExceptionMessage('In module "Example"');
 
-        $this->context()->requires('plugins/Billing', 'the latest one');
+        $this->context()->requires('Billing', 'the latest one');
     }
 
     public function test_a_version_is_checked_where_it_is_written(): void
     {
         $this->expectException(ModuleException::class);
-        $this->expectExceptionMessage('Module "plugins/Example" declares version "1.0"');
+        $this->expectExceptionMessage('Module "Example" declares version "1.0"');
 
         $this->context()->version('1.0');
     }
@@ -264,7 +273,7 @@ final class ModuleContextTest extends TestCase
         $this->expectException(ModuleException::class);
         $this->expectExceptionMessage('requires()');
 
-        $this->context(ModuleStage::Registering)->requires('shared');
+        $this->context(ModuleStage::Registering)->requires('Shared');
     }
 
     // ---- the contract shape -----------------------------------------------
@@ -284,22 +293,21 @@ final class ModuleContextTest extends TestCase
         self::assertSame([], $reflection->getInterfaceNames());
     }
 
-    public function test_module_kinds_rank_shared_first_and_gateways_last(): void
+    public function test_shared_ranks_ahead_of_every_other_module(): void
     {
         self::assertSame(0, ModuleKind::Shared->rank());
-        self::assertSame(1, ModuleKind::Plugin->rank());
-        self::assertSame(2, ModuleKind::Gateway->rank());
+        self::assertSame(1, ModuleKind::Module->rank());
 
-        self::assertFalse(ModuleKind::Shared->isContainer());
-        self::assertTrue(ModuleKind::Plugin->isContainer());
-        self::assertTrue(ModuleKind::Gateway->isContainer());
+        self::assertSame(ModuleKind::Shared, ModuleKind::of('Shared'));
+        self::assertSame(ModuleKind::Module, ModuleKind::of('Billing'));
+        self::assertSame(ModuleKind::Module, ModuleKind::of('shared'), 'the name is case-sensitive');
     }
 
-    public function test_definitions_sort_by_kind_then_directory(): void
+    public function test_definitions_sort_shared_first_then_by_directory(): void
     {
-        $shared = ModuleDefinition::create(ModuleKind::Shared, '/m/shared', 'shared');
-        $alpha = ModuleDefinition::create(ModuleKind::Plugin, '/m/plugins/Alpha', 'Alpha');
-        $zeta = ModuleDefinition::create(ModuleKind::Gateway, '/m/gateways/Zeta', 'Zeta');
+        $shared = ModuleDefinition::create('/m/Shared', 'Shared');
+        $alpha = ModuleDefinition::create('/m/Alpha', 'Alpha');
+        $zeta = ModuleDefinition::create('/m/Zeta', 'Zeta');
 
         self::assertLessThan($alpha->sortKey(), $shared->sortKey());
         self::assertLessThan($zeta->sortKey(), $alpha->sortKey());
@@ -307,7 +315,7 @@ final class ModuleContextTest extends TestCase
 
     public function test_a_definition_round_trips_through_its_array_form(): void
     {
-        $definition = ModuleDefinition::create(ModuleKind::Plugin, '/m/plugins/Alpha', 'Alpha');
+        $definition = ModuleDefinition::create('/m/Alpha', 'Alpha');
 
         self::assertEquals($definition, ModuleDefinition::fromArray($definition->toArray()));
     }
@@ -320,14 +328,14 @@ final class ModuleContextTest extends TestCase
     public function test_a_filter_on_asset_responses_is_refused(): void
     {
         $this->expectException(ModuleException::class);
-        $this->expectExceptionMessageMatches('/"plugins\/Example" attached a filter to asset\.response/');
+        $this->expectExceptionMessageMatches('/"Example" attached a filter to asset\.response/');
 
         $this->context()->filter('asset.response', static fn(mixed $response): mixed => $response);
     }
 
     public function test_the_directory_facts_survive_the_cache_round_trip(): void
     {
-        $definition = ModuleDefinition::create(ModuleKind::Gateway, '/m/gateways/Pay', 'Pay', hasAssets: true);
+        $definition = ModuleDefinition::create('/m/Pay', 'Pay', hasAssets: true);
 
         $restored = ModuleDefinition::fromArray($definition->toArray());
 
@@ -339,10 +347,10 @@ final class ModuleContextTest extends TestCase
 
     public function test_a_definition_points_at_its_entry_file(): void
     {
-        $definition = ModuleDefinition::create(ModuleKind::Plugin, '/m/plugins/Alpha/', 'Alpha');
+        $definition = ModuleDefinition::create('/m/Alpha/', 'Alpha');
 
-        self::assertSame('/m/plugins/Alpha', $definition->path);
-        self::assertSame('/m/plugins/Alpha/module.php', $definition->entryFile);
-        self::assertSame('/m/plugins/Alpha/Api/List.php', $definition->file('Api/List.php'));
+        self::assertSame('/m/Alpha', $definition->path);
+        self::assertSame('/m/Alpha/module.php', $definition->entryFile);
+        self::assertSame('/m/Alpha/Api/List.php', $definition->file('Api/List.php'));
     }
 }

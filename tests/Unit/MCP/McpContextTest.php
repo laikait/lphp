@@ -59,7 +59,7 @@ final class McpContextTest extends TestCase
     public function test_each_call_sees_only_its_own_context(): void
     {
         $registry = new McpRegistry();
-        (new McpCollector($registry, 'plugins/Demo'))->tool('greet', GreetTool::class);
+        (new McpCollector($registry, 'Demo'))->tool('greet', GreetTool::class);
         $runner = new ToolRunner($registry, new Container(), Authorizers::open());
 
         $ada = $runner->call('greet', ['name' => 'x'], Contexts::make(new Identity('7', 'ada'), 'req-ada'))->toArray();

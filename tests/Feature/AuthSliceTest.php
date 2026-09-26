@@ -77,7 +77,7 @@ final class AuthSliceTest extends TestCase
         $access = $this->app()->container()->get(AccessRegistry::class);
 
         self::assertTrue($access->hasPermission('user.list'));
-        self::assertSame('shared', $access->permissions()['user.list']->module);
+        self::assertSame('Shared', $access->permissions()['user.list']->module);
         self::assertSame(['user.*'], $access->grantsFor(['administrator']));
     }
 
@@ -327,7 +327,7 @@ final class AuthSliceTest extends TestCase
         $this->expectExceptionMessage('user.lst');
 
         $this->application([
-            'modules' => ['paths' => ['plugins' => 'tests/Fixtures/Modules/BadAccess/Plugins']],
+            'modules' => ['paths' => [self::SHOWCASE . '/Shared', 'tests/Fixtures/Modules/BadAccess/Plugins']],
         ])->boot();
     }
 

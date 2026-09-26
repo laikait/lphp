@@ -183,8 +183,8 @@ final class LockConformanceTest extends TestCase
     {
         $lock = $make();
 
-        self::assertTrue($lock->acquire('plugins/Example:nightly.run', 60));
-        self::assertFalse($lock->acquire('plugins/Example:nightly.run', 60));
-        self::assertSame(['plugins/Example:nightly.run'], $lock->held());
+        self::assertTrue($lock->acquire('Example:nightly.run', 60));
+        self::assertFalse($lock->acquire('Example:nightly.run', 60));
+        self::assertSame(['Example:nightly.run'], $lock->held());
     }
 }

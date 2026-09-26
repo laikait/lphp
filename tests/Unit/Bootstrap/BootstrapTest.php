@@ -7,6 +7,7 @@ namespace App\Tests\Unit\Bootstrap;
 use App\Engine\Bootstrap\Bootstrap;
 use App\Engine\Cli\ConsoleKernel;
 use App\Engine\Config\Config;
+use App\Engine\Config\ConfigurationException;
 use App\Engine\Container\Container;
 use App\Engine\Core\Application;
 use App\Engine\Core\ExecutionContext;
@@ -183,6 +184,12 @@ final class BootstrapTest extends TestCase
             'mcp.http.path',
             'mcp.allow_guests',
             'mcp.log.enabled',
+            'localization.country_header',
+            'app.editor',
+            'app.memory_limit',
+            'app.max_execution_time',
+            'queue.max_memory',
+            'localization.maxmind_database',
         ] as $key) {
             self::assertTrue($config->has($key), $key . ' is missing from the defaults');
         }
@@ -193,7 +200,7 @@ final class BootstrapTest extends TestCase
         self::assertSame(
             [
                 'app', 'http', 'database', 'assets', 'cache', 'queue', 'security', 'auth', 'session',
-                'scheduler', 'system', 'mcp', 'logging', 'observability', 'templates', 'modules',
+                'scheduler', 'system', 'mcp', 'logging', 'observability', 'localization', 'templates', 'modules',
             ],
             \array_keys($config->all()),
         );
@@ -235,6 +242,107 @@ final class BootstrapTest extends TestCase
      * cache gets built on a laptop halfway through adding a module. The file is
      * the switch now, and only cache:warm writes it.
      */
+    // ---- memory_limit ---------------------------------------------------------
+
+    /** @param array<string, mixed> $app */
+    private function withMemoryLimit(array $app, \Closure $then): void
+    {
+        $original = (string) \ini_get('memory_limit');
+
+        try {
+            Bootstrap::create($this->basePath(), ExecutionContext::http(), ['app' => ['handle_errors' => false, ...$app]]);
+            $then();
+        } finally {
+            \ini_set('memory_limit', $original);
+        }
+    }
+
+    public function test_memory_limit_sets_php_s_limit(): void
+    {
+        foreach ([['512M', '512M'], ['1g', '1G'], ['-1', '-1'], [-1, '-1'], ['805306368', '805306368']] as [$given, $expected]) {
+            $this->withMemoryLimit(['memory_limit' => $given], static function () use ($expected): void {
+                self::assertSame($expected, \ini_get('memory_limit'));
+            });
+        }
+    }
+
+    public function test_no_memory_limit_leaves_php_ini_alone(): void
+    {
+        $before = \ini_get('memory_limit');
+
+        $this->withMemoryLimit(['memory_limit' => null], static function () use ($before): void {
+            self::assertSame($before, \ini_get('memory_limit'));
+        });
+    }
+
+    public function test_a_memory_limit_php_would_not_understand_stops_the_boot(): void
+    {
+        foreach (['lots', '256MB', '1.5G', '0x100'] as $bad) {
+            try {
+                $this->withMemoryLimit(['memory_limit' => $bad], static fn() => null);
+                self::fail($bad . ' was accepted');
+            } catch (ConfigurationException $e) {
+                self::assertStringContainsString('"' . $bad . '"', $e->getMessage());
+            }
+        }
+    }
+
+    public function test_a_memory_limit_below_what_is_in_use_is_refused(): void
+    {
+        $this->expectException(ConfigurationException::class);
+        $this->expectExceptionMessage('is less than the');
+
+        $this->withMemoryLimit(['memory_limit' => '1M'], static fn() => null);
+    }
+
+    // ---- max_execution_time ---------------------------------------------------
+
+    /** @param array<string, mixed> $app */
+    private function withTimeLimit(ExecutionContext $context, array $app, \Closure $then): void
+    {
+        $original = (int) \ini_get('max_execution_time');
+
+        try {
+            Bootstrap::create($this->basePath(), $context, ['app' => ['handle_errors' => false, ...$app]]);
+            $then();
+        } finally {
+            \set_time_limit($original);
+        }
+    }
+
+    public function test_max_execution_time_limits_a_web_request(): void
+    {
+        $this->withTimeLimit(ExecutionContext::http(), ['max_execution_time' => 42], static function (): void {
+            self::assertSame('42', \ini_get('max_execution_time'));
+        });
+    }
+
+    public function test_max_execution_time_leaves_the_console_alone(): void
+    {
+        $before = \ini_get('max_execution_time');
+
+        $this->withTimeLimit(ExecutionContext::cli(['laika']), ['max_execution_time' => 42], static function () use ($before): void {
+            self::assertSame($before, \ini_get('max_execution_time'));
+        });
+    }
+
+    public function test_no_max_execution_time_leaves_php_ini_alone(): void
+    {
+        $before = \ini_get('max_execution_time');
+
+        $this->withTimeLimit(ExecutionContext::http(), ['max_execution_time' => null], static function () use ($before): void {
+            self::assertSame($before, \ini_get('max_execution_time'));
+        });
+    }
+
+    public function test_a_negative_max_execution_time_stops_the_boot(): void
+    {
+        $this->expectException(ConfigurationException::class);
+        $this->expectExceptionMessage('app.max_execution_time (MAX_EXECUTION_TIME) is -5, which is negative');
+
+        $this->withTimeLimit(ExecutionContext::http(), ['max_execution_time' => -5], static fn() => null);
+    }
+
     public function test_there_is_no_module_cache_setting(): void
     {
         self::assertFalse((new Config(Bootstrap::defaults()))->has('modules.cache'));
@@ -244,17 +352,10 @@ final class BootstrapTest extends TestCase
     {
         $paths = (new Config(Bootstrap::defaults()))->get('modules.paths');
 
-        self::assertSame([
-            'shared' => 'modules/Shared',
-            'plugins' => 'modules/Plugins',
-            'gateways' => 'modules/Gateways',
-        ], $paths);
+        self::assertSame(['modules'], $paths);
 
-        // Only shared has to exist. The framework ships no plugin and no
-        // gateway, git keeps no empty directory, and an invariant forbids one
-        // kept for appearance -- so modules/Plugins/ appears when the first
-        // plugin does, and discovery reads an absent root as an empty one.
-        // DefaultPagesSliceTest boots exactly that.
+        // One root, and only Shared in it: every other module is a directory
+        // somebody adds, named whatever they like.
         self::assertDirectoryExists($this->basePath('modules/Shared'));
     }
 

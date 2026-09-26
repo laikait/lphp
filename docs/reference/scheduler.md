@@ -6,7 +6,7 @@ cleanup, a monthly report. Modules declare them; one cron line runs them all.
 ## Declare a schedule
 
 ```php
-// modules/Plugins/Example/module.php
+// modules/Example/module.php
 $module->schedules(static function (ScheduleCollector $schedules): void {
     $schedules->command('invoice:send-reminders')->dailyAt('02:00');
     $schedules->job(RecalculateBilling::class)->monthlyOn(1, '03:00')->onQueue('billing');

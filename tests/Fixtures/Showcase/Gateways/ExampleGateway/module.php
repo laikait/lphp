@@ -3,7 +3,7 @@
 declare(strict_types=1);
 
 use App\Engine\Module\ModuleContext;
-use App\Tests\Fixtures\Showcase\Gateways\Example\Hooks\AuditHooks;
+use App\Tests\Fixtures\Showcase\Gateways\ExampleGateway\Hooks\AuditHooks;
 
 /**
  * A gateway module.
@@ -19,12 +19,12 @@ return static function (ModuleContext $module): void {
         ->description('Shows a gateway reacting to another module\'s events.');
 
     // Optional, and that is the accurate word. This gateway only listens to
-    // customer.created, which plugins/Example fires; without that plugin the
+    // customer.created, which Example fires; without that plugin the
     // listener is simply never called, so there is nothing to refuse. What the
     // declaration buys is the version check: the shape of that event's payload
-    // is plugins/Example's contract, and a 1.0 that changed it should stop the
+    // is Example's contract, and a 1.0 that changed it should stop the
     // application at boot rather than hand this listener something unexpected.
-    $module->optionally('plugins/Example', '^0.1');
+    $module->optionally('Example', '^0.1');
 
     $module->hook('customer.created', [AuditHooks::class, 'recordCustomer'], priority: 50);
 };

@@ -96,7 +96,7 @@ final class ArraySource implements DataSource, BulkWrites
         foreach ($query->criteria() as $criterion) {
             $rows = \array_values(\array_filter(
                 $rows,
-                static fn(array $row): bool => $criterion->matches($row[$criterion->field] ?? null),
+                static fn(array $row): bool => $criterion->matchesRow($row),
             ));
         }
 
@@ -123,14 +123,9 @@ final class ArraySource implements DataSource, BulkWrites
                 $b = $right[$order->field] ?? null;
 
                 // Nulls sort last ascending, which is one of the two answers
-                // SQL engines give and the less surprising one.
-                $comparison = match (true) {
-                    $a === null && $b === null => 0,
-                    $a === null => 1,
-                    $b === null => -1,
-                    \is_string($a) && \is_string($b) => \strcmp($a, $b),
-                    default => $a <=> $b,
-                };
+                // SQL engines give and the less surprising one. Shared with
+                // Seek, so a cursor and a sort agree on what comes next.
+                $comparison = Seek::compare($a, $b);
 
                 if ($comparison !== 0) {
                     return $order->isDescending() ? -$comparison : $comparison;
@@ -252,7 +247,7 @@ final class ArraySource implements DataSource, BulkWrites
     private static function matchesAll(array $row, array $criteria): bool
     {
         foreach ($criteria as $criterion) {
-            if (!$criterion->matches($row[$criterion->field] ?? null)) {
+            if (!$criterion->matchesRow($row)) {
                 return false;
             }
         }

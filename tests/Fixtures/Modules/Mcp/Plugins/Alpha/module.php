@@ -12,7 +12,7 @@ use App\Tests\Fixtures\MCP\SupportPrompt;
  */
 return static function (ModuleContext $module): void {
     $module->name('Alpha')->version('1.0.0');
-    $module->requires('plugins/Zulu', '^1.0');
+    $module->requires('Zulu', '^1.0');
 
     $module->mcp(static function (McpCollector $mcp): void {
         $mcp->prompt('alpha.support', SupportPrompt::class, 'Talk a customer through their invoices.');

@@ -133,8 +133,8 @@ final class ProfilerTest extends TestCase
 
         $hooks->add('invoice.paid', static function (): void {
             \usleep(1000);
-        }, 10, 'plugins/Billing');
-        $filters->add('invoice.total', static fn(int $total): int => $total + 1, 10, 'plugins/Tax');
+        }, 10, 'Billing');
+        $filters->add('invoice.total', static fn(int $total): int => $total + 1, 10, 'Tax');
 
         $hooks->do('invoice.paid');
         $hooks->do('invoice.paid');
@@ -145,7 +145,7 @@ final class ProfilerTest extends TestCase
         self::assertSame(2, $summary['categories']['hook']['count']);
         self::assertGreaterThanOrEqual(1.0, $summary['categories']['hook']['ms']);
         self::assertSame('invoice.paid', $summary['slowest']['hook'][0]['name']);
-        self::assertStringStartsWith('plugins/Billing ', (string) $summary['slowest']['hook'][0]['detail']);
+        self::assertStringStartsWith('Billing ', (string) $summary['slowest']['hook'][0]['detail']);
         self::assertSame(1, $summary['categories']['filter']['count']);
     }
 
@@ -163,15 +163,15 @@ final class ProfilerTest extends TestCase
 
         $hooks->add('x.happened', $tracer->current(...), 10, 'engine');
         $line = __LINE__ + 1;
-        $hooks->add('x.happened', static function (): void {}, 20, 'plugins/Example');
+        $hooks->add('x.happened', static function (): void {}, 20, 'Example');
         $hooks->do('x.happened');
 
         $details = \array_column($profiler->summary()['slowest']['hook'], 'detail');
         \sort($details);
 
         self::assertSame([
+            \sprintf('Example closure at ProfilerTest.php:%d', $line),
             'engine ' . Tracer::class . '::current',
-            \sprintf('plugins/Example closure at ProfilerTest.php:%d', $line),
         ], $details);
     }
 

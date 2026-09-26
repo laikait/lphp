@@ -27,8 +27,8 @@ final class McpHttpSliceTest extends TestCase
         return $this->application([
             'security' => ['key' => Signer::generate()],
             'modules' => [
-                'paths' => ['plugins' => 'tests/Fixtures/Modules/Mcp/Plugins'],
-                'disabled' => ['plugins/Muted'],
+                'paths' => [self::SHOWCASE . '/Shared', 'tests/Fixtures/Modules/Mcp/Plugins'],
+                'disabled' => ['Muted'],
             ],
             'mcp' => $mcp,
         ]);

@@ -3,7 +3,7 @@
 declare(strict_types=1);
 
 /**
- * A shared partial, reachable as "@shared/money" from any module.
+ * A shared partial, reachable as "@Shared/money" from any module.
  *
  * The shared module gets a template namespace even though it gets no asset
  * namespace, because unlike a URL there is a name for it.

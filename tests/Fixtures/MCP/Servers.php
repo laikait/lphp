@@ -29,10 +29,10 @@ final class Servers
     public static function make(array &$reported = [], ?HookEngine $hooks = null, ?FilterEngine $filters = null): McpServer
     {
         $access = new AccessRegistry();
-        (new AccessCollector($access, 'plugins/Demo'))->capability('customer.view')->role('agent', ['customer.view']);
+        (new AccessCollector($access, 'Demo'))->capability('customer.view')->role('agent', ['customer.view']);
 
         $registry = new McpRegistry();
-        (new McpCollector($registry, 'plugins/Demo'))
+        (new McpCollector($registry, 'Demo'))
             ->tool('greet', GreetTool::class, 'Say hello.')
             ->tool('broken', BrokenTool::class)
             ->tool('customer.get', GreetTool::class, permission: 'customer.view')

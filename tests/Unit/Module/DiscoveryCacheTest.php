@@ -14,6 +14,7 @@ use App\Engine\Filter\FilterEngine;
 use App\Engine\Hook\HookEngine;
 use App\Engine\Module\ModuleDefinition;
 use App\Engine\Module\ModuleDiscovery;
+use App\Engine\Module\ModuleException;
 use App\Engine\Module\ModuleKind;
 use App\Engine\Module\ModuleManager;
 use App\Engine\Module\ModuleRegistry;
@@ -51,10 +52,10 @@ final class DiscoveryCacheTest extends TestCase
         $this->root = \str_replace('\\', '/', \sys_get_temp_dir()) . '/discovery-cache-' . \bin2hex(\random_bytes(6));
         $GLOBALS[self::LOADED] = [];
 
-        $this->module('shared', null, templates: true);
-        $this->module('plugins', 'Lazy', assets: true, templates: true);
-        $this->module('plugins', 'Plain');
-        $this->module('gateways', 'Pay', assets: true);
+        $this->module('Shared', templates: true);
+        $this->module('Lazy', assets: true, templates: true);
+        $this->module('Plain');
+        $this->module('Pay', assets: true);
     }
 
     protected function tearDown(): void
@@ -78,20 +79,64 @@ final class DiscoveryCacheTest extends TestCase
         \ksort($found);
 
         self::assertSame([
-            'gateways/Pay' => [true, false],
-            'plugins/Lazy' => [true, true],
-            'plugins/Plain' => [false, false],
-            'shared' => [false, true],
+            'Lazy' => [true, true],
+            'Pay' => [true, false],
+            'Plain' => [false, false],
+            'Shared' => [false, true],
         ], $found);
     }
 
     public function test_the_roots_are_absolute_and_normalised(): void
     {
-        self::assertSame([
-            'shared' => $this->root . '/modules/Shared',
-            'plugins' => $this->root . '/modules/Plugins',
-            'gateways' => $this->root . '/modules/Gateways',
-        ], $this->discovery()->roots());
+        self::assertSame([$this->root . '/modules'], $this->discovery()->roots());
+    }
+
+    public function test_a_module_is_any_directory_with_a_module_php_named_after_it(): void
+    {
+        $this->module('Anything_Goes2');
+        \mkdir($this->root . '/modules/Notes');
+
+        $ids = \array_map(static fn(ModuleDefinition $definition): string => $definition->id, $this->discovery()->scan());
+        \sort($ids);
+
+        self::assertSame(['Anything_Goes2', 'Lazy', 'Pay', 'Plain', 'Shared'], $ids, 'Notes has no module.php, so it is not a module');
+        self::assertSame(ModuleKind::Shared, ModuleKind::of('Shared'));
+    }
+
+    public function test_a_directory_whose_name_cannot_be_a_module_is_refused(): void
+    {
+        \mkdir($this->root . '/modules/billing-app');
+        \file_put_contents($this->root . '/modules/billing-app/module.php', '<?php return static function (): void {};');
+
+        $this->expectException(ModuleException::class);
+        $this->expectExceptionMessage('"billing-app", which cannot be a module name');
+
+        $this->discovery()->scan();
+    }
+
+    public function test_a_path_with_its_own_module_php_is_one_module(): void
+    {
+        \mkdir($this->root . '/elsewhere/Extra', 0o777, true);
+        \file_put_contents($this->root . '/elsewhere/Extra/module.php', '<?php return static function (): void {};');
+
+        $ids = \array_map(
+            static fn(ModuleDefinition $definition): string => $definition->id,
+            (new ModuleDiscovery($this->root, ['modules', 'elsewhere/Extra']))->scan(),
+        );
+
+        self::assertContains('Extra', $ids);
+        self::assertCount(5, $ids);
+    }
+
+    public function test_two_roots_cannot_both_hold_a_module_of_one_name(): void
+    {
+        \mkdir($this->root . '/more/Lazy', 0o777, true);
+        \file_put_contents($this->root . '/more/Lazy/module.php', '<?php return static function (): void {};');
+
+        $this->expectException(ModuleException::class);
+        $this->expectExceptionMessage('Two modules claim the id "Lazy"');
+
+        $this->manager(['modules' => ['paths' => ['modules', 'more']]])->discover();
     }
 
     public function test_discovery_runs_no_module_code(): void
@@ -120,19 +165,19 @@ final class DiscoveryCacheTest extends TestCase
      */
     public function test_a_warmed_cache_is_used_instead_of_a_scan(): void
     {
-        $this->warm(static fn(ModuleDefinition $definition): bool => $definition->id === 'shared');
+        $this->warm(static fn(ModuleDefinition $definition): bool => $definition->id === 'Shared');
 
         $manager = $this->manager();
         $manager->discover();
 
-        self::assertSame(['shared'], $this->registry->ids());
+        self::assertSame(['Shared'], $this->registry->ids());
         self::assertTrue($manager->discoveredFromCache());
     }
 
     /** The specification's development mode: "uncached module discovery". */
     public function test_a_debug_process_never_reads_the_cache(): void
     {
-        $this->warm(static fn(ModuleDefinition $definition): bool => $definition->id === 'shared');
+        $this->warm(static fn(ModuleDefinition $definition): bool => $definition->id === 'Shared');
 
         $manager = $this->manager(['app' => ['debug' => true]]);
         $manager->discover();
@@ -149,8 +194,8 @@ final class DiscoveryCacheTest extends TestCase
     public function test_a_cache_built_under_other_roots_is_ignored(): void
     {
         $this->warm(
-            static fn(ModuleDefinition $definition): bool => $definition->id === 'shared',
-            ['plugins' => '/somewhere/else/plugins'],
+            static fn(ModuleDefinition $definition): bool => $definition->id === 'Shared',
+            ['/somewhere/else'],
         );
 
         $manager = $this->manager();
@@ -163,7 +208,7 @@ final class DiscoveryCacheTest extends TestCase
     public function test_a_cache_written_by_an_older_version_is_ignored(): void
     {
         $this->writeCacheFile(\var_export([
-            ['id' => 'shared', 'kind' => 'shared', 'path' => $this->root . '/modules/Shared', 'entryFile' => 'x', 'directory' => 'shared'],
+            ['id' => 'Shared', 'kind' => 'Shared', 'path' => $this->root . '/modules/Shared', 'entryFile' => 'x', 'directory' => 'Shared'],
         ], true));
 
         $manager = $this->manager();
@@ -176,8 +221,8 @@ final class DiscoveryCacheTest extends TestCase
     /** One bad entry among good ones means scan, never a boot that found half its modules. */
     public function test_a_cache_with_one_malformed_entry_is_ignored_entirely(): void
     {
-        $good = ModuleDefinition::create(ModuleKind::Shared, $this->root . '/modules/Shared', 'shared')->toArray();
-        $bad = [...$good, 'id' => 'plugins/Broken', 'assets' => 'yes'];
+        $good = ModuleDefinition::create($this->root . '/modules/Shared', 'Shared')->toArray();
+        $bad = [...$good, 'id' => 'Broken', 'assets' => 'yes'];
 
         $this->writeCacheFile(\var_export(['roots' => $this->discovery()->roots(), 'modules' => [$good, $bad]], true));
 
@@ -194,32 +239,32 @@ final class DiscoveryCacheTest extends TestCase
         $registry = new ModuleRegistry();
         self::assertTrue($registry->readCache(ModuleRegistry::cacheFile($this->root), $this->discovery()->roots()));
 
-        $lazy = $registry->definition('plugins/Lazy');
+        $lazy = $registry->definition('Lazy');
         self::assertNotNull($lazy);
         self::assertTrue($lazy->hasAssets);
         self::assertTrue($lazy->hasTemplates);
-        self::assertFalse($registry->definition('plugins/Plain')?->hasAssets);
+        self::assertFalse($registry->definition('Plain')?->hasAssets);
     }
 
     /**
      * Registration asks discovery's answer, not the filesystem. The cache below
-     * says plugins/Lazy has no assets/ -- it does, on disk -- and it is not
+     * says Lazy has no assets/ -- it does, on disk -- and it is not
      * published. That is the observable form of "a cached boot probes no module
      * directory".
      */
     public function test_publishing_uses_what_discovery_recorded_rather_than_asking_again(): void
     {
         $this->warm(static fn(): bool => true, transform: static fn(ModuleDefinition $definition): ModuleDefinition
-            => $definition->id === 'plugins/Lazy'
+            => $definition->id === 'Lazy'
                 ? new ModuleDefinition($definition->id, $definition->kind, $definition->path, $definition->entryFile, $definition->directory, false, false)
                 : $definition);
 
         $this->manager()->run();
 
-        self::assertFalse($this->assets->has(AssetKind::Plugin, 'Lazy'));
-        self::assertTrue($this->assets->has(AssetKind::Gateway, 'Pay'));
-        self::assertFalse($this->templates->hasNamespace('plugin.Lazy'));
-        self::assertTrue($this->templates->hasNamespace('shared'));
+        self::assertFalse($this->assets->has(AssetKind::Module, 'Lazy'));
+        self::assertTrue($this->assets->has(AssetKind::Module, 'Pay'));
+        self::assertFalse($this->templates->hasNamespace('Lazy'));
+        self::assertTrue($this->templates->hasNamespace('Shared'));
     }
 
     // ---- the asset path ----------------------------------------------------
@@ -233,17 +278,17 @@ final class DiscoveryCacheTest extends TestCase
         self::assertSame([], $this->registry->contexts());
         self::assertSame(ModuleStage::Discovered, $manager->stage());
 
-        self::assertTrue($this->assets->has(AssetKind::Plugin, 'Lazy'));
-        self::assertTrue($this->assets->has(AssetKind::Gateway, 'Pay'));
-        self::assertFalse($this->assets->has(AssetKind::Plugin, 'Plain'));
+        self::assertTrue($this->assets->has(AssetKind::Module, 'Lazy'));
+        self::assertTrue($this->assets->has(AssetKind::Module, 'Pay'));
+        self::assertFalse($this->assets->has(AssetKind::Module, 'Plain'));
     }
 
     public function test_a_disabled_module_publishes_nothing_on_the_asset_path_either(): void
     {
-        $this->manager(['modules' => ['disabled' => ['plugins/Lazy']]])->prepareAssets();
+        $this->manager(['modules' => ['disabled' => ['Lazy']]])->prepareAssets();
 
-        self::assertFalse($this->assets->has(AssetKind::Plugin, 'Lazy'));
-        self::assertTrue($this->assets->has(AssetKind::Gateway, 'Pay'));
+        self::assertFalse($this->assets->has(AssetKind::Module, 'Lazy'));
+        self::assertTrue($this->assets->has(AssetKind::Module, 'Pay'));
     }
 
     /** A long-lived process may serve an asset and then a page. Nothing repeats. */
@@ -256,7 +301,7 @@ final class DiscoveryCacheTest extends TestCase
         $loaded = $GLOBALS[self::LOADED];
         \sort($loaded);
 
-        self::assertSame(['gateways/Pay', 'plugins/Lazy', 'plugins/Plain', 'shared'], $loaded);
+        self::assertSame(['Lazy', 'Pay', 'Plain', 'Shared'], $loaded);
         self::assertSame(ModuleStage::Ready, $manager->stage());
     }
 
@@ -286,9 +331,7 @@ final class DiscoveryCacheTest extends TestCase
     }
 
     private const PATHS = [
-        'shared' => 'modules/Shared',
-        'plugins' => 'modules/Plugins',
-        'gateways' => 'modules/Gateways',
+        'modules',
     ];
 
     private function discovery(): ModuleDiscovery
@@ -300,7 +343,7 @@ final class DiscoveryCacheTest extends TestCase
      * Write the cache the way cache:warm does, keeping only some modules.
      *
      * @param \Closure(ModuleDefinition): bool                  $keep
-     * @param array<string, string>|null                        $roots     the roots to record, if not the real ones
+     * @param list<string>|null                                 $roots     the roots to record, if not the real ones
      * @param (\Closure(ModuleDefinition): ModuleDefinition)|null $transform
      */
     private function warm(\Closure $keep, ?array $roots = null, ?\Closure $transform = null): void
@@ -323,14 +366,12 @@ final class DiscoveryCacheTest extends TestCase
         \file_put_contents($file, "<?php\n\nreturn " . $exported . ";\n");
     }
 
-    private function module(string $kind, ?string $name, bool $assets = false, bool $templates = false): void
+    private function module(string $name, bool $assets = false, bool $templates = false): void
     {
-        // The directory is the namespace segment -- modules/Plugins, not the kind's
-        // value "plugins" -- which only a case-sensitive filesystem tells apart.
-        $directory = $this->root . '/modules/' . \ucfirst($kind) . ($name === null ? '' : '/' . $name);
+        $directory = $this->root . '/modules/' . $name;
         \mkdir($directory, 0o777, true);
 
-        $id = $name === null ? 'shared' : $kind . '/' . $name;
+        $id = $name;
 
         \file_put_contents($directory . '/module.php', \str_replace(
             ['{KEY}', '{ID}'],

@@ -26,11 +26,11 @@ final class FilterEngineTest extends TestCase
             $heard[] = $filter . ' ' . $listener->module;
         });
 
-        $this->filters->add('invoice.total', static fn(int $t): int => $t * 2, 10, 'plugins/Billing');
-        $this->filters->add('invoice.total', static fn(int $t): int => $t + 1, 20, 'plugins/Tax');
+        $this->filters->add('invoice.total', static fn(int $t): int => $t * 2, 10, 'Billing');
+        $this->filters->add('invoice.total', static fn(int $t): int => $t + 1, 20, 'Tax');
 
         self::assertSame(21, $this->filters->apply('invoice.total', 10));
-        self::assertSame(['invoice.total plugins/Billing', 'invoice.total plugins/Tax'], $heard);
+        self::assertSame(['invoice.total Billing', 'invoice.total Tax'], $heard);
     }
 
     public function test_the_debug_null_guard_still_applies_while_observed(): void
@@ -148,12 +148,12 @@ final class FilterEngineTest extends TestCase
 
     public function test_listeners_report_module_ownership(): void
     {
-        $this->filters->add('invoice.total', 'intval', 30, 'plugins/Billing', 1);
+        $this->filters->add('invoice.total', 'intval', 30, 'Billing', 1);
 
         $listeners = $this->filters->listeners('invoice.total');
 
         self::assertCount(1, $listeners);
-        self::assertSame('plugins/Billing', $listeners[0]['module']);
+        self::assertSame('Billing', $listeners[0]['module']);
         self::assertSame(30, $listeners[0]['priority']);
         self::assertSame('intval', $listeners[0]['callback']);
     }
@@ -195,7 +195,7 @@ final class FilterEngineTest extends TestCase
     public function test_debug_mode_catches_a_filter_that_forgot_to_return(): void
     {
         $filters = new FilterEngine(debug: true);
-        $filters->add('invoice.total', [ForgetfulFilter::class, 'forgetsToReturn'], 10, 'plugins/Billing');
+        $filters->add('invoice.total', [ForgetfulFilter::class, 'forgetsToReturn'], 10, 'Billing');
 
         try {
             $filters->apply('invoice.total', 100);
@@ -203,7 +203,7 @@ final class FilterEngineTest extends TestCase
         } catch (FilterException $e) {
             self::assertStringContainsString('invoice.total', $e->getMessage());
             self::assertStringContainsString('forgetsToReturn', $e->getMessage());
-            self::assertStringContainsString('plugins/Billing', $e->getMessage());
+            self::assertStringContainsString('Billing', $e->getMessage());
         }
     }
 

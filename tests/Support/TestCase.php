@@ -34,12 +34,12 @@ abstract class TestCase extends PHPUnitTestCase
      *
      * Nothing is mocked: the container, the module manager, the router and both
      * engines are the production ones. The modules are the shipped shared
-     * module plus the showcase -- plugins/Example and gateways/Example, which
+     * module plus the showcase -- Example and ExampleGateway, which
      * used to ship in modules/ and now live under tests/Fixtures/Showcase.
      * They are the only thing that exercises every subsystem through one
      * request, and an application does not need them to be installed.
      *
-     * config/plugins/Example.php went with them, so the value it set is handed
+     * config/Example.php went with them, so the value it set is handed
      * to Bootstrap here instead. It arrives at the same layer -- above a
      * module's own defaults -- which is the thing the tests that read it prove.
      *
@@ -50,18 +50,16 @@ abstract class TestCase extends PHPUnitTestCase
      */
     protected function application(array $config = []): Application
     {
+        // The showcase's Shared first, and on its own: a test that brings its
+        // own modules still wants it, because its accounts and tokens are the
+        // ones every such test logs in with. The shipped one has none.
         $config['modules']['paths'] ??= [
-            'shared' => self::SHOWCASE . '/Shared',
-            'plugins' => self::SHOWCASE . '/Plugins',
-            'gateways' => self::SHOWCASE . '/Gateways',
+            self::SHOWCASE . '/Shared',
+            self::SHOWCASE . '/Plugins',
+            self::SHOWCASE . '/Gateways',
         ];
 
-        // Separately, because a test that brings its own plugins still wants
-        // the showcase's shared module: its accounts and tokens are the ones
-        // every such test logs in with. The shipped one has none.
-        $config['modules']['paths']['shared'] ??= self::SHOWCASE . '/Shared';
-
-        $config['plugins/Example']['page_size'] ??= 10;
+        $config['Example']['page_size'] ??= 10;
 
         return $this->build($config);
     }
@@ -127,9 +125,9 @@ abstract class TestCase extends PHPUnitTestCase
     protected function fixtureApplication(array $config = []): Application
     {
         $config['modules']['paths'] = [
-            'shared' => 'tests/Fixtures/Modules/Shared',
-            'plugins' => 'tests/Fixtures/Modules/Plugins',
-            'gateways' => 'tests/Fixtures/Modules/Gateways',
+            'tests/Fixtures/Modules/Shared',
+            'tests/Fixtures/Modules/Plugins',
+            'tests/Fixtures/Modules/Gateways',
         ];
 
         return $this->build($config);

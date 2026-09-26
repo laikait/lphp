@@ -13,7 +13,7 @@ use App\Engine\Support\Path;
  * The template API application code actually uses.
  *
  *     template()->render('customer/profile', ['customer' => $customer]);
- *     template()->render('@plugin.Example/invoice', $data);
+ *     template()->render('@Billing/invoice', $data);
  *
  * **No extension is required**, and that is not a convenience: it is what lets
  * a template be migrated from PHP to Twig, or a Twig one be overridden by a PHP
@@ -27,8 +27,8 @@ use App\Engine\Support\Path;
  *      namespace -- this is the override rule, see TemplateRegistry
  *   3. the module's own Templates/ directory
  *
- * so a site replaces a plugin's markup by adding a file to templates/, and the
- * plugin's copy is the fallback. templates/assets/ is never searched: it
+ * so a site replaces a module's markup by adding a file to templates/, and the
+ * module's copy is the fallback. templates/assets/ is never searched: it
  * holds static files.
  *
  * **This class renders; it never responds.** It cannot see Request or Response
@@ -38,7 +38,7 @@ use App\Engine\Support\Path;
  */
 final class TemplateManager
 {
-    /** Namespaced names look like "@plugin.Example/invoice". */
+    /** Namespaced names look like "@Billing/invoice". */
     public const NAMESPACE_PREFIX = '@';
 
     /** @var array<string, TemplateEngine> keyed by extension, in the order they are tried */
@@ -69,6 +69,14 @@ final class TemplateManager
          * exactly as it did before there was a cache.
          */
         private readonly Cache $cache = new Cache(new NullStore()),
+        /**
+         * What $view->local() calls: the localization service, handed over as
+         * a closure so the template layer knows nothing about where
+         * translations come from. Null returns the key, untranslated.
+         *
+         * @var (\Closure(string, array<array-key, mixed>): string)|null
+         */
+        private readonly ?\Closure $translator = null,
     ) {}
 
     // ---- engines ----------------------------------------------------------
@@ -152,6 +160,16 @@ final class TemplateManager
         } finally {
             --$this->depth;
         }
+    }
+
+    /**
+     * The translation of $key in the current locale, as plain text.
+     *
+     * @param array<array-key, mixed> $parameters
+     */
+    public function translate(string $key, array $parameters = []): string
+    {
+        return $this->translator === null ? $key : ($this->translator)($key, $parameters);
     }
 
     public function exists(string $name): bool
@@ -241,7 +259,7 @@ final class TemplateManager
     }
 
     /**
-     * Split "@plugin.Example/invoice" into its namespace and its path.
+     * Split "@Billing/invoice" into its namespace and its path.
      *
      * @return array{string|null, string}
      */

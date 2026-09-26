@@ -10,7 +10,7 @@ A *template* is a file that produces HTML. The site's templates live in
 ```php
 template()->render('profile', $data);                              // templates/profile.twig
 template()->render('customer/profile', ['customer' => $customer]); // templates/customer/profile.twig
-template()->render('@plugin.Example/invoice', $data);              // the Example plugin's invoice
+template()->render('@Example/invoice', $data);              // the Example module's invoice
 ```
 
 A name is a path under `templates/`, without the extension. Folders are just
@@ -46,7 +46,7 @@ them — that is the line between a template engine and a reimplementation of
 Blade. A PHP page renders to a string and hands it to the layout:
 
 ```php
-$content = $this->templates->render('@plugin.Example/customers', ['customers' => $rows]);
+$content = $this->templates->render('@Example/customers', ['customers' => $rows]);
 $html    = $this->templates->render('layout', ['title' => 'Customers', 'content' => $content]);
 ```
 
@@ -63,16 +63,16 @@ First hit wins, in this order:
 |---|---|
 | 1. the application | `templates/` |
 | 2. the override of a namespace | `templates/<namespace>/` |
-| 3. the module itself | `modules/Plugins/Example/Templates/` |
+| 3. the module itself | `modules/Example/Templates/` |
 
-So a site replaces a plugin's invoice by creating
+So a site replaces a module's invoice by creating
 
 ```
-templates/plugin.Example/invoice.php
+templates/Example/invoice.php
 ```
 
-and the plugin is never edited, asked or told. Its own copy stays as the
-fallback, which is what makes it safe for the plugin to keep shipping one.
+and the module is never edited, asked or told. Its own copy stays as the
+fallback, which is what makes it safe for the module to keep shipping one.
 
 Only `templates/` takes part in rule 2. A module must not be able to override
 another module by guessing a folder name, or which template wins would come down
@@ -93,9 +93,9 @@ nothing about templates in any `module.php` — the same bargain as assets.
 
 | Module | Namespace |
 |---|---|
-| `modules/Shared/Templates/` | `@shared/…` |
-| `modules/Plugins/Example/Templates/` | `@plugin.Example/…` |
-| `modules/Gateways/Stripe/Templates/` | `@gateway.Stripe/…` |
+| `modules/Shared/Templates/` | `@Shared/…` |
+| `modules/Example/Templates/` | `@Example/…` |
+| `modules/Stripe/Templates/` | `@Stripe/…` |
 
 The dot is not decoration: a Twig namespace cannot contain a slash, and the two
 engines have to agree on how a template is named.
@@ -126,7 +126,7 @@ Twig later is one class and one line in Bootstrap.
 
 Twig's loader mirrors the registry — the same folders, the same order, module
 namespaces as Twig namespaces — so `{% extends "layout.twig" %}` and
-`{% include "@plugin.Example/row.twig" %}` resolve exactly where the manager
+`{% include "@Example/row.twig" %}` resolve exactly where the manager
 would have resolved them, override rule included. If the two disagreed, a
 template found by one would be missing to the other.
 
@@ -191,7 +191,7 @@ public by definition.
 
 It is meant to be replaced, and replacing it needs no edit to the framework:
 
-- **Declare `/` in your own module.** Every other module registers after shared,
+- **Declare `/` in your own module.** Every other module registers after `Shared`,
   and the router keeps the last route declared for a method and path, so yours
   answers. Give it a name other than `home`: route names are unique, and that
   one is taken.

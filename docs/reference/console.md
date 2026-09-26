@@ -136,7 +136,7 @@ Options:
   -l, --limit=<value>  Stop after this many records. (default: 25)
   -d, --dry-run        Report what would change without writing anything.
 
-Declared by module plugins/Example.
+Declared by module Example.
 ```
 
 `php laika help` lists everything; `php laika help <name>` explains one.

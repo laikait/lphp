@@ -49,8 +49,8 @@ final class DeskTest extends TestCase
 
 `shippedApplication()` loads everything in `modules/`. The array you pass is
 settings, in the same shape as the files in `config/`: passing
-`['plugins/Desk' => ['maintenance' => true]]` is the same as a
-`config/plugins/Desk.php` that returns `['maintenance' => true]`.
+`['Desk' => ['maintenance' => true]]` is the same as a
+`config/Desk.php` that returns `['maintenance' => true]`.
 
 For every test it also:
 
@@ -282,8 +282,8 @@ The exit codes are `ConsoleKernel::SUCCESS` (0), `FAILURE` (1), `USAGE` (2) and
 module:
 
 ```bash
-vendor/bin/phpstan analyse modules/Plugins/Desk
-vendor/bin/php-cs-fixer fix --dry-run --diff --path-mode=override modules/Plugins/Desk
+vendor/bin/phpstan analyse modules/Desk
+vendor/bin/php-cs-fixer fix --dry-run --diff --path-mode=override modules/Desk
 ```
 
 One framework test already reads your modules:
@@ -300,7 +300,7 @@ working around.
   message about overriding a final method. Pick another name, as `command()`
   above does.
 - **Tests that describe a fresh install.** The framework's own suite contains
-  `DefaultPagesSliceTest`, which checks that only `shared` ships and that `/` is
+  `DefaultPagesSliceTest`, which checks that only `Shared` ships and that `/` is
   the default home page. Once `modules/` holds your modules, those tests describe
   a different application. Adapt or delete them; they are not about your module.
 - **Debug mode changes what an error looks like.** With `app.debug` left on, a

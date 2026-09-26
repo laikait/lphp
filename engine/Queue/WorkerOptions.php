@@ -17,7 +17,8 @@ namespace App\Engine\Queue;
  * which nobody notices has been holding a stale database connection since
  * Tuesday. Bounded runs are the standard answer: the process does a decent
  * amount of work, exits cleanly, and whatever supervises it starts another with
- * the current code. --max-jobs and --max-time are how that is said here.
+ * the current code. --max-jobs, --max-time and --memory are how that is said
+ * here.
  */
 final class WorkerOptions
 {
@@ -39,6 +40,12 @@ final class WorkerOptions
         public readonly int $maxSeconds = 0,
         /** Stop as soon as the queue is empty rather than waiting for more. */
         public readonly bool $stopWhenEmpty = false,
+        /**
+         * Stop, between jobs, once the process uses this many bytes; 0 means
+         * no limit. Checked after a job, never during one, so it should sit
+         * below memory_limit by at least what one job needs.
+         */
+        public readonly int $maxMemory = 0,
     ) {}
 
     /** One job, or none, and then stop. */
@@ -70,6 +77,10 @@ final class WorkerOptions
 
         if ($this->maxSeconds > 0) {
             $limits[] = $this->maxSeconds . 's';
+        }
+
+        if ($this->maxMemory > 0) {
+            $limits[] = \intdiv($this->maxMemory, 1048576) . 'M of memory';
         }
 
         if ($this->stopWhenEmpty) {

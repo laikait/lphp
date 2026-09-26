@@ -30,7 +30,7 @@ final class McpConfigurationSliceTest extends TestCase
     {
         return $this->application([
             'security' => ['key' => Signer::generate()],
-            'modules' => ['paths' => ['plugins' => 'tests/Fixtures/Modules/Mcp/Plugins'], 'disabled' => ['plugins/Muted']],
+            'modules' => ['paths' => [self::SHOWCASE . '/Shared', 'tests/Fixtures/Modules/Mcp/Plugins'], 'disabled' => ['Muted']],
             'mcp' => $mcp,
         ]);
     }
@@ -125,14 +125,14 @@ final class McpConfigurationSliceTest extends TestCase
         self::assertSame(0, $status, $output);
         self::assertMatchesRegularExpression('/HTTP\s+POST \/mcp/', $output);
         self::assertMatchesRegularExpression('/Guests\s+refused/', $output);
-        self::assertMatchesRegularExpression('/tool\s+zulu\.greet\s+plugins\/Zulu\s+any user\s+/', $output);
-        self::assertMatchesRegularExpression('/prompt\s+alpha\.support\s+plugins\/Alpha\s+/', $output);
+        self::assertMatchesRegularExpression('/tool\s+zulu\.greet\s+Zulu\s+any user\s+/', $output);
+        self::assertMatchesRegularExpression('/prompt\s+alpha\.support\s+Alpha\s+/', $output);
         self::assertStringNotContainsString('muted.greet', $output, 'a disabled module offers nothing');
     }
 
     public function test_mcp_list_filters_by_module(): void
     {
-        [, $output] = $this->console($this->app([]), 'mcp:list', '--module=plugins/Alpha');
+        [, $output] = $this->console($this->app([]), 'mcp:list', '--module=Alpha');
 
         self::assertStringContainsString('alpha.support', $output);
         self::assertStringNotContainsString('zulu.greet', $output);

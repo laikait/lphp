@@ -600,7 +600,13 @@ final class Request
         Negotiator::requirePayload($this, $accepted);
     }
 
-    private function fromTrustedProxy(): bool
+    /**
+     * Whether REMOTE_ADDR is one of the configured trusted proxies.
+     *
+     * The one answer to "may a forwarded header be believed", so X-Forwarded-For
+     * and a CDN's country header are trusted under the same rule.
+     */
+    public function fromTrustedProxy(): bool
     {
         if ($this->trustedProxies === []) {
             return false;
