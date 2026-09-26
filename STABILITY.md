@@ -116,7 +116,9 @@ namespace beats a shorter one.
 | `App\Engine\Data\Bulk` | Internal | |
 | `App\Engine\Data\BulkWrites` | Experimental | new in the first release |
 | `App\Engine\Data\Criterion` | Internal | |
+| `App\Engine\Data\Cursor` | Internal | what a cursor string holds; the string itself is opaque |
 | `App\Engine\Data\Order` | Internal | |
+| `App\Engine\Data\Seek` | Internal | built by `cursor()` and `chunk()` |
 | `App\Engine\Database\*` | Experimental | |
 | `App\Engine\Database\ConnectionConfig` | Internal | |
 | `App\Engine\Database\Grammar` | Internal | the only place SQL is built; `Grammar::for()` picks the dialect |

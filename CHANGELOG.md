@@ -13,6 +13,10 @@ public, is in [`STABILITY.md`](STABILITY.md).
 
 ### Changed
 
+- **`chunk()` walks by key, not by offset.** Each batch starts after the last
+  row of the one before, in the query's order with the key added last, so every
+  batch costs the same and a callback that deletes or updates rows no longer
+  makes the walk skip or repeat any. A chunk always has a total order now.
 - **Modules are flat.** A module is any folder under `modules/` with a
   `module.php`, named whatever its author likes; its id is the folder name
   (`Billing`, `Shared`). The plugin and gateway kinds, `modules/Plugins/` and
@@ -45,6 +49,11 @@ public, is in [`STABILITY.md`](STABILITY.md).
   80% of `memory_limit`.
 - **`GET /health`** in the Shared module: database, cache, queue and disk
   checks as JSON, 200 or 503, for load balancers and uptime monitors.
+- **Cursor pagination.** `Query::cursor()` and `cursorInto()` return a
+  `CursorPage` with `nextCursor()` and `previousCursor()`: keyset pagination
+  that seeks through the index instead of skipping with `OFFSET`, costs the
+  same at any depth and runs no count. See
+  [Two ways to paginate](docs/reference/data.md#two-ways-to-paginate).
 - **`MAX_EXECUTION_TIME`** (`app.max_execution_time`) sets how long a web
   request may run, in seconds. Console commands and queue workers keep their own
   limits.

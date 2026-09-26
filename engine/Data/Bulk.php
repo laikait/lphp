@@ -40,6 +40,12 @@ final class Bulk
             throw DataException::bulkWithoutCriteria($query->collection(), $operation);
         }
 
+        foreach ($query->criteria() as $criterion) {
+            if ($criterion->operator === Operator::Seek) {
+                throw DataException::bulkQueryCarries($query->collection(), $operation, 'a cursor position');
+            }
+        }
+
         return $query->criteria();
     }
 

@@ -62,12 +62,14 @@ final class Query
 
     /**
      * @param class-string<Model>|null $model the class get() builds, if any
+     * @param string                   $key   the unique field that breaks ties in a cursor walk
      */
     private function __construct(
         private readonly DataSource $source,
         private readonly string $collection,
         private readonly ModelManager $models,
         private readonly ?string $model = null,
+        private readonly string $key = 'id',
     ) {}
 
     /**
@@ -78,8 +80,9 @@ final class Query
         string $collection,
         ModelManager $models,
         ?string $model = null,
+        string $key = 'id',
     ): self {
-        return new self($source, $collection, $models, $model);
+        return new self($source, $collection, $models, $model, $key);
     }
 
     // ---- building ---------------------------------------------------------
@@ -393,6 +396,12 @@ final class Query
      * For a job over a table too large to hold in memory. Returning nothing is
      * the usual case; returning exactly false stops the walk early.
      *
+     * The walk is by key, not by offset: each batch starts after the last row
+     * of the one before, in the query's order with the key as the final
+     * tie-breaker. So every batch costs the same however far in, and rows
+     * added or deleted while it runs -- by the callback, say -- neither shift
+     * a row into a batch twice nor out of every batch.
+     *
      * @param \Closure(ModelCollection): mixed $callback
      */
     public function chunk(int $size, \Closure $callback): void
@@ -401,25 +410,83 @@ final class Query
             throw DataException::negativePage(1, $size);
         }
 
-        $offset = $this->offset;
+        $model = $this->model ?? throw DataException::noModel($this->collection, 'chunk');
+        $orders = $this->seekOrders();
+        $walk = $this->walking($orders);
+        $boundary = null;
 
         while (true) {
-            $batch = $this->limit($size)->offset($offset)->get();
+            $query = $walk->limit($size)->offset($boundary === null ? $this->offset : 0);
 
-            if ($batch->isEmpty()) {
+            if ($boundary !== null) {
+                $query = $query->withCriterion(Criterion::seek(new Seek($orders, $boundary)));
+            }
+
+            $rows = $query->rows();
+
+            if ($rows === []) {
                 return;
             }
 
-            if ($callback($batch) === false) {
+            if ($callback($this->models->hydrateAll($model, $rows)) === false) {
                 return;
             }
 
-            if ($batch->count() < $size) {
+            if (\count($rows) < $size) {
                 return;
             }
 
-            $offset += $size;
+            $boundary = Cursor::at($orders, $rows[\count($rows) - 1], false)->values;
         }
+    }
+
+    /**
+     * One page of domain models by cursor: fast at any depth, with no total.
+     *
+     *     $page = $query->orderByDesc('created_at')->cursor(20, $request->query('cursor'));
+     *
+     * The first page is cursor(20). Link the next with
+     * ?cursor=<nextCursor()> and the previous with ?cursor=<previousCursor()>;
+     * both are null where there is nowhere to go. The order is the query's,
+     * with the key added last so that no two rows tie; with no order at all it
+     * is the key ascending. An index on the order columns is what makes it
+     * fast.
+     *
+     * page() is the alternative when a page number and a total are wanted, at
+     * the price of an offset and a count on every page.
+     *
+     * @throws DataException when the cursor is malformed or was made for another order
+     */
+    public function cursor(int $perPage, ?string $cursor = null): CursorPage
+    {
+        $model = $this->model ?? throw DataException::noModel($this->collection, 'cursor');
+
+        return $this->cursorWalk(
+            $this,
+            $perPage,
+            $cursor,
+            fn(array $rows): array => $this->models->hydrateAll($model, $rows)->all(),
+        );
+    }
+
+    /**
+     * One page of read models by cursor: cursor() for a list screen.
+     *
+     * @param class-string<ReadModel> $readModel
+     *
+     * @throws DataException when the cursor is malformed or was made for another order
+     */
+    public function cursorInto(string $readModel, int $perPage, ?string $cursor = null): CursorPage
+    {
+        return $this->cursorWalk(
+            $this->narrowedTo($readModel),
+            $perPage,
+            $cursor,
+            fn(array $rows): array => \array_map(
+                fn(array $row): ReadModel => $this->models->project($readModel, $row),
+                $rows,
+            ),
+        );
     }
 
     /** One page of domain models, with the totals needed to show a pager. */
@@ -463,6 +530,118 @@ final class Query
         }
 
         return [$page, $perPage];
+    }
+
+    /**
+     * @param \Closure(list<array<string, mixed>>): list<mixed> $build
+     */
+    private function cursorWalk(self $query, int $perPage, ?string $cursor, \Closure $build): CursorPage
+    {
+        if ($perPage < 1) {
+            throw DataException::cursorPageSize($perPage);
+        }
+
+        $orders = $query->seekOrders();
+        $position = $cursor === null || $cursor === '' ? null : Cursor::decode($cursor, $orders);
+        $backward = $position !== null && $position->backward;
+
+        // Backward is the same walk with every direction flipped, from the
+        // same boundary, and the rows turned round again afterwards.
+        $walkOrders = $backward ? self::flipped($orders) : $orders;
+        $walk = $query->walking($walkOrders)->limit($perPage + 1)->offset(0);
+
+        if ($position !== null) {
+            $walk = $walk->withCriterion(Criterion::seek(new Seek($walkOrders, $position->values)));
+        }
+
+        $rows = $walk->rows();
+
+        // One row more than a page answers "is there another" without a count.
+        $more = \count($rows) > $perPage;
+        $rows = \array_slice($rows, 0, $perPage);
+
+        if ($backward) {
+            $rows = \array_reverse($rows);
+        }
+
+        if ($rows === []) {
+            return new CursorPage([], $perPage);
+        }
+
+        $hasNext = $backward ? $position !== null : $more;
+        $hasPrevious = $backward ? $more : $position !== null;
+
+        return new CursorPage(
+            $build($rows),
+            $perPage,
+            $hasNext ? Cursor::at($orders, $rows[\count($rows) - 1], false)->encode() : null,
+            $hasPrevious ? Cursor::at($orders, $rows[0], true)->encode() : null,
+        );
+    }
+
+    /**
+     * The query's order, made total: the key is added last unless it is
+     * already there, so no two rows can tie.
+     *
+     * The key takes the direction of the last column before it. An index on
+     * (created_at, id) read backwards is created_at DESC, id DESC; a key added
+     * ascending after a descending column would make the database sort the
+     * page itself instead of reading it off the index, which on a large table
+     * is most of the time the cursor exists to save.
+     *
+     * @return list<Order>
+     */
+    private function seekOrders(): array
+    {
+        foreach ($this->orders as $order) {
+            if ($order->field === $this->key) {
+                return $this->orders;
+            }
+        }
+
+        $direction = $this->orders === [] ? Direction::Asc : $this->orders[\count($this->orders) - 1]->direction;
+
+        return [...$this->orders, new Order($this->key, $direction)];
+    }
+
+    /**
+     * This query in $orders, reading at least the order columns.
+     *
+     * A cursor is built from the order columns of the last row, so a narrowed
+     * select gets them added rather than failing on the next page.
+     *
+     * @param list<Order> $orders
+     */
+    private function walking(array $orders): self
+    {
+        $clone = clone $this;
+        $clone->orders = $orders;
+
+        if ($clone->columns !== []) {
+            foreach ($orders as $order) {
+                if (!\in_array($order->field, $clone->columns, true)) {
+                    $clone->columns[] = $order->field;
+                }
+            }
+        }
+
+        return $clone;
+    }
+
+    /**
+     * @param list<Order> $orders
+     *
+     * @return list<Order>
+     */
+    private static function flipped(array $orders): array
+    {
+        return \array_map(
+            static fn(Order $order): Order => new Order(
+                $order->field,
+                $order->isDescending() ? Direction::Asc : Direction::Desc,
+            ),
+            $orders,
+        );
     }
 
     /**

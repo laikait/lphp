@@ -11,6 +11,18 @@ order. An entry that cannot say who is affected is not finished.
 
 ## To the next release, from 2.1.2
 
+### chunk() walks by key
+
+- **Changed:** `Query::chunk()` starts each batch after the last row of the one
+  before, instead of at an offset. The order is the query's `orderBy()` columns
+  with the key added last; with no order it is the key ascending.
+- **Affected:** a `chunk()` over a query with no `orderBy()` that relied on the
+  database's unspecified order (it is now the key's order), and a `chunk()`
+  ordered by a column that can be null, which is refused once a batch ends on a
+  null.
+- **Do:** nothing, usually — the walk is now stable while rows change. Order a
+  chunk by columns that are never null, or add `whereNotNull()`.
+
 ### Modules are flat: modules/<Name>, no plugins or gateways
 
 - **Changed:** a module is any folder directly under `modules/` with a

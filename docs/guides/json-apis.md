@@ -193,6 +193,13 @@ those fields. `meta()` gives the totals for the `"meta"` part of the answer.
 If you want links to the next and previous page, build them in the handler with
 `$router->url()`. `ApiResponse` knows nothing about pages, on purpose.
 
+**For a list that can grow large, use a cursor instead of page numbers.**
+`page()` reads past every earlier row to reach page *n* and counts the whole
+table each time, so deep pages get slow. `cursorInto(MessageSummary::class, 20,
+$request->query('cursor'))` costs the same on every page and hands back
+`nextCursor()` and `previousCursor()` for the client to send as `?cursor=`. See
+[Two ways to paginate](../reference/data.md#two-ways-to-paginate).
+
 ## Step 5: errors
 
 Every error has the same JSON shape, whether your code produced it or the

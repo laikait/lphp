@@ -635,6 +635,8 @@ final class ArchitectureTest extends TestCase
             'Bulk.php',
             'BulkWrites.php',
             'Criterion.php',
+            'Cursor.php',
+            'CursorPage.php',
             'DataException.php',
             'DataSource.php',
             'Direction.php',
@@ -643,6 +645,7 @@ final class ArchitectureTest extends TestCase
             'Page.php',
             'Query.php',
             'Repository.php',
+            'Seek.php',
         ];
 
         $found = [];
