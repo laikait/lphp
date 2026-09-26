@@ -252,7 +252,9 @@ final class ArchitectureTest extends TestCase
      * The justification is the same one for all of them: the specification says
      * authors reach hooks, filters, assets and templates globally, from
      * module.php files and from templates themselves, where there is no
-     * constructor to inject into. A member
+     * constructor to inject into. debug and log are there for dump() and dd(),
+     * which must know whether they may print and where to report one left in
+     * code, from the same places. A member
      * without that justification would make this a service locator with a
      * fixed key set, which is a facade wearing a different hat.
      *
@@ -269,7 +271,7 @@ final class ArchitectureTest extends TestCase
         \sort($methods);
 
         self::assertSame(
-            ['assets', 'filters', 'hooks', 'init', 'isInitialised', 'reset', 'templates'],
+            ['assets', 'debug', 'filters', 'hooks', 'init', 'isInitialised', 'log', 'reset', 'templates'],
             $methods,
             'Extensions gained a member. Name the line in the specification that says authors reach it globally, '
             . 'or inject it like everything else in the framework.',

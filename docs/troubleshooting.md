@@ -15,6 +15,33 @@ and the console alike, because an error message can give away paths, settings an
 database details. Debug mode on your own terminal is safe. **Debug mode on a
 public web server is not.**
 
+## Dump a value
+
+`dump()` prints values and carries on; `dd()` ("dump and die") prints them and
+stops. Both work anywhere: a handler, a PHP template, `module.php`, a command, a
+job.
+
+```php
+dump($customer, $request->query());   // prints, the request continues
+dd($rows);                             // prints, then stops here
+```
+
+Each value is shown with its type and the file and line of the call. Private
+properties are shown; a `Secret` stays `[redacted]`. Output is bounded (8 levels
+deep, 200 items, 1,000 characters per string) and an object inside itself is
+marked `*RECURSION*`.
+
+| | `APP_DEBUG=true` | `APP_DEBUG=false` |
+|---|---|---|
+| `dump()` | prints — HTML in a browser, text on the command line | prints nothing; logs `dump() left in code` with the file and line |
+| `dd()` | prints and stops: status 500 in a browser, exit code 1 on the command line | prints nothing; the visitor gets the ordinary error page, and the error log says where the `dd()` is |
+
+So a `dd()` forgotten in the code cannot show a visitor anything. In a browser
+the dump is HTML-escaped, so dumping request input cannot inject markup.
+
+**Not in tests:** `dd()` would stop PHPUnit too. Use `dump()`, or assert on the
+value.
+
 ## Installing and starting
 
 **Every page under Apache is a 404, but `composer serve` works.**

@@ -49,6 +49,11 @@ public, is in [`STABILITY.md`](STABILITY.md).
   80% of `memory_limit`.
 - **`GET /health`** in the Shared module: database, cache, queue and disk
   checks as JSON, 200 or 503, for load balancers and uptime monitors.
+- **`dump()` and `dd()`** global helpers for debugging. They print only with
+  `APP_DEBUG=true`, with types and the calling file and line; with debug off
+  `dump()` prints nothing and logs where it is, and `dd()` throws so the visitor
+  sees the ordinary error page. See
+  [Dump a value](docs/troubleshooting.md#dump-a-value).
 - **Cursor pagination.** `Query::cursor()` and `cursorInto()` return a
   `CursorPage` with `nextCursor()` and `previousCursor()`: keyset pagination
   that seeks through the index instead of skipping with `OFFSET`, costs the

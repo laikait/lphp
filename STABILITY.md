@@ -207,6 +207,7 @@ namespace beats a shorter one.
 | `App\Engine\Session\SessionTableMigration` | Internal | run by `migrate` while `session.store` is `database` |
 | `App\Engine\Session\Stores\*` | Internal | selected by name: `SESSION_STORE=file\|database\|memory` |
 | `App\Engine\Support\*` | Internal | |
+| `App\Engine\Support\DebugException` | Experimental | what `dd()` throws with debug off |
 | `App\Engine\System\*` | Experimental | the newest API here; see [System operations](docs/reference/system.md) |
 | `App\Engine\System\Command\CommandSlot` | Internal | held by the executor and a `Process` |
 | `App\Engine\System\Command\Invocation` | Internal | |

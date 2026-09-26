@@ -307,9 +307,17 @@ final class Bootstrap
 
         $logs->enrich($tracer->logContext(...));
 
-        // The global helpers are a bridge to these four instances, and to
-        // nothing else. See Support\Extensions for why that is not a facade.
-        Extensions::init($hooks, $filters, $manager, $templates);
+        // The global helpers are a bridge to these four instances, plus the
+        // debug flag and the log that dump() and dd() need, and to nothing
+        // else. See Support\Extensions for why that is not a facade.
+        Extensions::init(
+            $hooks,
+            $filters,
+            $manager,
+            $templates,
+            (bool) $settings->get('app.debug', false),
+            $logs->channel(),
+        );
 
         $container->instance(Container::class, $container);
         $container->instance(Config::class, $settings);
