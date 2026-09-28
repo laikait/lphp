@@ -226,6 +226,9 @@ depends on, and that shape is undocumented because the generator *is* the
 documentation. It is how a framework stops being a library you call and becomes
 a thing you live inside.
 
+To start a module, copy the skeleton in
+[Modules: Start a new module](modules.md#start-a-new-module).
+
 ## If it doesn't work
 
 | What you see | Why | Fix |

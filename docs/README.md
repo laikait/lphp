@@ -31,6 +31,12 @@ Each guide walks through one task in your own application.
   accounts, logging in, protecting pages, roles, API tokens.
 - **[Extending other modules](guides/extending-other-modules.md)**: changing what
   another module does with hooks and filters, and depending on another module.
+- **[Navigation menus](guides/navigation.md)**: a Nav module for header,
+  footer, admin sidebar and user-panel menus, told apart by location and
+  gated by capability.
+- **[Database backups](guides/backups.md)**: a Backup module for MySQL,
+  PostgreSQL, SQLite and SQL Server, `backup:make`/`backup:restore`, and what
+  each driver actually needs.
 - **[Testing](guides/testing.md)**: testing pages, forms, databases, jobs and
   commands.
 

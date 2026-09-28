@@ -43,6 +43,53 @@ same name in two of those places.
 **There is nothing to extend and nothing to implement.** `ModuleContext` is the
 whole API a module author learns.
 
+## Start a new module
+
+There is no `module:make` command, on purpose (see
+[Console](console.md)). A module is one file, so copy this one. For a module
+called `Shop`:
+
+```
+modules/Shop/
+  module.php        the only required file
+  Http/             handlers        App\Modules\Shop\Http\…
+  Model/            models          App\Modules\Shop\Model\…
+  Data/             repositories    App\Modules\Shop\Data\…
+  Templates/        @Shop/…
+```
+
+Only `module.php` is required. The other folders are a convention, not a rule:
+any folder under `modules/Shop/` maps to `App\Modules\Shop\…`.
+
+```php
+<?php // modules/Shop/module.php
+
+declare(strict_types=1);
+
+use App\Engine\Module\ModuleContext;
+use App\Engine\Routing\RouteCollector;
+
+return static function (ModuleContext $module): void {
+    $module
+        ->name('Shop')
+        ->version('0.1.0')
+        ->description('Products and orders.');
+
+    $module->requires('Shared', '^0.1');
+
+    $module->routes(static function (RouteCollector $routes): void {
+        // $routes->get('/products', [ProductPages::class, 'index'])->name('shop.products');
+    });
+};
+```
+
+Then check it was found:
+
+```bash
+php laika module:list     # Shop is listed
+php laika cache:clear     # only if the module cache is on (APP_DEBUG=false)
+```
+
 ## A module declares itself
 
 ```php
