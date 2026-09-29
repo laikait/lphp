@@ -103,4 +103,75 @@ final class TemplateException extends FrameworkException
             $previous,
         ))->withheld();
     }
+
+    // ---- template helpers -------------------------------------------------
+
+    public static function unacceptableHelperName(string $kind, string $name, string $module): self
+    {
+        return new self(\sprintf(
+            'Module "%s" offers a template %s named "%s". A helper name is lower case letters, digits and '
+            . 'underscores, starting with a letter or underscore, so Twig and PHP templates can both spell it.',
+            $module,
+            $kind,
+            $name,
+        ));
+    }
+
+    public static function reservedHelperName(string $kind, string $name, string $module): self
+    {
+        return new self(\sprintf(
+            'Module "%s" offers a template %s named "%s", which the engine already provides to every template. '
+            . 'Choose another name.',
+            $module,
+            $kind,
+            $name,
+        ));
+    }
+
+    public static function duplicateHelper(string $kind, string $name, string $first, string $second): self
+    {
+        return new self(\sprintf(
+            'Modules "%s" and "%s" both offer a template %s named "%s". Names are unique across the application, '
+            . 'or which one a template got would depend on module order.',
+            $first,
+            $second,
+            $kind,
+            $name,
+        ));
+    }
+
+    public static function unknownHelper(string $kind, string $name): self
+    {
+        return new self(\sprintf(
+            'No module offers a template %s named "%s". A module declares one in module.php with '
+            . '$module->templates(...).',
+            $kind,
+            $name,
+        ));
+    }
+
+    public static function helperNotCallable(TemplateHelper $helper, string $reason): self
+    {
+        return new self(\sprintf(
+            'The template %s "%s" offered by module "%s" cannot be called (%s): %s.',
+            $helper->kind,
+            $helper->name,
+            $helper->module,
+            $helper->describe(),
+            $reason,
+        ));
+    }
+
+    /** The helper would replace something the template engine itself provides. */
+    public static function helperShadowsEngine(TemplateHelper $helper, string $engine): self
+    {
+        return new self(\sprintf(
+            'Module "%s" offers a template %s named "%s", which %s already provides. '
+            . 'Replacing it would change every template that uses it; choose another name.',
+            $helper->module,
+            $helper->kind,
+            $helper->name,
+            $engine,
+        ));
+    }
 }

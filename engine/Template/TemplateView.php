@@ -87,6 +87,31 @@ final class TemplateView
         return $this->templates->translate($key, $parameters);
     }
 
+    /**
+     * Apply a filter some module offers: `{{ total|money }}` in Twig.
+     *
+     *     <?= $e($view->filter('money', $invoice->total)) ?>
+     *
+     * The result is whatever the helper returns, unescaped; a PHP template
+     * escapes it like any other value. Only names a module declared in its
+     * module.php can be called -- see TemplateHelpers for why that is not a
+     * way into the container.
+     */
+    public function filter(string $name, mixed $value, mixed ...$arguments): mixed
+    {
+        return $this->templates->helpers()->applyFilter($name, $value, ...$arguments);
+    }
+
+    /**
+     * Call a function some module offers: `{{ route('home') }}` in Twig.
+     *
+     *     <a href="<?= $e->attr($view->call('route', 'home')) ?>">
+     */
+    public function call(string $name, mixed ...$arguments): mixed
+    {
+        return $this->templates->helpers()->callFunction($name, ...$arguments);
+    }
+
     public function has(string $key): bool
     {
         return \array_key_exists($key, $this->data);

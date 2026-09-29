@@ -25,6 +25,8 @@ use App\Engine\Routing\RouteCollector;
 use App\Engine\Routing\Router;
 use App\Engine\Scheduler\ScheduleCollector;
 use App\Engine\Scheduler\ScheduleRegistry;
+use App\Engine\Template\TemplateHelperCollector;
+use App\Engine\Template\TemplateHelpers;
 use App\Engine\Template\TemplateRegistry;
 use App\Engine\Template\TemplateSource;
 
@@ -101,6 +103,7 @@ final class ModuleManager
         private readonly string $basePath = '',
         private readonly McpRegistry $mcp = new McpRegistry(),
         private readonly TranslationCatalog $translations = new TranslationCatalog(),
+        private readonly TemplateHelpers $templateHelpers = new TemplateHelpers(),
     ) {}
 
     public function registry(): ModuleRegistry
@@ -396,6 +399,17 @@ final class ModuleManager
             $collector = new RouteCollector($this->router, $context->id());
 
             foreach ($context->declaredRoutes() as $declare) {
+                $declare($collector);
+            }
+        }
+
+        // After routes, and like them: a helper names a callback that is only
+        // built when a template first calls it, so nothing here reads the
+        // container.
+        foreach ($contexts as $context) {
+            $collector = new TemplateHelperCollector($this->templateHelpers, $context->id());
+
+            foreach ($context->declaredTemplates() as $declare) {
                 $declare($collector);
             }
         }

@@ -7,6 +7,7 @@ namespace App\Engine\Cli\Commands;
 use App\Engine\Cli\Output;
 use App\Engine\Core\Application;
 use App\Engine\Support\Path;
+use App\Engine\Template\TemplateHelper;
 use App\Engine\Template\TemplateManager;
 use App\Engine\Template\TemplateSource;
 
@@ -49,6 +50,31 @@ final class TemplateListCommand
 
         $output->line();
         $output->line('Renderable extensions: ' . \implode(', ', $this->templates->extensions()));
+
+        // What templates can call besides local: every name some module
+        // offered, and which module, because "where does |money come from" is
+        // the second question after "which file is this".
+        $helpers = [
+            ...\array_values($this->templates->helpers()->filters()),
+            ...\array_values($this->templates->helpers()->functions()),
+        ];
+
+        if ($helpers !== []) {
+            $output->line();
+            $output->table(
+                ['HELPER', 'KIND', 'MODULE', 'CALLBACK', 'SAFE'],
+                \array_map(
+                    static fn(TemplateHelper $helper): array => [
+                        $helper->name,
+                        $helper->kind,
+                        $helper->module,
+                        $helper->describe(),
+                        $helper->safe ? 'yes' : 'no',
+                    ],
+                    $helpers,
+                ),
+            );
+        }
 
         return 0;
     }

@@ -1024,6 +1024,9 @@ final class ArchitectureTest extends TestCase
             'TemplateEngine.php',
             'TemplateException.php',
             'TemplateFile.php',
+            'TemplateHelper.php',
+            'TemplateHelperCollector.php',
+            'TemplateHelpers.php',
             'TemplateManager.php',
             'TemplateRegistry.php',
             'TemplateSource.php',
@@ -1268,7 +1271,9 @@ final class ArchitectureTest extends TestCase
         \sort($methods);
 
         self::assertSame(
-            ['__construct', 'asset', 'data', 'escaper', 'exists', 'get', 'has', 'local', 'render', 'withData'],
+            // filter() and call() reach only the helpers modules declared in
+            // module.php, by name -- never a class, never a service.
+            ['__construct', 'asset', 'call', 'data', 'escaper', 'exists', 'filter', 'get', 'has', 'local', 'render', 'withData'],
             $methods,
             'TemplateView gained a method. Everything a template can reach is listed here on purpose.',
         );

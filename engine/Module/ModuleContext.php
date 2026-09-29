@@ -10,6 +10,7 @@ use App\Engine\Container\ServiceRegistrar;
 use App\Engine\MCP\McpCollector;
 use App\Engine\Routing\RouteCollector;
 use App\Engine\Scheduler\ScheduleCollector;
+use App\Engine\Template\TemplateHelperCollector;
 
 /**
  * The entire API a module author touches.
@@ -90,6 +91,9 @@ final class ModuleContext
 
     /** @var list<\Closure(McpCollector): void> */
     private array $mcpRegistrars = [];
+
+    /** @var list<\Closure(TemplateHelperCollector): void> */
+    private array $templateRegistrars = [];
 
     /** @var array<string, mixed> */
     private array $config = [];
@@ -291,6 +295,31 @@ final class ModuleContext
     }
 
     /**
+     * Declare the filters and functions this module offers to templates.
+     *
+     * ```php
+     * $module->templates(static function (TemplateHelperCollector $templates): void {
+     *     $templates->filter('money', [Money::class, 'format']);
+     *     $templates->function('route', [Links::class, 'route']);
+     * });
+     * ```
+     *
+     * Its Templates/ directory needs no declaration -- having it is enough.
+     * What does need one is anything a template calls, because a template can
+     * call only what some module chose to offer, and the module that offers it
+     * is where a reviewer looks. `[Money::class, 'format']` is built through the
+     * container the first time a template calls it, as a route handler is.
+     *
+     * @param \Closure(TemplateHelperCollector): void $registrar
+     */
+    public function templates(\Closure $registrar): self
+    {
+        return $this->declaring('templates', function () use ($registrar): void {
+            $this->templateRegistrars[] = $registrar;
+        });
+    }
+
+    /**
      * Contribute configuration, merged under this module's id.
      *
      * @param array<string, mixed> $values
@@ -449,6 +478,12 @@ final class ModuleContext
     public function declaredMcp(): array
     {
         return $this->mcpRegistrars;
+    }
+
+    /** @return list<\Closure(TemplateHelperCollector): void> */
+    public function declaredTemplates(): array
+    {
+        return $this->templateRegistrars;
     }
 
     /** @return array<string, mixed> */

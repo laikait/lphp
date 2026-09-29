@@ -35,6 +35,22 @@ final class DotEnv
     public const FILE = '.env';
 
     /**
+     * What a test run reads instead of FILE.
+     *
+     * A developer's .env names their database and turns debug on, and a test
+     * suite that picked those up would pass or fail depending on whose laptop
+     * it ran on. When the real environment says APP_ENV=testing -- phpunit.xml
+     * does -- this file is read instead, and a missing one means nothing is.
+     */
+    public const TESTING_FILE = '.env.testing';
+
+    /** The file a process should read: FILE, or TESTING_FILE under test. */
+    public static function fileFor(?string $environment): string
+    {
+        return $environment === 'testing' ? self::TESTING_FILE : self::FILE;
+    }
+
+    /**
      * Load a file if it is there, and report which variables it supplied.
      *
      * A missing file is not an error: most deployments should not have one.

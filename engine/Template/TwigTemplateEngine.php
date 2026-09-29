@@ -43,6 +43,8 @@ final class TwigTemplateEngine implements TemplateEngine
          * @var (\Closure(string, array<array-key, mixed>): string)|null
          */
         private readonly ?\Closure $translator = null,
+        /** The filters and functions modules offer; see TemplateHelpers. */
+        private readonly TemplateHelpers $helpers = new TemplateHelpers(),
     ) {}
 
     public function extensions(): array
@@ -126,7 +128,56 @@ final class TwigTemplateEngine implements TemplateEngine
             ));
         }
 
+        $this->addHelpers($twig);
+
         return $this->twig = $twig;
+    }
+
+    /**
+     * Give Twig every filter and function the modules offered.
+     *
+     * The callable is looked up when the template calls it, not now, so an
+     * Environment built on a page that never formats money builds no Money.
+     *
+     * A helper may not replace one of Twig's own (`date`, `raw`, `range`...):
+     * Twig would let it, silently, and every template using the built-in would
+     * change behaviour. The names are checked against an Environment that has
+     * nothing but Twig's defaults, because asking this one would initialise its
+     * extensions and refuse every addFilter() after it.
+     */
+    private function addHelpers(\Twig\Environment $twig): void
+    {
+        $helpers = $this->helpers;
+
+        if ($helpers->filters() === [] && $helpers->functions() === []) {
+            return;
+        }
+
+        $builtIn = new \Twig\Environment(new \Twig\Loader\ArrayLoader());
+
+        foreach ($helpers->filters() as $helper) {
+            if ($builtIn->getFilter($helper->name) !== null) {
+                throw TemplateException::helperShadowsEngine($helper, 'Twig');
+            }
+
+            $twig->addFilter(new \Twig\TwigFilter(
+                $helper->name,
+                static fn(mixed $value, mixed ...$arguments): mixed => $helpers->callable($helper)($value, ...$arguments),
+                $helper->safe ? ['is_safe' => ['html']] : [],
+            ));
+        }
+
+        foreach ($helpers->functions() as $helper) {
+            if ($builtIn->getFunction($helper->name) !== null) {
+                throw TemplateException::helperShadowsEngine($helper, 'Twig');
+            }
+
+            $twig->addFunction(new \Twig\TwigFunction(
+                $helper->name,
+                static fn(mixed ...$arguments): mixed => $helpers->callable($helper)(...$arguments),
+                $helper->safe ? ['is_safe' => ['html']] : [],
+            ));
+        }
     }
 
     /** Forget the Environment, so a later registration is picked up. */
