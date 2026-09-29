@@ -186,6 +186,12 @@ exists to discourage. `RateLimit::headers()` returns `RateLimit-*` and, only on
 a refusal, `Retry-After`: sending it on an allowed request has been known to
 make well-behaved clients wait.
 
+**"The client" is `Request::ip()`**, and behind a load balancer or CDN that is
+only right when the proxy is listed in `http.trusted_proxies` — otherwise every
+visitor is the proxy and shares one bucket. Entries may be CIDR blocks, and
+`security:check` fails on one it cannot read. See
+[IP addresses](network.md#the-client-address-behind-a-proxy).
+
 ## Uploads
 
 ```php

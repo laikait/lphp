@@ -145,6 +145,7 @@ use App\Engine\System\SystemConfig;
 use App\Engine\System\SystemDisabledException;
 use App\Engine\Template\Escaper;
 use App\Engine\Template\PhpTemplateEngine;
+use App\Engine\Template\TemplateHelpers;
 use App\Engine\Template\TemplateManager;
 use App\Engine\Template\TemplateRegistry;
 use App\Engine\Template\TemplateSource;
@@ -251,7 +252,12 @@ final class Bootstrap
             ->get(Localization::class)
             ->get($key, $parameters);
 
-        $templates = new TemplateManager($views, $manager, new Escaper(), $cache->namespace('templates'), $translator);
+        // Filters and functions modules offer to templates. A callback naming
+        // a class is built through the container when a template first calls
+        // it, as a route handler is; see TemplateHelpers.
+        $helpers = new TemplateHelpers(static fn(string $class): object => $container->get($class));
+
+        $templates = new TemplateManager($views, $manager, new Escaper(), $cache->namespace('templates'), $translator, $helpers);
 
         // Twig first, PHP second, and the order is the precedence: where a
         // directory holds both home.twig and home.php, the Twig one renders.
@@ -268,6 +274,7 @@ final class Bootstrap
                 : null,
             (bool) $settings->get('app.debug', false),
             $translator,
+            $helpers,
         ));
         $templates->addEngine(new PhpTemplateEngine());
 
@@ -332,6 +339,7 @@ final class Bootstrap
         $container->instance(AssetManager::class, $manager);
         $container->instance(TemplateRegistry::class, $views);
         $container->instance(TemplateManager::class, $templates);
+        $container->instance(TemplateHelpers::class, $helpers);
 
         // The console. The framework's own commands are registered here through
         // the same collector a module uses, so there is nothing the kernel
@@ -465,6 +473,7 @@ final class Bootstrap
             $basePath,
             $mcp,
             $translations,
+            $helpers,
         ));
 
         // Before anything boots, so module timing is there from the first
@@ -775,7 +784,8 @@ final class Bootstrap
      * somebody is looking at rather than hidden in this merge.
      *
      * A .env file is loaded first if there is one, and fills gaps in the real
-     * environment rather than replacing it. See DotEnv.
+     * environment rather than replacing it -- .env.testing instead, when the
+     * real environment says APP_ENV=testing. See DotEnv.
      *
      * The cache short-circuits the middle of that: if a valid one exists it is
      * the defaults and the files already merged. Caller overrides are applied
@@ -792,7 +802,9 @@ final class Bootstrap
      */
     public static function settings(string $basePath, array $overrides = [], bool $cached = true): array
     {
-        DotEnv::load(Path::join($basePath, DotEnv::FILE));
+        // A test run reads .env.testing, never the developer's .env: see
+        // DotEnv::TESTING_FILE. Only the real environment can say it is one.
+        DotEnv::load(Path::join($basePath, DotEnv::fileFor(Env::string('APP_ENV'))));
 
         $items = ($cached ? ConfigCache::read(ConfigCache::file($basePath)) : null)
             ?? self::merge(self::defaults(), (new ConfigLoader(Path::join($basePath, ConfigLoader::DIRECTORY)))->load());

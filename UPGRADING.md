@@ -11,6 +11,19 @@ order. An entry that cannot say who is affected is not finished.
 
 ## To the next release, from 2.1.2
 
+### Request::ip() reads X-Forwarded-For from the right
+
+- **Changed:** behind a trusted proxy, `Request::ip()` walks `X-Forwarded-For`
+  from the right and returns the first address that is not itself a trusted
+  proxy. It used to return the leftmost entry, which the client writes and can
+  forge. `http.trusted_proxies` now also accepts CIDR blocks.
+- **Affected:** an application behind more than one proxy — a CDN in front of a
+  load balancer, say — that lists only the proxy nearest to it. The CDN's address
+  is now what `ip()` returns, because nothing says it may be believed.
+- **Do:** list every proxy in front of the application, as addresses or blocks:
+  `['10.0.0.0/8', '173.245.48.0/20']`. Then run `php laika security:check`,
+  which fails on an entry it cannot read.
+
 ### chunk() walks by key
 
 - **Changed:** `Query::chunk()` starts each batch after the last row of the one

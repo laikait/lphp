@@ -42,14 +42,17 @@ final class MaxMindCountryResolver implements CountryResolver
 
     public function country(Request $request): ?string
     {
-        $ip = $request->ip();
+        // Parsed, so ::ffff:a.b.c.d from a dual-stack socket is looked up as
+        // the IPv4 address it is; and a private or reserved address is in no
+        // country's allocation, so the database is not opened for one.
+        $ip = $request->ipAddress();
 
-        if ($ip === null || \filter_var($ip, \FILTER_VALIDATE_IP) === false) {
+        if ($ip === null || !$ip->isPublic()) {
             return null;
         }
 
         try {
-            $record = $this->reader()->get($ip);
+            $record = $this->reader()->get($ip->toString());
         } catch (\InvalidArgumentException) {
             return null;
         }

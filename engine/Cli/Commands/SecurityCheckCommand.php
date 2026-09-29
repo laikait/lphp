@@ -10,6 +10,7 @@ use App\Engine\Auth\Providers\EmptyProvider;
 use App\Engine\Cli\Output;
 use App\Engine\Config\Config;
 use App\Engine\Core\Application;
+use App\Engine\Network\Cidr;
 use App\Engine\Routing\Router;
 use App\Engine\Security\Counters\MemoryStore;
 use App\Engine\Security\Csrf;
@@ -77,6 +78,7 @@ final class SecurityCheckCommand
             ...$this->checkKey(),
             ...$this->checkCsrf(),
             ...$this->checkLimits(),
+            ...$this->checkProxies(),
             ...$this->checkSessions($production),
             ...$this->checkAccess(),
             ...$this->checkHeaders($production),
@@ -238,6 +240,65 @@ final class SecurityCheckCommand
             : [self::OK, \sprintf('%d route(s) declare a rate limit.', $limited), ''];
 
         $findings[] = [self::OK, 'Request bodies are capped at ' . $this->limits->describe() . '.', ''];
+
+        return $findings;
+    }
+
+    /**
+     * http.trusted_proxies decides whose X-Forwarded-For is believed, and so
+     * which address every rate limit, audit line and country lookup is about.
+     *
+     * An entry that cannot be read is skipped at request time rather than
+     * failing every request, which makes this the one place a typo is seen.
+     *
+     * @return list<array{string, string, string}>
+     */
+    private function checkProxies(): array
+    {
+        /** @var mixed $configured */
+        $configured = $this->config->get('http.trusted_proxies', []);
+        $entries = \is_array($configured) ? $configured : [$configured];
+
+        if ($entries === []) {
+            return [[self::OK, 'No proxy is trusted, so X-Forwarded-For is ignored.', '']];
+        }
+
+        $unreadable = [];
+        $everyone = [];
+
+        foreach ($entries as $entry) {
+            $block = \is_string($entry) ? Cidr::tryParse(\trim($entry)) : null;
+
+            if ($block === null) {
+                $unreadable[] = \is_scalar($entry) ? (string) $entry : \get_debug_type($entry);
+            } elseif ($block->prefix() === 0) {
+                $everyone[] = $block->toString();
+            }
+        }
+
+        $findings = [];
+
+        if ($unreadable !== []) {
+            $findings[] = [
+                self::FAIL,
+                \sprintf('http.trusted_proxies has entries that are not addresses: %s', \implode(', ', $unreadable)),
+                'They are ignored, so requests through those proxies are seen as coming from the proxy. '
+                . 'Write each entry as an address or a CIDR block: "10.0.0.5", "10.0.0.0/8", "2400:cb00::/32".',
+            ];
+        }
+
+        if ($everyone !== []) {
+            $findings[] = [
+                self::FAIL,
+                \sprintf('http.trusted_proxies trusts every address: %s', \implode(', ', $everyone)),
+                'Any client can then choose its own address with X-Forwarded-For, and so its own rate-limit '
+                . 'bucket and its own country. List only the proxies in front of this application.',
+            ];
+        }
+
+        if ($findings === []) {
+            $findings[] = [self::OK, 'X-Forwarded-For is believed from: ' . \implode(', ', $entries), ''];
+        }
 
         return $findings;
     }

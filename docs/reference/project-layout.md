@@ -38,6 +38,7 @@ engine/                the framework
   System/              commands, processes, cron, services, files on the server
   MCP/                 tools, resources and prompts that modules declare, over STDIO and HTTP
   Localization/        translations, locale resolution and country detection
+  Network/             IPv4 and IPv6 addresses, CIDR blocks, netmasks, allowlists
 templates/             the site's views: render('customer/profile') is customer/profile.twig
   layout.twig          the layout every default page extends
   home.twig            the front page until a module claims /

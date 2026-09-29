@@ -31,6 +31,12 @@ Each guide walks through one task in your own application.
   accounts, logging in, protecting pages, roles, API tokens.
 - **[Extending other modules](guides/extending-other-modules.md)**: changing what
   another module does with hooks and filters, and depending on another module.
+- **[Navigation menus](guides/navigation.md)**: a Nav module for header,
+  footer, admin sidebar and user-panel menus, told apart by location and
+  gated by capability.
+- **[Database backups](guides/backups.md)**: a Backup module for MySQL,
+  PostgreSQL, SQLite and SQL Server, `backup:make`/`backup:restore`, and what
+  each driver actually needs.
 - **[Testing](guides/testing.md)**: testing pages, forms, databases, jobs and
   commands.
 
@@ -47,7 +53,7 @@ a guide links to it, or when you need the details.
 | Data | [Models](reference/models.md) · [Schemas](reference/schemas.md) · [Repositories and queries](reference/data.md) · [The database](reference/database.md) |
 | Runtime | [Configuration](reference/configuration.md) · [Default settings](reference/defaults.md) · [Cache](reference/cache.md) · [Logging](reference/logging.md) · [CLI](reference/console.md) |
 | Background | [Queue and worker](reference/queue.md) · [Scheduler](reference/scheduler.md) |
-| Security | [Security](reference/security.md) · [Sessions](reference/sessions.md) · [Authentication and authorization](reference/auth.md) |
+| Security | [Security](reference/security.md) · [Sessions](reference/sessions.md) · [Authentication and authorization](reference/auth.md) · [IP addresses](reference/network.md) |
 | Operations | [Performance](reference/performance.md) · [Observability](reference/observability.md) · [System operations](reference/system.md) · [MCP](reference/mcp.md) |
 
 ## Running an application

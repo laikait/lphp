@@ -174,6 +174,40 @@ A partial gets exactly the data it is given and never sees its parent's
 variables, because a partial that could is a partial whose contract is
 "whatever happened to be in scope".
 
+## Filters and functions a module offers
+
+Besides `local`, a template can call whatever a module declares in its
+`module.php`:
+
+```php
+$module->templates(static function (TemplateHelperCollector $templates): void {
+    $templates->filter('money', [Money::class, 'format']);
+    $templates->function('route', [Links::class, 'route']);
+});
+```
+
+A filter transforms the value in front of it; a function produces a value from
+its arguments. Only the spelling differs:
+
+| | Twig | PHP template |
+|---|---|---|
+| Filter | `{{ total\|money }}`, `{{ total\|money('EUR') }}` | `<?= $e($view->filter('money', $total)) ?>` |
+| Function | `{{ route('home') }}` | `<?= $e->attr($view->call('route', 'home')) ?>` |
+
+A callback is a closure, a function name, or `[Class::class, 'method']`. For a
+class and a method that is not static, the container builds the object the first
+time it is used, and after that one object serves every call in the process.
+
+**Output is escaped unless you say otherwise.** Pass `true` as the third argument
+only when the callback returns markup it has already escaped; Twig then prints it
+as it is. A PHP template escapes, or calls `$e->raw()`, exactly as it does for any
+other value.
+
+Names are lower case, digits and underscores (`money`, `money_short`). `local`
+is reserved, a name Twig already provides cannot be replaced, and two modules
+offering the same name is an error that names both. `php laika template:list`
+lists every helper, its module and its callback.
+
 ## The default pages
 
 ```

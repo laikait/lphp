@@ -159,6 +159,13 @@ file — has no good answer.
 A line that is not an assignment stops the boot rather than being skipped. A
 setting that silently fails to apply is worse than a boot that stops.
 
+**A test run reads `.env.testing`, never `.env`.** When the real environment
+says `APP_ENV=testing` — `phpunit.xml` does — `.env.testing` is loaded instead,
+and a missing one means nothing is. A developer's `.env` names their database
+and turns debug on; a suite that read it would pass or fail depending on whose
+laptop it ran on. A test that needs a database server still asks for one with
+the `DB_TEST_*` variables.
+
 ## Memory limit
 
 `MEMORY_LIMIT` sets PHP's `memory_limit` when the application boots, so a laptop

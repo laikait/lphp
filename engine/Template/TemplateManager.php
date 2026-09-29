@@ -77,6 +77,11 @@ final class TemplateManager
          * @var (\Closure(string, array<array-key, mixed>): string)|null
          */
         private readonly ?\Closure $translator = null,
+        /**
+         * The filters and functions modules offer to templates. Empty by
+         * default, so a manager built without modules renders as it always did.
+         */
+        private readonly TemplateHelpers $helpers = new TemplateHelpers(),
     ) {}
 
     // ---- engines ----------------------------------------------------------
@@ -129,6 +134,11 @@ final class TemplateManager
     public function registry(): TemplateRegistry
     {
         return $this->registry;
+    }
+
+    public function helpers(): TemplateHelpers
+    {
+        return $this->helpers;
     }
 
     // ---- rendering --------------------------------------------------------
@@ -380,5 +390,6 @@ final class TemplateManager
     public function flush(): void
     {
         $this->resolved = [];
+        $this->helpers->flush();
     }
 }
