@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Tests\Unit\Config;
 
+use App\Engine\Bootstrap\Bootstrap;
 use App\Engine\Config\ConfigurationException;
 use App\Engine\Config\DotEnv;
 use App\Engine\Config\Env;
@@ -174,5 +175,41 @@ final class DotEnvTest extends TestCase
             ['NEW_ONE'],
             DotEnv::load($this->write("ALREADY_SET=ignored\nNEW_ONE=applied\n")),
         );
+    }
+    // ---- which file -------------------------------------------------------
+
+    public function test_a_test_run_reads_its_own_file_and_everything_else_reads_env(): void
+    {
+        self::assertSame('.env.testing', DotEnv::fileFor('testing'));
+        self::assertSame('.env', DotEnv::fileFor('production'));
+        self::assertSame('.env', DotEnv::fileFor('local'));
+        self::assertSame('.env', DotEnv::fileFor(null));
+    }
+
+    /**
+     * A developer's .env names their database and turns debug on. The suite
+     * runs with APP_ENV=testing (phpunit.xml), so it must never read it --
+     * otherwise whether the tests pass depends on whose laptop they ran on.
+     */
+    public function test_the_bootstrap_under_test_ignores_the_developers_env(): void
+    {
+        $base = \sys_get_temp_dir() . '/dotenv-base-' . \bin2hex(\random_bytes(6));
+        \mkdir($base);
+        \file_put_contents($base . '/.env', "DOTENV_PROBE_DEVELOPER=laptop\n");
+
+        try {
+            self::assertSame('testing', Env::string('APP_ENV'), 'phpunit.xml sets APP_ENV=testing');
+
+            Bootstrap::settings($base, cached: false);
+            self::assertNull(Env::string('DOTENV_PROBE_DEVELOPER'));
+
+            \file_put_contents($base . '/.env.testing', "DOTENV_PROBE_TESTING=suite\n");
+            Bootstrap::settings($base, cached: false);
+            self::assertSame('suite', Env::string('DOTENV_PROBE_TESTING'));
+        } finally {
+            @\unlink($base . '/.env');
+            @\unlink($base . '/.env.testing');
+            @\rmdir($base);
+        }
     }
 }
