@@ -53,7 +53,7 @@ a guide links to it, or when you need the details.
 | Data | [Models](reference/models.md) · [Schemas](reference/schemas.md) · [Repositories and queries](reference/data.md) · [The database](reference/database.md) |
 | Runtime | [Configuration](reference/configuration.md) · [Default settings](reference/defaults.md) · [Cache](reference/cache.md) · [Logging](reference/logging.md) · [CLI](reference/console.md) |
 | Background | [Queue and worker](reference/queue.md) · [Scheduler](reference/scheduler.md) |
-| Security | [Security](reference/security.md) · [Sessions](reference/sessions.md) · [Authentication and authorization](reference/auth.md) |
+| Security | [Security](reference/security.md) · [Sessions](reference/sessions.md) · [Authentication and authorization](reference/auth.md) · [IP addresses](reference/network.md) |
 | Operations | [Performance](reference/performance.md) · [Observability](reference/observability.md) · [System operations](reference/system.md) · [MCP](reference/mcp.md) |
 
 ## Running an application

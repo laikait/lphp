@@ -13,6 +13,13 @@ public, is in [`STABILITY.md`](STABILITY.md).
 
 ### Changed
 
+- **`Request::ip()` reads `X-Forwarded-For` from the right.** The client is the
+  first address, reading leftwards, that is not a trusted proxy, instead of
+  whatever the client wrote at the left-hand end; an entry that is not an
+  address stops the reading, and a port is dropped. With one proxy and one
+  entry nothing changes. Breaking for a chain of proxies: see
+  [`UPGRADING.md`](UPGRADING.md#requestip-reads-x-forwarded-for-from-the-right).
+
 - **`chunk()` walks by key, not by offset.** Each batch starts after the last
   row of the one before, in the query's order with the key added last, so every
   batch costs the same and a callback that deletes or updates rows no longer
@@ -28,6 +35,17 @@ public, is in [`STABILITY.md`](STABILITY.md).
   [`UPGRADING.md`](UPGRADING.md#modules-are-flat-modulesname-no-plugins-or-gateways).
 
 ### Added
+
+- **IP addresses.** `App\Engine\Network`: `IpAddress` (IPv4 and IPv6 parsing,
+  RFC 5952 formatting, public/private/loopback/link-local/multicast/reserved
+  classification, IPv4-mapped conversion, masking and anonymizing, arithmetic,
+  integer, binary and reverse-DNS forms), `Cidr` (bounds, hosts, size,
+  membership, overlap, listing the addresses in a block, splitting into
+  subnets, summarizing a range), `Netmask`, `IpSet` for allowlists, and the `Ip`
+  one-liners. Pure PHP: no GMP or BCMath. `http.trusted_proxies` accepts CIDR
+  blocks of either version, `Request` gains `ipAddress()` and `ips()`, and
+  `security:check` fails on a trusted proxy entry it cannot read or on one that
+  trusts every address.
 
 - **Localization.** Translations as PHP files: the application's in `lang/`,
   each module's in its own `lang/`, keyed `shared.*`, `plugin.<Name>.*` and

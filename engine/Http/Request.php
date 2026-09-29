@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace App\Engine\Http;
 
+use App\Engine\Network\IpAddress;
+use App\Engine\Network\IpSet;
 use App\Engine\Support\Unicode;
 
 /**
@@ -19,6 +21,8 @@ final class Request
     private bool $jsonParsed = false;
 
     private mixed $json = null;
+
+    private ?IpSet $proxies = null;
 
     /**
      * @param array<string, mixed>                            $query
@@ -510,6 +514,13 @@ final class Request
      * X-Forwarded-For is honoured only when REMOTE_ADDR is itself a configured
      * trusted proxy. Trusting it unconditionally would let any client claim any
      * address, which quietly breaks rate limiting and audit logs.
+     *
+     * Even then the header is read from the right. Each proxy appends the
+     * address it received the request from, so the right-hand end was written
+     * by proxies this application trusts and the left-hand end by whoever sent
+     * the request -- who can put anything there. The client is the first
+     * address, reading leftwards, that is not a trusted proxy. Reading stops at
+     * an entry that is not an address, since nothing trusted wrote it.
      */
     public function ip(): ?string
     {
@@ -520,15 +531,57 @@ final class Request
             return $remote;
         }
 
-        $forwarded = $this->header('X-Forwarded-For');
+        $client = $remote;
 
-        if ($forwarded === null || $forwarded === '') {
-            return $remote;
+        foreach (\array_reverse($this->forwardedFor()) as $entry) {
+            $address = IpAddress::tryParse($entry);
+
+            if ($address === null) {
+                break;
+            }
+
+            $client = $address->toString();
+
+            if (!$this->trustedProxies()->contains($address)) {
+                break;
+            }
         }
 
-        $first = \trim((string) \strtok($forwarded, ','));
+        return $client;
+    }
 
-        return $first === '' ? $remote : $first;
+    /**
+     * The client address, parsed: null when there is none or it cannot be read.
+     *
+     * An IPv4 address that a dual-stack socket reported as ::ffff:a.b.c.d is
+     * returned as the IPv4 address it is.
+     */
+    public function ipAddress(): ?IpAddress
+    {
+        $ip = $this->ip();
+        $address = $ip === null ? null : IpAddress::tryParse($ip);
+
+        return $address?->toV4() ?? $address;
+    }
+
+    /**
+     * Every address the request passed through, client first and REMOTE_ADDR
+     * last. X-Forwarded-For is included only from a trusted proxy, and the
+     * addresses at its left-hand end are whatever the client claimed: for the
+     * one to believe, use ip().
+     *
+     * @return list<string>
+     */
+    public function ips(): array
+    {
+        $remote = $this->server('REMOTE_ADDR');
+        $chain = $this->fromTrustedProxy() ? $this->forwardedFor() : [];
+
+        if (\is_string($remote) && $remote !== '') {
+            $chain[] = $remote;
+        }
+
+        return $chain;
     }
 
     public function userAgent(): ?string
@@ -604,7 +657,10 @@ final class Request
      * Whether REMOTE_ADDR is one of the configured trusted proxies.
      *
      * The one answer to "may a forwarded header be believed", so X-Forwarded-For
-     * and a CDN's country header are trusted under the same rule.
+     * and a CDN's country header are trusted under the same rule. An entry is
+     * an address or a CIDR block, of either version: "10.0.0.0/8" trusts a
+     * whole private network, and a CDN's published ranges can be listed as
+     * they are published.
      */
     public function fromTrustedProxy(): bool
     {
@@ -614,7 +670,46 @@ final class Request
 
         $remote = $this->server('REMOTE_ADDR');
 
-        return \is_string($remote) && \in_array($remote, $this->trustedProxies, true);
+        return \is_string($remote) && $this->trustedProxies()->contains($remote);
+    }
+
+    /**
+     * Configuration is checked by security:check, which is where a typo is
+     * reported; here an unreadable entry is skipped rather than failing
+     * every request.
+     */
+    private function trustedProxies(): IpSet
+    {
+        return $this->proxies ??= IpSet::lenient($this->trustedProxies);
+    }
+
+    /**
+     * X-Forwarded-For as a list, left to right, with any port removed:
+     * some load balancers write "203.0.113.9:51234".
+     *
+     * @return list<string>
+     */
+    private function forwardedFor(): array
+    {
+        $header = (string) $this->header('X-Forwarded-For', '');
+        $entries = [];
+
+        foreach (\explode(',', $header) as $entry) {
+            $entry = \trim($entry);
+
+            if ($entry === '') {
+                continue;
+            }
+
+            if (\preg_match('/^(\d{1,3}(?:\.\d{1,3}){3}):\d+$/', $entry, $match) === 1
+                || \preg_match('/^\[([^\]]+)\](?::\d+)?$/', $entry, $match) === 1) {
+                $entry = $match[1];
+            }
+
+            $entries[] = $entry;
+        }
+
+        return $entries;
     }
 
     // ---- attributes ------------------------------------------------------

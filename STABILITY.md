@@ -173,6 +173,8 @@ namespace beats a shorter one.
 | `App\Engine\Module\ModuleException` | Experimental | |
 | `App\Engine\Module\ModuleKind` | Experimental | |
 | `App\Engine\Module\ModuleRegistry` | Experimental | `isEnabled()` and friends, from `onBoot` |
+| `App\Engine\Network\*` | Experimental | addresses, CIDR blocks and masks; see [IP addresses](docs/reference/network.md) |
+| `App\Engine\Network\Bytes` | Internal | byte arithmetic behind `IpAddress` and `Cidr` |
 | `App\Engine\Observability\*` | Experimental | newest; the most likely to change |
 | `App\Engine\Observability\Report` | Internal | |
 | `App\Engine\Queue\*` | Internal | |

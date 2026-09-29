@@ -351,6 +351,29 @@ final class SecuritySliceTest extends TestCase
         self::assertStringContainsString('/api/v1/customers', $output);
     }
 
+    /** An unreadable entry is skipped at request time, so this is where the typo shows. */
+    public function test_security_check_fails_on_an_unreadable_trusted_proxy(): void
+    {
+        [$status, $output] = $this->console(
+            $this->app(['http' => ['trusted_proxies' => ['10.0.0.0/8', '10.0.0.300']]]),
+            'security:check',
+        );
+
+        self::assertSame(ConsoleKernel::FAILURE, $status);
+        self::assertStringContainsString('not addresses: 10.0.0.300', $output);
+    }
+
+    public function test_security_check_fails_when_every_address_is_a_trusted_proxy(): void
+    {
+        [$status, $output] = $this->console(
+            $this->app(['http' => ['trusted_proxies' => ['0.0.0.0/0']]]),
+            'security:check',
+        );
+
+        self::assertSame(ConsoleKernel::FAILURE, $status);
+        self::assertStringContainsString('trusts every address: 0.0.0.0/0', $output);
+    }
+
     public function test_security_key_prints_a_usable_key(): void
     {
         [$status, $output] = $this->console($this->app(), 'security:key', '--bare');

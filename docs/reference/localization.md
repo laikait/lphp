@@ -180,7 +180,7 @@ header and list the proxy as trusted:
 return ['country_header' => 'CF-IPCountry'];
 
 // config/http.php
-return ['trusted_proxies' => ['173.245.48.1']];
+return ['trusted_proxies' => ['173.245.48.0/20']];   // an address or a CIDR block
 ```
 
 or `LOCALIZATION_COUNTRY_HEADER=CF-IPCountry` in the environment.

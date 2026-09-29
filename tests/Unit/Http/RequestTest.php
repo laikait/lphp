@@ -418,6 +418,107 @@ final class RequestTest extends TestCase
         self::assertSame('203.0.113.9', $request->ip());
     }
 
+    public function test_a_trusted_proxy_can_be_a_cidr_block(): void
+    {
+        $request = Request::create('GET', '/', [
+            'server' => ['REMOTE_ADDR' => '10.20.30.40'],
+            'headers' => ['X-Forwarded-For' => '203.0.113.9'],
+            'trustedProxies' => ['10.0.0.0/8'],
+        ]);
+
+        self::assertTrue($request->fromTrustedProxy());
+        self::assertSame('203.0.113.9', $request->ip());
+    }
+
+    public function test_a_trusted_proxy_can_be_ipv6(): void
+    {
+        $request = Request::create('GET', '/', [
+            'server' => ['REMOTE_ADDR' => '2400:cb00::1'],
+            'headers' => ['X-Forwarded-For' => '2001:db8::77'],
+            'trustedProxies' => ['2400:cb00::/32'],
+        ]);
+
+        self::assertSame('2001:db8::77', $request->ip());
+    }
+
+    /**
+     * The left end of the header is whatever the client sent. Reading from the
+     * right, past the proxies this application trusts, finds the address the
+     * first trusted proxy actually saw.
+     */
+    public function test_a_spoofed_forwarded_for_is_read_past(): void
+    {
+        $request = Request::create('GET', '/', [
+            'server' => ['REMOTE_ADDR' => '10.0.0.1'],
+            'headers' => ['X-Forwarded-For' => '1.1.1.1, 198.51.100.20, 10.0.0.2'],
+            'trustedProxies' => ['10.0.0.0/24'],
+        ]);
+
+        self::assertSame('198.51.100.20', $request->ip());
+        self::assertSame(['1.1.1.1', '198.51.100.20', '10.0.0.2', '10.0.0.1'], $request->ips());
+    }
+
+    public function test_every_hop_trusted_gives_the_leftmost(): void
+    {
+        $request = Request::create('GET', '/', [
+            'server' => ['REMOTE_ADDR' => '10.0.0.1'],
+            'headers' => ['X-Forwarded-For' => '10.0.0.3, 10.0.0.2'],
+            'trustedProxies' => ['10.0.0.0/24'],
+        ]);
+
+        self::assertSame('10.0.0.3', $request->ip());
+    }
+
+    public function test_reading_stops_at_an_entry_that_is_not_an_address(): void
+    {
+        $request = Request::create('GET', '/', [
+            'server' => ['REMOTE_ADDR' => '10.0.0.1'],
+            'headers' => ['X-Forwarded-For' => '198.51.100.20, <script>, 10.0.0.2'],
+            'trustedProxies' => ['10.0.0.0/24'],
+        ]);
+
+        self::assertSame('10.0.0.2', $request->ip());
+    }
+
+    public function test_a_port_in_forwarded_for_is_dropped(): void
+    {
+        $request = Request::create('GET', '/', [
+            'server' => ['REMOTE_ADDR' => '10.0.0.1'],
+            'headers' => ['X-Forwarded-For' => '[2001:db8::5]:4711, 198.51.100.20:51234'],
+            'trustedProxies' => ['10.0.0.1', '198.51.100.20'],
+        ]);
+
+        self::assertSame('2001:db8::5', $request->ip());
+    }
+
+    public function test_an_unreadable_trusted_proxy_is_skipped(): void
+    {
+        $request = Request::create('GET', '/', [
+            'server' => ['REMOTE_ADDR' => '10.0.0.5'],
+            'headers' => ['X-Forwarded-For' => '203.0.113.9'],
+            'trustedProxies' => ['not-an-address', '10.0.0.5'],
+        ]);
+
+        self::assertSame('203.0.113.9', $request->ip());
+    }
+
+    public function test_the_address_parsed(): void
+    {
+        $mapped = Request::create('GET', '/', ['server' => ['REMOTE_ADDR' => '::ffff:198.51.100.20']]);
+
+        self::assertSame('198.51.100.20', $mapped->ipAddress()?->toString(), 'a dual-stack socket\'s IPv4');
+        self::assertNull(Request::create('GET', '/', ['server' => []])->ipAddress());
+        self::assertSame([], Request::create('GET', '/', ['server' => []])->ips());
+        self::assertSame(
+            ['10.0.0.5'],
+            Request::create('GET', '/', [
+                'server' => ['REMOTE_ADDR' => '10.0.0.5'],
+                'headers' => ['X-Forwarded-For' => '203.0.113.9'],
+            ])->ips(),
+            'the header is not part of the chain from an untrusted peer',
+        );
+    }
+
     public function test_forwarded_proto_is_only_honoured_from_a_trusted_proxy(): void
     {
         $options = [
