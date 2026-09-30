@@ -12,8 +12,13 @@ use App\Engine\Core\Application;
 use App\Engine\Core\ExecutionContext;
 use App\Engine\Error\ErrorHandler;
 use App\Engine\Hook\HookEngine;
+use App\Engine\System\Command\CommandExecutor;
 use App\Engine\System\Cron\CronManager;
 use App\Engine\System\Cron\ScheduleRunJob;
+use App\Engine\System\Service\ServiceManager;
+use App\Engine\System\Service\ServicePolicy;
+use App\Engine\System\SystemConfig;
+use App\Engine\System\Systemd\SystemdManager;
 use App\Tests\Fixtures\System\MemoryCronTable;
 use App\Tests\Support\TestCase;
 
@@ -29,11 +34,41 @@ final class SystemConsoleTest extends TestCase
 
     private Application $app;
 
+    /** Where the systemd commands write, in place of /etc/systemd/system. */
+    private string $units = '';
+
     protected function setUp(): void
     {
         $this->crontab = new MemoryCronTable("MAILTO=\"\"\n");
         $this->app = $this->shippedApplication()->boot();
         $this->app->container()->instance(CronManager::class, new CronManager($this->crontab, 'console-test'));
+    }
+
+    protected function tearDown(): void
+    {
+        if ($this->units !== '') {
+            foreach (\glob($this->units . '/*') ?: [] as $file) {
+                \unlink($file);
+            }
+
+            \rmdir($this->units);
+        }
+
+        parent::tearDown();
+    }
+
+    /** The systemd commands against a temporary directory and a systemctl that only succeeds. */
+    private function fakeSystemd(): void
+    {
+        $this->units = \sys_get_temp_dir() . '/lphp-console-systemd-' . \bin2hex(\random_bytes(4));
+        \mkdir($this->units);
+        \file_put_contents($this->units . '/systemctl', '#!' . \PHP_BINARY . " -n\n<?php exit(0);\n");
+        \chmod($this->units . '/systemctl', 0o755);
+
+        $this->app->container()->instance(
+            SystemdManager::class,
+            new SystemdManager(new ServiceManager(new CommandExecutor(), ServicePolicy::none(), $this->units . '/systemctl'), $this->units, runtimeDirectory: null, privileged: true),
+        );
     }
 
     /** @return array{int, string} */
@@ -123,6 +158,74 @@ final class SystemConsoleTest extends TestCase
         self::assertSame(0, $status);
         self::assertStringContainsString('Removed 1 job(s)', $output);
         self::assertSame("MAILTO=\"\"\n", $this->crontab->contents);
+    }
+
+    /** The unit prefix: the configured cron owner, here derived from the directory. */
+    private function prefix(): string
+    {
+        return $this->app->container()->get(SystemConfig::class)->cronOwner;
+    }
+
+    public function test_systemd_units_are_printed_with_the_steps_to_install_them(): void
+    {
+        [$status, $output] = $this->console('system:systemd:generate', '--user=www-data', '--queue=default,billing');
+
+        self::assertSame(0, $status);
+        self::assertStringContainsString($this->prefix() . '-worker@.service', $output);
+        self::assertStringContainsString('ExecStart=' . \PHP_BINARY, $output);
+        self::assertStringContainsString('queue:work --queue=%i', $output);
+        self::assertStringContainsString('OnCalendar=*-*-* *:*:00', $output);
+        self::assertStringContainsString(
+            'systemctl enable --now ' . $this->prefix() . '-scheduler.timer ' . $this->prefix() . '-worker@default.service ' . $this->prefix() . '-worker@billing.service',
+            $output,
+        );
+    }
+
+    public function test_systemd_install_will_not_run_the_scheduler_twice(): void
+    {
+        $this->fakeSystemd();
+        $this->console('system:cron:install');
+
+        [$status, $output] = $this->console('system:systemd:install', '--user=www-data');
+
+        self::assertSame(1, $status);
+        self::assertStringContainsString('every task would run twice', $output);
+        self::assertFileDoesNotExist($this->units . '/' . $this->prefix() . '-scheduler.timer');
+
+        [$status, $output] = $this->console('system:systemd:install', '--user=www-data', '--replace-cron');
+
+        self::assertSame(0, $status, $output);
+        self::assertStringContainsString('Removed the schedule:run cron line', $output);
+        self::assertStringContainsString($this->prefix() . '-scheduler.timer, ' . $this->prefix() . '-worker@default.service', $output);
+        self::assertFileExists($this->units . '/' . $this->prefix() . '-scheduler.timer');
+        self::assertSame("MAILTO=\"\"\n", $this->crontab->contents);
+    }
+
+    public function test_systemd_install_can_leave_the_scheduler_to_cron(): void
+    {
+        $this->fakeSystemd();
+        $this->console('system:cron:install');
+
+        [$status, $output] = $this->console('system:systemd:install', '--user=www-data', '--no-scheduler');
+
+        self::assertSame(0, $status, $output);
+        self::assertStringContainsString('Enabled and started: ' . $this->prefix() . '-worker@default.service', $output);
+        self::assertNotNull((new CronManager($this->crontab, 'console-test'))->job(ScheduleRunJob::ID), 'the cron line stays');
+    }
+
+    public function test_systemd_units_are_removed(): void
+    {
+        $this->fakeSystemd();
+        $this->console('system:systemd:install', '--user=www-data');
+
+        [$status, $output] = $this->console('system:systemd:remove');
+
+        self::assertSame(0, $status);
+        self::assertStringContainsString('Deleted', $output);
+        self::assertFileDoesNotExist($this->units . '/' . $this->prefix() . '-worker@.service');
+
+        [, $output] = $this->console('system:systemd:remove');
+        self::assertStringContainsString('no systemd units installed', $output);
     }
 
     /** The plan's warning, pinned: no command runs whatever it is given. */

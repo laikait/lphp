@@ -36,6 +36,15 @@ public, is in [`STABILITY.md`](STABILITY.md).
 
 ### Added
 
+- **systemd units for the queue and the scheduler.** `system:systemd:generate`
+  prints (or `--write`s) a `<name>-worker@.service` template, one worker per
+  queue, and a `<name>-scheduler.service` with a minutely `.timer` that replaces
+  the `schedule:run` cron line. `system:systemd:install` writes them to
+  `/etc/systemd/system`, reloads systemd and starts them, as root and safely on
+  every deployment; it refuses to start the timer while the cron line is
+  installed (`--replace-cron`, `--no-scheduler`). `system:systemd:remove` stops,
+  disables and deletes them. Built on `SystemdUnits` and `SystemdManager`.
+
 - **IP addresses.** `App\Engine\Network`: `IpAddress` (IPv4 and IPv6 parsing,
   RFC 5952 formatting, public/private/loopback/link-local/multicast/reserved
   classification, IPv4-mapped conversion, masking and anonymizing, arithmetic,

@@ -20,7 +20,10 @@ $module->schedules(static function (ScheduleCollector $schedules): void {
 * * * * *  cd /var/www/app && php laika schedule:run >> /dev/null 2>&1
 ```
 
-`php laika system:cron:install` writes that line for you.
+`php laika system:cron:install` writes that line for you. On systemd, a timer can
+replace it: `php laika system:systemd:install` (see
+[Running](../operations/running.md#or-a-systemd-timer)) — one or the other,
+never both.
 
 That trade is the whole point. A crontab is edited over ssh by whoever has shell
 access: it is not in version control, not installed by a deployment, and

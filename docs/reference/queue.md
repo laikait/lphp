@@ -84,7 +84,9 @@ php laika queue:failed --retry=<id> | --retry-all | --forget=<id>
 exits and something starts another. A worker that runs for a month is running
 last month's deployment, with a month of memory growth and a database handle it
 opened on Tuesday. Let it finish; let systemd, supervisor or a container restart
-policy start a fresh one.
+policy start a fresh one. `php laika system:systemd:install` writes and starts the
+systemd units, one worker per queue (see
+[Running](../operations/running.md#queue-workers)).
 
 **Memory is a bound too.** `--memory=128M` (or `QUEUE_MAX_MEMORY`) stops the
 worker, between jobs, once the process uses that much. With neither set it is

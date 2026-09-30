@@ -8,6 +8,8 @@ use App\Engine\System\Audit\AuditOutcome;
 use App\Engine\System\Audit\SystemAudit;
 use App\Engine\System\Command\Command;
 use App\Engine\System\Command\CommandExecutor;
+use App\Engine\System\Systemd\SystemdException;
+use App\Engine\System\Systemd\SystemdUnits;
 
 /**
  * systemd services: their status, and the changes a policy allows.
@@ -96,6 +98,81 @@ final class ServiceManager
     public function disable(string $service): void
     {
         $this->perform(ServiceAction::Disable, $service);
+    }
+
+    // ---- the application's own units ---------------------------------------
+
+    /**
+     * systemctl daemon-reload: systemd rereads its unit files.
+     *
+     * Starts, stops and changes nothing that is running, so like status() it
+     * needs no policy; it is what makes a unit file written by SystemdManager
+     * known to systemd.
+     */
+    public function reloadUnitFiles(): void
+    {
+        $this->unitFiles('daemon-reload', []);
+    }
+
+    /**
+     * systemctl enable --now, for units this application generated.
+     *
+     * Not governed by system.services, which is the list of other software an
+     * application may touch; instead every name must be one $owner generates --
+     * its timer or one of its worker instances -- so this cannot reach nginx,
+     * ssh or another application's units.
+     *
+     * @param list<string> $units
+     */
+    public function enableUnits(SystemdUnits $owner, array $units): void
+    {
+        $this->unitFiles('enable', $this->owned($owner, $units));
+    }
+
+    /**
+     * systemctl disable --now, under the same rule as enableUnits().
+     *
+     * @param list<string> $units
+     */
+    public function disableUnits(SystemdUnits $owner, array $units): void
+    {
+        $this->unitFiles('disable', $this->owned($owner, $units));
+    }
+
+    /**
+     * @param list<string> $units
+     *
+     * @return list<string>
+     */
+    private function owned(SystemdUnits $owner, array $units): array
+    {
+        foreach ($units as $unit) {
+            if (!$owner->owns($unit)) {
+                $this->audit?->record('system.service.refused', AuditOutcome::Refused, $unit, ['action' => 'enable/disable']);
+
+                throw SystemdException::notOwned($unit, $owner->prefix());
+            }
+        }
+
+        return $units;
+    }
+
+    /** @param list<string> $units */
+    private function unitFiles(string $verb, array $units): void
+    {
+        $arguments = $verb === 'daemon-reload' ? [$verb] : [$verb, '--now', '--', ...$units];
+        $result = $this->executor->run($this->command($arguments));
+
+        $this->audit?->record(
+            'system.service.changed',
+            $result->successful() ? AuditOutcome::Succeeded : AuditOutcome::Failed,
+            $units === [] ? null : \implode(' ', $units),
+            ['action' => $verb, 'exit_code' => $result->exitCode(), 'duration_ms' => (int) \round($result->duration() * 1000)],
+        );
+
+        if (!$result->successful()) {
+            throw SystemdException::systemctlFailed($verb, $result->exitCode());
+        }
     }
 
     private function perform(ServiceAction $action, string $service): void

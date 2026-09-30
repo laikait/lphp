@@ -142,6 +142,7 @@ use App\Engine\System\Process\ProcessManager;
 use App\Engine\System\Security\SystemAuthorizer;
 use App\Engine\System\Service\ServiceManager;
 use App\Engine\System\SystemConfig;
+use App\Engine\System\Systemd\SystemdManager;
 use App\Engine\System\SystemDisabledException;
 use App\Engine\Template\Escaper;
 use App\Engine\Template\PhpTemplateEngine;
@@ -1196,6 +1197,12 @@ final class Bootstrap
             }
 
             return new CronManager(new UserCrontab($container->get(CommandExecutor::class)), $system->cronOwner, $container->get(SystemAudit::class));
+        });
+
+        $container->singleton(SystemdManager::class, static function (Container $container) use ($enabled): SystemdManager {
+            $enabled($container);
+
+            return new SystemdManager($container->get(ServiceManager::class), audit: $container->get(SystemAudit::class));
         });
 
         $container->singleton(SystemFilesystem::class, static function (Container $container) use ($enabled): SystemFilesystem {

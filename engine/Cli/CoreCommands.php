@@ -38,6 +38,9 @@ use App\Engine\Cli\Commands\SystemCronRemoveCommand;
 use App\Engine\Cli\Commands\SystemInfoCommand;
 use App\Engine\Cli\Commands\SystemServiceRestartCommand;
 use App\Engine\Cli\Commands\SystemServiceStatusCommand;
+use App\Engine\Cli\Commands\SystemSystemdGenerateCommand;
+use App\Engine\Cli\Commands\SystemSystemdInstallCommand;
+use App\Engine\Cli\Commands\SystemSystemdRemoveCommand;
 use App\Engine\Cli\Commands\TemplateListCommand;
 use App\Engine\System\Cron\ScheduleRunJob;
 
@@ -182,6 +185,28 @@ final class CoreCommands
             ->describe('Remove one of this application\'s crontab jobs, or all of them.')
             ->argument('id', 'The job to remove.', required: false, default: ScheduleRunJob::ID)
             ->flag('all', 'Remove every job this application owns.');
+
+        $commands->add('system:systemd:generate', SystemSystemdGenerateCommand::class)
+            ->describe('Print the systemd units for the queue worker and the scheduler.')
+            ->option('user', 'Run them as this user; the owner of the application directory by default.')
+            ->option('group', 'Run them as this group; the user\'s own by default.')
+            ->option('php', 'Absolute path of the PHP CLI; this one by default.')
+            ->option('queue', 'Queues to run a worker on, comma separated.', default: 'default')
+            ->option('write', 'Write the files into this directory instead of printing them.')
+            ->note('Changes nothing. The timer replaces the schedule:run cron line; keep one of the two.');
+
+        $commands->add('system:systemd:install', SystemSystemdInstallCommand::class)
+            ->describe('Install the worker and scheduler units, reload systemd and start them. Root only.')
+            ->option('user', 'Run them as this user; the owner of the application directory by default.')
+            ->option('group', 'Run them as this group; the user\'s own by default.')
+            ->option('php', 'Absolute path of the PHP CLI; this one by default.')
+            ->option('queue', 'Queues to run a worker on, comma separated.', default: 'default')
+            ->flag('replace-cron', 'Remove the schedule:run cron line, which the timer replaces.')
+            ->flag('no-scheduler', 'Install and start the workers only; leave scheduling to cron.')
+            ->note('Safe on every deployment. Refuses while the schedule:run cron line is installed. Audited.');
+
+        $commands->add('system:systemd:remove', SystemSystemdRemoveCommand::class)
+            ->describe('Stop, disable and delete this application\'s systemd units. Root only.');
 
         $commands->add('security:check', SecurityCheckCommand::class)
             ->describe('Audit what this deployment actually has switched on.')
