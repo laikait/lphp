@@ -16,7 +16,8 @@ declare(strict_types=1);
  *   bad-rcpt     RCPT TO refused with 550
  */
 
-[, $portFile, $logFile, $mode] = $argv + [null, null, null, 'plain'];
+$arguments = isset($_SERVER['argv']) && is_array($_SERVER['argv']) ? $_SERVER['argv'] : [];
+[, $portFile, $logFile, $mode] = $arguments + [null, null, null, 'plain'];
 
 $server = stream_socket_server('tcp://127.0.0.1:0', $errno, $error);
 
