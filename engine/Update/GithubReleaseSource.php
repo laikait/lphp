@@ -142,17 +142,29 @@ final class GithubReleaseSource implements ReleaseSource
             ],
         ]);
 
-        $body = @\file_get_contents($url, false, $context);
-        // http_get_last_response_headers() from PHP 8.4; before that the magic
-        // variable, which a failed connection leaves undefined.
-        $headers = \function_exists('http_get_last_response_headers')
-            ? (\http_get_last_response_headers() ?? [])
-            : (\get_defined_vars()['http_response_header'] ?? []);
+        // A stream rather than file_get_contents(), for its headers:
+        // stream_get_meta_data() gives them on every supported PHP, where
+        // http_get_last_response_headers() is 8.4+ and $http_response_header
+        // is deprecated from 8.5.
+        $stream = @\fopen($url, 'r', false, $context);
+
+        if ($stream === false) {
+            throw UpdateException::download($url, 'no answer');
+        }
+
+        try {
+            $meta = \stream_get_meta_data($stream);
+            $body = \stream_get_contents($stream);
+        } finally {
+            \fclose($stream);
+        }
+
+        // The http wrapper lists the headers of every response, redirects
+        // included; the last status line is the answer.
         $status = 0;
 
-        // After redirects the headers of every response are listed; the last status line is the answer.
-        foreach ($headers as $header) {
-            if (\preg_match('#^HTTP/\S+\s+(\d{3})#', $header, $match) === 1) {
+        foreach (\is_array($meta['wrapper_data'] ?? null) ? $meta['wrapper_data'] : [] as $header) {
+            if (\is_string($header) && \preg_match('#^HTTP/\S+\s+(\d{3})#', $header, $match) === 1) {
                 $status = (int) $match[1];
             }
         }
