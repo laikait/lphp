@@ -18,12 +18,14 @@ jobs:
     permissions:
       contents: write
     env:
-      CHANNEL: CLI
       ARTIFACT: lphp-${{ github.ref_name }}
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          # git archive needs the tag itself, not only the commit.
+          fetch-depth: 0
 
       - name: Get Composer cache directory
         id: composer-cache
@@ -51,26 +53,28 @@ jobs:
       - name: Install dependencies (no dev)
         run: composer install --no-dev --prefer-dist --no-progress
 
-      # Detect Release Channel
-      - name: Define Release Channel and Artifact Name
-        id: channel
+      # What applications update from (docs/operations/updating.md): the
+      # repository at this tag as git archive exports it -- .gitattributes
+      # decides what ships, and vendor/ never does -- plus framework.json,
+      # which records every file's hash and whose it is.
+      - name: Check the version matches the tag
         run: |
-          echo "CHANNEL=CLI" >> $GITHUB_ENV
-          echo "ARTIFACT=laika-core-${{ github.ref_name }}" >> $GITHUB_ENV
+          version=$(php -r 'require "vendor/autoload.php"; echo App\Engine\Core\Application::VERSION;')
+          test "v$version" = "${{ github.ref_name }}" || { echo "Application::VERSION is $version, the tag is ${{ github.ref_name }}"; exit 1; }
+          echo "VERSION=$version" >> $GITHUB_ENV
+          echo "ARTIFACT=lphp-${{ github.ref_name }}" >> $GITHUB_ENV
 
-      # Prepare Build Artifact
-      - name: Prepare release artifact
+      - name: Build the release archive and its manifest
         run: |
-          mkdir build
-          cp -r engine modules public tests laika server config templates build/
-          echo "${{ github.run_number }}" > build/VERSION
-          cd build && zip -r ../${{ env.ARTIFACT }}.zip .
+          mkdir -p build/lphp
+          git archive "${{ github.ref_name }}" | tar -x -C build/lphp
+          php laika framework:manifest --from=build/lphp --release="$VERSION" --write=build/lphp/framework.json
+          cp build/lphp/framework.json framework.json
+          (cd build && zip -qr "../$ARTIFACT.zip" lphp)
 
-      # Generate Checksum
       - name: Generate artifact checksum
-        run: sha256sum ${{ env.ARTIFACT }}.zip > ${{ env.ARTIFACT }}.zip.sha256
+        run: sha256sum "$ARTIFACT.zip" > "$ARTIFACT.zip.sha256"
 
-      # Upload Artifact
       - name: Upload build artifact
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
@@ -78,6 +82,7 @@ jobs:
           path: |
             ${{ env.ARTIFACT }}.zip
             ${{ env.ARTIFACT }}.zip.sha256
+            framework.json
           retention-days: 30
 
       # Create GitHub Release
@@ -96,14 +101,14 @@ jobs:
             **Build #:** ${{ github.run_number }}
 
             **Artifacts:**
-            - `${{ env.ARTIFACT }}.zip`
+            - `${{ env.ARTIFACT }}.zip` — the framework at this tag
             - `${{ env.ARTIFACT }}.zip.sha256`
+            - `framework.json` — the release manifest
 
-            ---
-            ⚙️ Released via CI Pipeline
-            🧩 Channel: ${{ env.CHANNEL }}
+            Update an application with `php laika framework:update`.
           files: |
             ${{ env.ARTIFACT }}.zip
             ${{ env.ARTIFACT }}.zip.sha256
+            framework.json
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

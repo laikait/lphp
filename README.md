@@ -76,6 +76,12 @@ There is no example application in `modules/`. The documentation's examples use 
 module called `Example`, which lives in `tests/Fixtures/Showcase/` as a test
 fixture: worth reading, but not part of an installation.
 
+## Updating it later
+
+Your application is a copy of the framework, so `composer update` does not bring
+a new version. `php laika framework:update` does, without touching your modules,
+templates or tests — see [Updating the framework](docs/operations/updating.md).
+
 ## Where to go next
 
 | You want to | Read |

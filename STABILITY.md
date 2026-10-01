@@ -66,7 +66,7 @@ change, so that the Experimental surface can stay still.
 | Module ids (the folder name under `modules/`; `Shared` is fixed), template namespaces (`@<Name>`) and the default template's names (`layout`, `home`, `errors/404`, `errors/error`) with the data they are given | Experimental | |
 | Translation files (`lang/<locale>.php`, `lang/countries.php`, a module's `lang/`), key namespaces (`<Module>.`, e.g. `Shared.`, `Billing.`), the `language` cookie and the `local` filter | Experimental | |
 | Cache files under `system/Cache/` (`config.php`, `modules.php`) | Internal | rebuilt by `cache:warm`; never read across versions |
-| **Persisted formats**: a queued job's envelope (`QueuedJob::toArray()`), a session record, a rate-limit counter | Internal | **with one promise**: a release must read what the previous release wrote, because a deployment does not drain its queue or log everybody out |
+| **Persisted formats**: a queued job's envelope (`QueuedJob::toArray()`), a session record, a rate-limit counter, `framework.json` (the release manifest an application keeps) | Internal | **with one promise**: a release must read what the previous release wrote, because a deployment does not drain its queue or log everybody out |
 
 ## Classes
 
@@ -218,3 +218,4 @@ namespace beats a shorter one.
 | `App\Engine\Template\TemplateRegistry` | Internal | |
 | `App\Engine\Template\TemplateSource` | Internal | |
 | `App\Engine\Template\TwigTemplateEngine` | Internal | registered by `Bootstrap` |
+| `App\Engine\Update\*` | Internal | driven only through `framework:update`, `framework:rollback` and `framework:manifest` |

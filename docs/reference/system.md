@@ -117,6 +117,25 @@ What runs and when is the [scheduler](scheduler.md)'s business; the crontab gets
 one line. A `CronJob` holds a structured command, and its line is quoted for `sh`
 and for cron's own `%` handling — never taken as a string.
 
+### Or systemd
+
+```bash
+php laika system:systemd:generate    # the worker and scheduler units; changes nothing
+php laika system:systemd:install     # root: write them, daemon-reload, enable --now
+php laika system:systemd:remove      # root: disable --now, delete, daemon-reload
+```
+
+`SystemdUnits` builds the three units — a `<name>-worker@.service` template whose
+instance is the queue, and a `<name>-scheduler.service` started every minute by
+`<name>-scheduler.timer` — named after the crontab owner, so two checkouts on one
+machine never share units. `SystemdManager` writes them into
+`/etc/systemd/system` and runs `systemctl` through the `CommandExecutor`, so the
+command policy and the audit log apply (`system.systemd.installed`,
+`system.systemd.removed`). It refuses without root and where systemd is not
+running, and it refuses to start the timer while this application's cron line is
+installed, since both would run every task. The details are in
+[Running](../operations/running.md#queue-workers).
+
 ## Services
 
 ```php

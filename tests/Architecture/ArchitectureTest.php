@@ -1560,6 +1560,9 @@ final class ArchitectureTest extends TestCase
             'engine/Cli/Commands/ConfigCacheCommand.php',
             'engine/Cli/Commands/ConfigListCommand.php',
             'engine/Cli/Commands/DbSeedCommand.php',
+            'engine/Cli/Commands/FrameworkManifestCommand.php',
+            'engine/Cli/Commands/FrameworkRollbackCommand.php',
+            'engine/Cli/Commands/FrameworkUpdateCommand.php',
             'engine/Cli/Commands/HelpCommand.php',
             'engine/Cli/Commands/LogStatusCommand.php',
             'engine/Cli/Commands/McpListCommand.php',
@@ -1585,6 +1588,9 @@ final class ArchitectureTest extends TestCase
             'engine/Cli/Commands/SystemInfoCommand.php',
             'engine/Cli/Commands/SystemServiceRestartCommand.php',
             'engine/Cli/Commands/SystemServiceStatusCommand.php',
+            'engine/Cli/Commands/SystemSystemdGenerateCommand.php',
+            'engine/Cli/Commands/SystemSystemdInstallCommand.php',
+            'engine/Cli/Commands/SystemSystemdRemoveCommand.php',
             'engine/Cli/Commands/TemplateListCommand.php',
         ];
 
@@ -1729,6 +1735,14 @@ final class ArchitectureTest extends TestCase
             'system:cron:list',
             'system:cron:install',
             'system:cron:remove',
+            // Writes unit files that run the framework's own commands, never code.
+            'system:systemd:generate',
+            'system:systemd:install',
+            'system:systemd:remove',
+            // Replace the framework's own files with a release's, never generate any.
+            'framework:update',
+            'framework:rollback',
+            'framework:manifest',
             // An interface to capabilities modules register, not a way to run code.
             'mcp:list',
             'mcp:stdio',
@@ -3998,6 +4012,10 @@ final class ArchitectureTest extends TestCase
             'engine/System/SystemInfo/Disk.php',
             'engine/System/SystemInfo/Memory.php',
             'engine/System/SystemInfo/SystemInfo.php',
+            'engine/System/Systemd/SystemdException.php',
+            'engine/System/Systemd/SystemdManager.php',
+            'engine/System/Systemd/SystemdUnits.php',
+            'engine/System/Systemd/UnitFile.php',
             'engine/System/SystemConfig.php',
             'engine/System/SystemDisabledException.php',
             'engine/System/SystemException.php',

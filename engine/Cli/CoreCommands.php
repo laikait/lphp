@@ -13,6 +13,9 @@ use App\Engine\Cli\Commands\CacheWarmCommand;
 use App\Engine\Cli\Commands\ConfigCacheCommand;
 use App\Engine\Cli\Commands\ConfigListCommand;
 use App\Engine\Cli\Commands\DbSeedCommand;
+use App\Engine\Cli\Commands\FrameworkManifestCommand;
+use App\Engine\Cli\Commands\FrameworkRollbackCommand;
+use App\Engine\Cli\Commands\FrameworkUpdateCommand;
 use App\Engine\Cli\Commands\HelpCommand;
 use App\Engine\Cli\Commands\LogStatusCommand;
 use App\Engine\Cli\Commands\McpListCommand;
@@ -38,6 +41,9 @@ use App\Engine\Cli\Commands\SystemCronRemoveCommand;
 use App\Engine\Cli\Commands\SystemInfoCommand;
 use App\Engine\Cli\Commands\SystemServiceRestartCommand;
 use App\Engine\Cli\Commands\SystemServiceStatusCommand;
+use App\Engine\Cli\Commands\SystemSystemdGenerateCommand;
+use App\Engine\Cli\Commands\SystemSystemdInstallCommand;
+use App\Engine\Cli\Commands\SystemSystemdRemoveCommand;
 use App\Engine\Cli\Commands\TemplateListCommand;
 use App\Engine\System\Cron\ScheduleRunJob;
 
@@ -182,6 +188,49 @@ final class CoreCommands
             ->describe('Remove one of this application\'s crontab jobs, or all of them.')
             ->argument('id', 'The job to remove.', required: false, default: ScheduleRunJob::ID)
             ->flag('all', 'Remove every job this application owns.');
+
+        $commands->add('system:systemd:generate', SystemSystemdGenerateCommand::class)
+            ->describe('Print the systemd units for the queue worker and the scheduler.')
+            ->option('user', 'Run them as this user; the owner of the application directory by default.')
+            ->option('group', 'Run them as this group; the user\'s own by default.')
+            ->option('php', 'Absolute path of the PHP CLI; this one by default.')
+            ->option('queue', 'Queues to run a worker on, comma separated.', default: 'default')
+            ->option('write', 'Write the files into this directory instead of printing them.')
+            ->note('Changes nothing. The timer replaces the schedule:run cron line; keep one of the two.');
+
+        $commands->add('system:systemd:install', SystemSystemdInstallCommand::class)
+            ->describe('Install the worker and scheduler units, reload systemd and start them. Root only.')
+            ->option('user', 'Run them as this user; the owner of the application directory by default.')
+            ->option('group', 'Run them as this group; the user\'s own by default.')
+            ->option('php', 'Absolute path of the PHP CLI; this one by default.')
+            ->option('queue', 'Queues to run a worker on, comma separated.', default: 'default')
+            ->flag('replace-cron', 'Remove the schedule:run cron line, which the timer replaces.')
+            ->flag('no-scheduler', 'Install and start the workers only; leave scheduling to cron.')
+            ->note('Safe on every deployment. Refuses while the schedule:run cron line is installed. Audited.');
+
+        $commands->add('system:systemd:remove', SystemSystemdRemoveCommand::class)
+            ->describe('Stop, disable and delete this application\'s systemd units. Root only.');
+
+        $commands->add('framework:update', FrameworkUpdateCommand::class)
+            ->describe('Update this application\'s copy of the framework to a newer release.')
+            ->flag('check', 'Show the installed and the latest version; change nothing.')
+            ->option('to', 'The release to update to, e.g. 3.1.0; the latest by default.')
+            ->option('from', 'A release zip, or its unpacked directory, instead of downloading from GitHub.')
+            ->flag('dry-run', 'Show what would change; change nothing.')
+            ->flag('force', 'Replace framework files edited here (they are backed up), or go to an older release.')
+            ->flag('major', 'Allow a major-version upgrade, after reading UPGRADING.md.')
+            ->option('baseline', 'The framework.json of the installed release, when this application has none.')
+            ->note('Stops, changing nothing, if a framework file was edited here. Backs up what it changes. Runs neither composer nor migrations.');
+
+        $commands->add('framework:rollback', FrameworkRollbackCommand::class)
+            ->describe('Undo the last framework:update from its backup.');
+
+        $commands->add('framework:manifest', FrameworkManifestCommand::class)
+            ->describe('Build framework.json: every file a release ships, its hash and whose it is.')
+            ->option('from', 'The release tree, as git archive produced it; this directory by default.')
+            ->option('write', 'Write it to this path instead of printing it.')
+            ->option('release', 'The version to record; Application::VERSION by default.')
+            ->note('Run by the release workflow. An application never needs it.');
 
         $commands->add('security:check', SecurityCheckCommand::class)
             ->describe('Audit what this deployment actually has switched on.')

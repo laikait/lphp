@@ -113,6 +113,8 @@ php laika security:check
 - **Restart the queue workers**, so they run the new code. (`--max-time` makes
   them restart by themselves eventually, but not immediately.)
 - **Read [`UPGRADING.md`](../../UPGRADING.md)** when the framework itself changed.
+  Updating the framework is done before deploying, on a development copy —
+  see [Updating the framework](updating.md).
 - **Never run `composer dump-autoload --classmap-authoritative`.** Modules added
   afterwards would not load.
 
@@ -144,19 +146,64 @@ stop a task running twice are files on that machine, so a second machine would
 run everything again. `schedule:run` exits with 1 if a task failed, which a cron
 monitor can alert on; each task's output goes to the log.
 
+### Or a systemd timer
+
+On a machine with systemd, a timer can run `schedule:run` instead of cron — and
+the same command installs the queue workers, below:
+
+```bash
+sudo php laika system:systemd:install --user=www-data --queue=default,billing
+```
+
+**Use cron or the timer, never both**: each runs every task, so with both every
+task runs twice. `system:systemd:install` refuses while this application's cron
+line is installed; `--replace-cron` removes the line first, and `--no-scheduler`
+installs only the workers and leaves scheduling to cron. The one-machine rule is
+the same as for cron.
+
 ## Queue workers
 
-A worker is meant to exit, so run it under something that starts it again — here,
-systemd:
+A worker is meant to exit, so run it under something that starts it again. On
+systemd the framework writes the units for you:
+
+```bash
+php laika system:systemd:generate --user=www-data --queue=default,billing   # print them; changes nothing
+sudo php laika system:systemd:install --user=www-data --queue=default,billing
+sudo php laika system:systemd:remove                                          # stop, disable, delete
+```
+
+That installs three files in `/etc/systemd/system`, named after this application
+(the same name its crontab block has, `system.cron.owner`):
+
+| Unit | Does |
+|---|---|
+| `<name>-worker@.service` | one worker per queue: `<name>-worker@default`, `<name>-worker@billing` |
+| `<name>-scheduler.service` | runs `schedule:run` once |
+| `<name>-scheduler.timer` | starts it every minute |
 
 ```ini
-# /etc/systemd/system/app-worker.service
+# <name>-worker@.service, abridged
 [Service]
-WorkingDirectory=/srv/app
-ExecStart=/usr/bin/php laika queue:work --queue=default --max-jobs=1000 --max-time=3600
-Restart=always
 User=www-data
+WorkingDirectory=/srv/app
+ExecStart=/usr/bin/php /srv/app/laika queue:work --queue=%i --max-jobs=1000 --max-time=3600
+Restart=always
 ```
+
+- Another queue later is `systemctl enable --now <name>-worker@reports`; nothing
+  is regenerated.
+- `install` is safe on every deployment: unchanged files are left alone. It needs
+  root; without it, `generate --write=DIR` produces the files for you to copy.
+- `--user` defaults to the owner of the application directory, and a worker is
+  never made to run as root by default.
+- `systemctl stop` ends a worker at once — it has no signal handling — so a job
+  it was running runs again when its reservation expires (`QUEUE_TIMEOUT`).
+  Nothing is lost; it is the same at-least-once rule as a crash.
+- Check them with `systemctl list-units '<name>-*'` and
+  `journalctl -u <name>-worker@default`.
+
+Anything else that restarts a process — supervisor, a container's restart
+policy — works as well; run `php laika queue:work` with the same options.
 
 - `--max-jobs` and `--max-time` make the worker stop regularly, which keeps
   memory in check and makes sure a deployment's new code reaches every worker.

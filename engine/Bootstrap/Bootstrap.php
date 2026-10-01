@@ -142,6 +142,7 @@ use App\Engine\System\Process\ProcessManager;
 use App\Engine\System\Security\SystemAuthorizer;
 use App\Engine\System\Service\ServiceManager;
 use App\Engine\System\SystemConfig;
+use App\Engine\System\Systemd\SystemdManager;
 use App\Engine\System\SystemDisabledException;
 use App\Engine\Template\Escaper;
 use App\Engine\Template\PhpTemplateEngine;
@@ -150,6 +151,9 @@ use App\Engine\Template\TemplateManager;
 use App\Engine\Template\TemplateRegistry;
 use App\Engine\Template\TemplateSource;
 use App\Engine\Template\TwigTemplateEngine;
+use App\Engine\Update\GithubReleaseSource;
+use App\Engine\Update\ReleaseSource;
+use App\Engine\Update\Updater;
 
 /**
  * Builds the container and hands back an application that has not run yet.
@@ -545,6 +549,7 @@ final class Bootstrap
         }
 
         self::system($container, $settings, $basePath);
+        self::update($container, $basePath);
         self::mcp($container, $settings);
 
         // A web request that waits on a command holds a worker and a visitor
@@ -1139,6 +1144,16 @@ final class Bootstrap
      * stricter policy -- a CommandPolicy with argument rules, say -- builds its
      * own manager instead.
      */
+    /**
+     * framework:update's collaborators: the application directory it updates,
+     * and where releases come from. Neither does anything until a command asks.
+     */
+    private static function update(Container $container, string $basePath): void
+    {
+        $container->singleton(Updater::class, static fn(): Updater => new Updater($basePath));
+        $container->singleton(ReleaseSource::class, static fn(): ReleaseSource => new GithubReleaseSource());
+    }
+
     private static function system(Container $container, Config $settings, string $basePath): void
     {
         $container->singleton(SystemConfig::class, static fn(): SystemConfig => SystemConfig::fromConfig($settings, $basePath));
@@ -1196,6 +1211,12 @@ final class Bootstrap
             }
 
             return new CronManager(new UserCrontab($container->get(CommandExecutor::class)), $system->cronOwner, $container->get(SystemAudit::class));
+        });
+
+        $container->singleton(SystemdManager::class, static function (Container $container) use ($enabled): SystemdManager {
+            $enabled($container);
+
+            return new SystemdManager($container->get(ServiceManager::class), audit: $container->get(SystemAudit::class));
         });
 
         $container->singleton(SystemFilesystem::class, static function (Container $container) use ($enabled): SystemFilesystem {

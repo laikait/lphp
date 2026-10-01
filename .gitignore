@@ -15,6 +15,8 @@
 /system/Sessions/
 # Created on demand by system.execution.max_concurrent; a slot is a lock file.
 /system/Commands/
+# Created by framework:update: copies of the files it replaced, for framework:rollback.
+/system/Backups/
 !/system/Cache/.gitignore
 !/system/Logs/.gitignore
 !/system/Runtime/.gitignore

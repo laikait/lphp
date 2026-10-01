@@ -207,6 +207,12 @@ uses, under the module name `engine`. The kernel has no idea they exist: delete
 | `system:cron:install` | Install the crontab line that runs `schedule:run` every minute. |
 | `system:cron:list` | The jobs this application owns in the crontab. |
 | `system:cron:remove` | Remove this application's crontab jobs. |
+| `framework:update` | Update this application's copy of the framework to a newer release; `--check`, `--dry-run`, `--from=<zip>`. See [Updating the framework](../operations/updating.md). |
+| `framework:rollback` | Undo the last `framework:update` from its backup. |
+| `framework:manifest` | Build `framework.json` for a release. Run by the release workflow. |
+| `system:systemd:generate` | Print (or `--write`) the systemd units for the queue worker and the scheduler. |
+| `system:systemd:install` | Install those units, reload systemd and start them. Root only. |
+| `system:systemd:remove` | Stop, disable and delete this application's units. Root only. |
 | `system:service:status` | Whether a systemd service is running. |
 | `system:service:restart` | Restart a service that `system.services` allows restarting. |
 
