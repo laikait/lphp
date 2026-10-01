@@ -63,6 +63,8 @@ a guide links to it, or when you need the details.
 - **[Running in production](operations/running.md)**: the steps for a first
   deployment and for every deployment after it, cron, queue workers, and
   running on several servers.
+- **[Updating the framework](operations/updating.md)**: moving an application
+  to a newer framework release, and undoing it.
 - **[Troubleshooting](troubleshooting.md)**: symptoms, their causes, and fixes.
 
 ## Working on the framework itself

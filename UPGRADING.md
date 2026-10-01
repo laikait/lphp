@@ -9,7 +9,7 @@ format — a queued job, a session record — which always gets one.
 Each entry says **what changed**, **who is affected** and **what to do**, in that
 order. An entry that cannot say who is affected is not finished.
 
-## To the next release, from 2.1.2
+## To 3.0.1, from 2.1.2
 
 ### Request::ip() reads X-Forwarded-For from the right
 

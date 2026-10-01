@@ -3,10 +3,9 @@
 # Only what belongs to this repository rather than to an application built from
 # it. tests/, the tool configuration and docs/ stay: an application keeps
 # `composer check`, autoload-dev scans tests/Fixtures/ and fails without it, and
-# README.md links into docs/.
+# README.md links into docs/. CHANGELOG.md and UPGRADING.md stay too:
+# framework:update prints the UPGRADING sections between two releases.
 /.github        export-ignore
 /.gitattributes export-ignore
-/CHANGELOG.md   export-ignore
 /STABILITY.md   export-ignore
-/UPGRADING.md   export-ignore
 /LICENSE        export-ignore

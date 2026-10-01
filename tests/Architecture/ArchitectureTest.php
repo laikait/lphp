@@ -1560,6 +1560,9 @@ final class ArchitectureTest extends TestCase
             'engine/Cli/Commands/ConfigCacheCommand.php',
             'engine/Cli/Commands/ConfigListCommand.php',
             'engine/Cli/Commands/DbSeedCommand.php',
+            'engine/Cli/Commands/FrameworkManifestCommand.php',
+            'engine/Cli/Commands/FrameworkRollbackCommand.php',
+            'engine/Cli/Commands/FrameworkUpdateCommand.php',
             'engine/Cli/Commands/HelpCommand.php',
             'engine/Cli/Commands/LogStatusCommand.php',
             'engine/Cli/Commands/McpListCommand.php',
@@ -1736,6 +1739,10 @@ final class ArchitectureTest extends TestCase
             'system:systemd:generate',
             'system:systemd:install',
             'system:systemd:remove',
+            // Replace the framework's own files with a release's, never generate any.
+            'framework:update',
+            'framework:rollback',
+            'framework:manifest',
             // An interface to capabilities modules register, not a way to run code.
             'mcp:list',
             'mcp:stdio',

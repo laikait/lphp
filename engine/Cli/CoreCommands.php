@@ -13,6 +13,9 @@ use App\Engine\Cli\Commands\CacheWarmCommand;
 use App\Engine\Cli\Commands\ConfigCacheCommand;
 use App\Engine\Cli\Commands\ConfigListCommand;
 use App\Engine\Cli\Commands\DbSeedCommand;
+use App\Engine\Cli\Commands\FrameworkManifestCommand;
+use App\Engine\Cli\Commands\FrameworkRollbackCommand;
+use App\Engine\Cli\Commands\FrameworkUpdateCommand;
 use App\Engine\Cli\Commands\HelpCommand;
 use App\Engine\Cli\Commands\LogStatusCommand;
 use App\Engine\Cli\Commands\McpListCommand;
@@ -207,6 +210,27 @@ final class CoreCommands
 
         $commands->add('system:systemd:remove', SystemSystemdRemoveCommand::class)
             ->describe('Stop, disable and delete this application\'s systemd units. Root only.');
+
+        $commands->add('framework:update', FrameworkUpdateCommand::class)
+            ->describe('Update this application\'s copy of the framework to a newer release.')
+            ->flag('check', 'Show the installed and the latest version; change nothing.')
+            ->option('to', 'The release to update to, e.g. 3.1.0; the latest by default.')
+            ->option('from', 'A release zip, or its unpacked directory, instead of downloading from GitHub.')
+            ->flag('dry-run', 'Show what would change; change nothing.')
+            ->flag('force', 'Replace framework files edited here (they are backed up), or go to an older release.')
+            ->flag('major', 'Allow a major-version upgrade, after reading UPGRADING.md.')
+            ->option('baseline', 'The framework.json of the installed release, when this application has none.')
+            ->note('Stops, changing nothing, if a framework file was edited here. Backs up what it changes. Runs neither composer nor migrations.');
+
+        $commands->add('framework:rollback', FrameworkRollbackCommand::class)
+            ->describe('Undo the last framework:update from its backup.');
+
+        $commands->add('framework:manifest', FrameworkManifestCommand::class)
+            ->describe('Build framework.json: every file a release ships, its hash and whose it is.')
+            ->option('from', 'The release tree, as git archive produced it; this directory by default.')
+            ->option('write', 'Write it to this path instead of printing it.')
+            ->option('release', 'The version to record; Application::VERSION by default.')
+            ->note('Run by the release workflow. An application never needs it.');
 
         $commands->add('security:check', SecurityCheckCommand::class)
             ->describe('Audit what this deployment actually has switched on.')

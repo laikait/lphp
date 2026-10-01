@@ -11,6 +11,8 @@ public, is in [`STABILITY.md`](STABILITY.md).
 
 ## [Unreleased]
 
+## [3.0.1] - 2026-10-01
+
 ### Changed
 
 - **`Request::ip()` reads `X-Forwarded-For` from the right.** The client is the
@@ -35,6 +37,21 @@ public, is in [`STABILITY.md`](STABILITY.md).
   [`UPGRADING.md`](UPGRADING.md#modules-are-flat-modulesname-no-plugins-or-gateways).
 
 ### Added
+
+- **Updating the framework.** An application is a copy of the framework, so
+  `composer update` never brought a new version. `php laika framework:update`
+  does: it fetches a release from GitHub (or `--from` a zip), checks its
+  SHA-256, and decides file by file from `framework.json` — the manifest every
+  release now ships — what it may replace. Framework files you have not edited
+  are replaced, added or deleted; an edited one stops the update with nothing
+  changed (`--force` overrides it); `modules/`, `templates/`, `lang/`,
+  `config/` and `public/assets/` are never replaced, only added to, with a
+  release's changed copy written as `<file>.dist`; `composer.json` is merged; a
+  file in no manifest is never touched. Everything replaced is backed up first,
+  and `framework:rollback` restores it. `--check` and `--dry-run` change nothing.
+  The release workflow now builds `lphp-vX.Y.Z.zip` from `git archive` with its
+  `framework.json` and checksum, and `CHANGELOG.md` and `UPGRADING.md` ship to
+  applications. See [Updating the framework](docs/operations/updating.md).
 
 - **systemd units for the queue and the scheduler.** `system:systemd:generate`
   prints (or `--write`s) a `<name>-worker@.service` template, one worker per
@@ -408,5 +425,6 @@ may change it, always with an upgrade note. Nothing is Stable yet — see
   expose source through a forgotten deny rule, and a server that cannot change its
   document root still works through the forwarding `.htaccess`.
 
-[Unreleased]: https://github.com/laikait/lphp/compare/v2.1.2...main
+[Unreleased]: https://github.com/laikait/lphp/compare/v3.0.1...main
+[3.0.1]: https://github.com/laikait/lphp/releases/tag/v3.0.1
 [2.1.2]: https://github.com/laikait/lphp/releases/tag/v2.1.2

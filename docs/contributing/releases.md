@@ -58,6 +58,12 @@ changes version only when its own contract does.
 5. Set `Application::VERSION` to `X.Y.Z`. `DocumentationTest` fails if it and the
    changelog disagree.
 6. Commit, then an annotated tag: `git tag -a vX.Y.Z -m "X.Y.Z"`, and push the tag.
+7. The tag starts `.github/workflows/release.yml`, which builds what applications
+   update from: `lphp-vX.Y.Z.zip` (`git archive` of the tag, so
+   `.gitattributes` decides what ships), `framework.json` inside it and beside it
+   (`php laika framework:manifest`), and a `.sha256`. It fails if
+   `Application::VERSION` is not the tag. See
+   [Updating the framework](../operations/updating.md).
 
 Nothing in this list is automated, on purpose: a release is the one moment
 somebody should be reading what changed, and a script that tags on green is a

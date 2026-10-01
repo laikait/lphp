@@ -27,6 +27,7 @@ public/                the document root, and nothing else is web-reachable
 server                 dev router: php -S 127.0.0.1:8080 -t public server
 laika                  CLI entry point: php laika <command>
 .env.example           every environment variable, with its assumed value
+framework.json         which framework release this is, file by file; framework:update reads it
 config/                this installation's decisions; absent until there is one
                        (config/Billing.php configures Billing)
 engine/                the framework

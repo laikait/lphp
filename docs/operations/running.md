@@ -113,6 +113,8 @@ php laika security:check
 - **Restart the queue workers**, so they run the new code. (`--max-time` makes
   them restart by themselves eventually, but not immediately.)
 - **Read [`UPGRADING.md`](../../UPGRADING.md)** when the framework itself changed.
+  Updating the framework is done before deploying, on a development copy —
+  see [Updating the framework](updating.md).
 - **Never run `composer dump-autoload --classmap-authoritative`.** Modules added
   afterwards would not load.
 
