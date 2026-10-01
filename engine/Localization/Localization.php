@@ -121,21 +121,69 @@ final class Localization
      * A placeholder with no parameter stays as it is, so the gap is visible.
      * The result is plain text: a template escapes it like any other value.
      *
+     * **Plurals.** When the message is a set of plural forms, the `count`
+     * parameter picks one by the rules of the language the message was found
+     * in -- English has one and other, Bengali treats 0 as one, Arabic has six
+     * -- with an exact "=N" form first, and "other" when the right form is
+     * missing or there is no count.
+     *
      * @param array<array-key, mixed> $parameters
      */
     public function get(string $key, array $parameters = []): string
     {
-        $message = $this->lookup($key);
+        $found = $this->lookup($key);
 
-        if ($message === null) {
+        if ($found === null) {
             $this->report($key);
             $message = $key;
+        } else {
+            [$message, $locale] = $found;
+
+            if (\is_array($message)) {
+                $message = self::plural($message, $parameters['count'] ?? null, $locale);
+            }
         }
 
         return $parameters === [] ? $message : self::replace($message, $parameters);
     }
 
-    private function lookup(string $key): ?string
+    /**
+     * The CLDR category of $count in $locale: one, few, many... ICU knows the
+     * rules but PHP exposes no class for them, so a plural pattern whose every
+     * branch prints its own name is formatted, and its output is the answer.
+     */
+    public static function pluralCategory(int|float $count, string $locale): string
+    {
+        static $formatters = [];
+
+        $formatter = $formatters[$locale] ??= \MessageFormatter::create(
+            $locale,
+            '{0,plural,zero{zero} one{one} two{two} few{few} many{many} other{other}}',
+        );
+
+        $category = $formatter instanceof \MessageFormatter ? $formatter->format([$count]) : false;
+
+        return \is_string($category) && $category !== '' ? $category : 'other';
+    }
+
+    /** @param array<string, string> $forms */
+    private static function plural(array $forms, mixed $count, string $locale): string
+    {
+        if (!\is_int($count) && !\is_float($count) && !(\is_string($count) && \is_numeric($count))) {
+            return $forms['other'];
+        }
+
+        $number = \is_string($count) ? $count + 0 : $count;
+
+        if (\is_int($number) && isset($forms['=' . $number])) {
+            return $forms['=' . $number];
+        }
+
+        return $forms[self::pluralCategory($number, $locale)] ?? $forms['other'];
+    }
+
+    /** @return array{string|array<string, string>, string}|null the message and the locale it was found in */
+    private function lookup(string $key): ?array
     {
         [$namespace, $name] = $this->catalog->split($key);
 
@@ -149,7 +197,7 @@ final class Localization
             $message = $this->loader->load($file)[$name] ?? null;
 
             if ($message !== null) {
-                return $message;
+                return [$message, $locale];
             }
         }
 

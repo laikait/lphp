@@ -49,6 +49,34 @@ rather than intercepting writes.
 A model that has never been clean reports all of its attributes, so `changes()`
 serves an insert and an update alike.
 
+## Encrypted attributes
+
+```php
+public function __construct(
+    private ?int $id,
+    private string $email,
+    #[Encrypted] private ?string $taxNumber = null,
+) {}
+```
+
+The repository encrypts the value as it writes the row, and hydration decrypts
+it as it reads one, through [`Encrypter`](security.md#encryption) and `APP_KEY`.
+In the model it is plain text; in the database it is a `v1.…` token.
+
+- **The purpose is `<Model class>.<property>`**, so a token copied into another
+  column, or into another model's column, does not decrypt there.
+- **Only `string` and `?string` properties.** `null` is stored as `null`.
+- **A value that does not decrypt is a `ModelException`**, never a quiet `null`:
+  another key (put the old one in `APP_PREVIOUS_KEYS`), a changed token, or plain
+  text left over from before the attribute was added. Encrypt existing rows
+  before you deploy the attribute.
+- **`persist()`, `insertMany()` and `updateWhere()` encrypt;** a raw query
+  through the connection does not.
+- **The column cannot be searched, sorted or made unique**: two encryptions of
+  one value differ. Keep a separate hash column when you need a lookup. The
+  token is about 1.4 times the value plus 56 characters, so size the column for
+  it.
+
 ## Related records are loaded on purpose
 
 A `Relation` is a declaration and nothing more. Loading is written out where you
@@ -120,4 +148,5 @@ more than one module genuinely needs them. Both rules are enforced by tests.
 | `related()` throws | Nothing was attached; there is no lazy loading | Load with `keysFor()` and `link()` first |
 | A worker sees stale data | The identity map holds rows for the life of the process | `ModelManager::flush()` between jobs |
 | An update writes every column | The model was never `markClean()`ed, so it counts as new | That is correct for an insert |
+| "does not decrypt" on load | An `#[Encrypted]` column holds plain text, or was written with another `APP_KEY` | Encrypt old rows; list the old key in `APP_PREVIOUS_KEYS` |
 | A model cannot be turned into JSON | Domain models are not serialisable on purpose | Project into a `ReadModel` |

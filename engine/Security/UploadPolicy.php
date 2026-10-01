@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Engine\Security;
 
 use App\Engine\Http\UploadedFile;
+use App\Engine\Storage\Disk;
 use App\Engine\Support\Path;
 
 /**
@@ -187,6 +188,54 @@ final class UploadPolicy
             throw SecurityException::unwritableDestination($directory);
         }
 
+        $stored = $this->storedName($file, $name);
+
+        $destination = Path::join($directory, $stored);
+
+        $file->moveTo($destination);
+
+        return $destination;
+    }
+
+    /**
+     * Put the file on a disk -- local, S3, memory -- under a name this
+     * application chose, as store() does.
+     *
+     *     $path = UploadPolicy::images()->storeOn($file, $storage->disk('uploads'), 'avatars');
+     *     // "avatars/3f9c…e1.jpg", relative to the disk
+     *
+     * Streamed from PHP's temporary file, so a large upload is not read into
+     * memory first. The temporary file is left for PHP to delete at the end of
+     * the request, as it does with any upload not moved.
+     *
+     * @param string $directory a path on the disk, "" for its root
+     *
+     * @return string the file's path on the disk
+     *
+     * @throws \App\Engine\Storage\StorageException
+     */
+    public function storeOn(UploadedFile $file, Disk $disk, string $directory = '', ?string $name = null): string
+    {
+        $stored = $this->storedName($file, $name);
+        $path = \trim($directory, '/') === '' ? $stored : \trim($directory, '/') . '/' . $stored;
+
+        $stream = @\fopen($file->temporaryPath(), 'rb');
+
+        if ($stream === false) {
+            throw SecurityException::unwritableDestination($path);
+        }
+
+        try {
+            $disk->put($path, $stream);
+        } finally {
+            \fclose($stream);
+        }
+
+        return $path;
+    }
+
+    private function storedName(UploadedFile $file, ?string $name): string
+    {
         $extension = $file->clientExtension();
         $stored = ($name ?? \bin2hex(\random_bytes(16)))
             . (\in_array($extension, $this->extensions, true) ? '.' . $extension : '');
@@ -201,11 +250,8 @@ final class UploadPolicy
             throw SecurityException::unwritableDestination($stored);
         }
 
-        $destination = Path::join($directory, $stored);
 
-        $file->moveTo($destination);
-
-        return $destination;
+        return $stored;
     }
 
     private function hasExecutableExtension(string $name): bool

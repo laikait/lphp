@@ -116,6 +116,103 @@ that way. A second implementation is a second chance to compare the result with
 bytes were right. Signatures are bound to a **purpose**, so a CSRF token does
 not verify as a signed URL.
 
+## Encryption
+
+```php
+public function __construct(private readonly Encrypter $encrypter) {}
+
+$stored = $this->encrypter->encrypt($apiToken, 'billing.api-token');   // "v1.…"
+$token  = $this->encrypter->decrypt($stored, 'billing.api-token');      // the value, or null
+```
+
+`Signer` proves a value was not changed but leaves it readable; `Encrypter` hides
+it as well. Use it for what you must store but nobody should read — a third-party
+API token in the database, a value in a cookie. For passwords use
+`Password::hash()`, which is one-way; an encrypted password can be decrypted.
+
+- **libsodium XChaCha20-Poly1305**, with a fresh random nonce every time, so two
+  encryptions of one value never look alike. A changed, truncated or forged token
+  fails to decrypt rather than decrypting to garbage.
+- **The second argument is a purpose**, bound into the token. A value encrypted
+  for `billing.api-token` returns `null` if decrypted as anything else, so it
+  cannot be copied into another column where it would mean something else.
+- **The key comes from `APP_KEY`**, through HKDF, so encryption and signing never
+  share a key. Without `APP_KEY`, `encrypt()` throws: silently storing plaintext
+  would be worse.
+- **`decrypt()` returns `null` for anything wrong**, like `Signer::verify()`.
+
+**Encrypted cookies and model attributes** use the same thing with the purpose
+chosen for you:
+
+```php
+$response->withCookie(Cookie::encrypted($this->encrypter, 'cart', $json, \time() + 86400));
+$json = $request->decryptedCookie($this->encrypter, 'cart');   // null when missing or changed
+```
+
+The cookie's name is its purpose, so a value cannot be moved into another
+cookie. The browser can still delete the cookie or replay an older one; put an
+expiry inside the value when that matters. For a model, mark the property
+`#[Encrypted]`; see [Models](models.md#encrypted-attributes).
+
+**Rotating `APP_KEY`:** move the old key into `APP_PREVIOUS_KEYS`, set a new
+`APP_KEY`, re-encrypt what you stored (decrypt, then encrypt again — the new
+token uses the new key), then remove the old key. Previous keys only ever
+decrypt. `security:check` warns while one is set. Note that a new `APP_KEY` still
+invalidates every signed CSRF token, as above.
+
+## Receiving webhooks
+
+```php
+// config/security.php
+return ['webhooks' => [
+    'stripe' => ['format' => 'stripe', 'secret' => Env::string('STRIPE_WEBHOOK_SECRET')],
+    'github' => ['format' => 'github', 'secret' => Env::string('GITHUB_WEBHOOK_SECRET')],
+]];
+
+// a module's routes: no CSRF token comes with a webhook
+$routes->post('/webhooks/stripe', StripeWebhook::class)->meta(['csrf' => false]);
+
+// the handler
+public function __invoke(Request $request, Webhooks $webhooks, Queue $queue): Response
+{
+    $event = $webhooks->receive('stripe', $request);   // 400 unless Stripe signed it
+
+    if (!$event->duplicate) {
+        $queue->push(new HandleStripeEvent($event->payload));
+    }
+
+    return new Response('', 200);
+}
+```
+
+`receive()` checks the signature and returns a `Webhook`: `id`, `type`,
+`payload` (the JSON body decoded), the raw `body`, and `duplicate`. The work
+belongs in a job. Answer quickly: senders time out after a few seconds and send
+again.
+
+| `format` | Checks | `id` / `type` from |
+|---|---|---|
+| `stripe` | `Stripe-Signature`: HMAC-SHA256 of `t.body`; the timestamp within `tolerance` | the event's `id` / `type` |
+| `github` | `X-Hub-Signature-256: sha256=…` | `X-GitHub-Delivery` / `X-GitHub-Event` |
+| `shopify` | `X-Shopify-Hmac-Sha256`, base64 | `X-Shopify-Webhook-Id` / `X-Shopify-Topic` |
+| `standard` | [Standard Webhooks](https://www.standardwebhooks.com/): `webhook-signature` over `id.timestamp.body`, a `whsec_` secret; the timestamp within `tolerance`. Svix, Resend, Clerk and others send this | `webhook-id` / the body's `type` |
+| `hmac` | a header holding an HMAC of the body. Set `header` (`X-Signature`), `algorithm` (`sha256`), `encoding` (`hex` or `base64`), `prefix` (such as `sha256=`), and optionally `id_header` and `type_header` | those headers |
+
+- **The signature is over the raw body**, which is why this reads
+  `Request::body()`. It is computed by `Signer::hmac()` and compared in constant
+  time.
+- **`secret` may be a list**, so you can rotate secrets: any one of them is
+  accepted.
+- **Replays are refused.** Where the format signs a timestamp, a delivery more
+  than `tolerance` seconds old or early (default 300) is a 400. Every id is also
+  remembered for `remember` seconds (default a day) through the cache's atomic
+  `add()`, and a second delivery of it comes back with `duplicate` true. Answer
+  it 200 and do nothing. That needs a cache every process shares, `file` or
+  `database`: the default `array` store forgets everything when the request ends.
+- **If queuing fails after `receive()`**, call `$webhooks->release($event)` and
+  answer 500. The sender's retry is then processed instead of being treated as
+  a duplicate.
+
 ## Secrets
 
 ```php
@@ -278,6 +375,8 @@ other project on that hostname.
 | 413 on an upload | Over `MAX_REQUEST_BYTES`, or over php.ini's `post_max_size` | The message says which; raise that one |
 | "field is required" for a field you filled in | The upload exceeded `post_max_size` | Raise `post_max_size` and `upload_max_filesize` |
 | 429 while developing | Rate-limit counters are files that outlive the process | Delete `system/Security` |
+| A webhook is refused with 400 | The wrong secret, a body changed by a proxy, or a clock more than five minutes out | Check the secret and the clock |
+| Every webhook comes back as a duplicate, or none ever does | Ids are remembered in the cache; the `array` store remembers nothing between requests | Use the `file` or `database` cache store |
 | `security:check` exits 1 | Debug is on in production, or counters are in memory | It names the failure |
 | An upload is refused with several messages | `check()` returns every problem at once | Fix them together |
 

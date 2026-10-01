@@ -13,6 +13,7 @@ use App\Engine\Cli\Commands\CacheWarmCommand;
 use App\Engine\Cli\Commands\ConfigCacheCommand;
 use App\Engine\Cli\Commands\ConfigListCommand;
 use App\Engine\Cli\Commands\DbSeedCommand;
+use App\Engine\Cli\Commands\DownCommand;
 use App\Engine\Cli\Commands\FrameworkManifestCommand;
 use App\Engine\Cli\Commands\FrameworkRollbackCommand;
 use App\Engine\Cli\Commands\FrameworkUpdateCommand;
@@ -45,6 +46,7 @@ use App\Engine\Cli\Commands\SystemSystemdGenerateCommand;
 use App\Engine\Cli\Commands\SystemSystemdInstallCommand;
 use App\Engine\Cli\Commands\SystemSystemdRemoveCommand;
 use App\Engine\Cli\Commands\TemplateListCommand;
+use App\Engine\Cli\Commands\UpCommand;
 use App\Engine\System\Cron\ScheduleRunJob;
 
 /**
@@ -210,6 +212,17 @@ final class CoreCommands
 
         $commands->add('system:systemd:remove', SystemSystemdRemoveCommand::class)
             ->describe('Stop, disable and delete this application\'s systemd units. Root only.');
+
+        $commands->add('down', DownCommand::class)
+            ->describe('Put the web side into maintenance mode: every request gets a 503 page.')
+            ->option('retry', 'Seconds clients are told to wait (Retry-After).', default: '60')
+            ->option('message', 'Shown on the 503 page.')
+            ->option('allow', 'Addresses or CIDR blocks that still get in, comma separated.')
+            ->option('secret', 'Enables /?lphp_bypass=<secret>, which lets one browser in.')
+            ->note('The console, queue workers and the scheduler keep running. One machine at a time: run it on each web server.');
+
+        $commands->add('up', UpCommand::class)
+            ->describe('Leave maintenance mode.');
 
         $commands->add('framework:update', FrameworkUpdateCommand::class)
             ->describe('Update this application\'s copy of the framework to a newer release.')

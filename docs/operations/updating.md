@@ -13,7 +13,8 @@ php laika framework:rollback            # undo it
 ```
 
 Do it on a development copy, run your tests, commit, and deploy the result like
-any other change. Never run it on a production server that is serving requests:
+any other change — between `php laika down` and `php laika up` (see
+[Maintenance mode](running.md#maintenance-mode)) if the deployment migrates. Never run it on a production server that is serving requests:
 for a moment the tree holds files from both versions.
 
 ## What it changes, and what it never touches

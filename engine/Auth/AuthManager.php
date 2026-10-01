@@ -118,6 +118,24 @@ final class AuthManager
      */
     public function attempt(string $login, Secret $password): ?Identity
     {
+        $account = $this->verify($login, $password);
+
+        if ($account === null) {
+            return null;
+        }
+
+        $this->login($account->identity);
+
+        return $account->identity;
+    }
+
+    /**
+     * attempt() without the logging in: the account whose password this is,
+     * or null, with the same care about timing and the same hooks. For a
+     * second step before login() -- a TOTP code (see TwoFactor).
+     */
+    public function verify(string $login, Secret $password): ?Account
+    {
         if ($login === '') {
             throw AuthException::emptyLogin();
         }
@@ -142,9 +160,7 @@ final class AuthManager
             $this->hooks?->do('auth.rehash', $account->identity, $this->passwords->hash($password));
         }
 
-        $this->login($account->identity);
-
-        return $account->identity;
+        return $account;
     }
 
     /**

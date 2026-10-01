@@ -55,7 +55,7 @@ change, so that the Experimental surface can stay still.
 | The ten global helpers (`add_hook` … `template`) | Experimental | 1.0 candidate; the set is closed |
 | Hook and filter **names** ([Lifecycle extension points](docs/reference/hooks-and-filters.md#lifecycle-extension-points)) | Experimental | 1.0 candidate; a test compares that table with what the engine fires |
 | Arguments each hook and filter passes | Experimental | adding a trailing argument is not a break; reordering or removing one is |
-| Route metadata keys: `auth`, `can`, `csrf`, `rate_limit`, `api`, `version`, `deprecated`, `sunset` | Experimental | |
+| Route metadata keys: `auth`, `can`, `csrf`, `rate_limit`, `signed`, `api`, `version`, `deprecated`, `sunset` | Experimental | |
 | Configuration keys and their defaults (`Bootstrap::defaults()`) | Experimental | pinned by `BootstrapTest` |
 | Environment variables (`.env.example`) | Experimental | a test fails if one is undocumented |
 | Console command names, options and exit codes (0, 1, 2, 127) | Experimental | scripts and cron lines depend on these |
@@ -91,9 +91,19 @@ namespace beats a shorter one.
 | `App\Engine\Auth\Authenticators\TokenAuthenticator` | Experimental | `fingerprint()`, which a `TokenProvider` looks tokens up by |
 | `App\Engine\Auth\Authorizer` | Experimental | its method list is frozen by a test |
 | `App\Engine\Auth\Capability` | Experimental | |
+| `App\Engine\Auth\EmailVerifiable` | Experimental | |
+| `App\Engine\Auth\EmailVerification` | Experimental | |
 | `App\Engine\Auth\Identity` | Experimental | |
 | `App\Engine\Auth\Password` | Experimental | |
+| `App\Engine\Auth\PasswordReset` | Experimental | |
+| `App\Engine\Auth\PasswordResettable` | Experimental | |
+| `App\Engine\Auth\Social\*` | Experimental | `Provider` and `SocialAccounts` are the extension points |
 | `App\Engine\Auth\TokenProvider` | Experimental | |
+| `App\Engine\Auth\Totp` | Experimental | RFC 6238; checked against its test vectors |
+| `App\Engine\Auth\TwoFactor` | Experimental | |
+| `App\Engine\Auth\TwoFactorAccounts` | Experimental | |
+| `App\Engine\Auth\TwoFactorEnrolment` | Experimental | |
+| `App\Engine\Auth\TwoFactorResult` | Experimental | |
 | `App\Engine\Auth\UserProvider` | Experimental | 1.0 candidate; its method list is frozen by a test |
 | `App\Engine\Bootstrap\Bootstrap` | Experimental | `create()`, `settings()` and `defaults()`, for embedding and tests |
 | `App\Engine\Cache\*` | Experimental | |
@@ -133,6 +143,7 @@ namespace beats a shorter one.
 | `App\Engine\Error\*` | Experimental | |
 | `App\Engine\Error\ErrorHandler` | Internal | |
 | `App\Engine\Error\ErrorPage` | Internal | an application's page is a template, not a subclass |
+| `App\Engine\Feature\*` | Experimental | `Features`; see [Feature flags](docs/reference/features.md) |
 | `App\Engine\Filter\*` | Experimental | |
 | `App\Engine\Hook\*` | Experimental | |
 | `App\Engine\Http\*` | Experimental | |
@@ -147,6 +158,8 @@ namespace beats a shorter one.
 | `App\Engine\Logging\LogWriter` | Experimental | |
 | `App\Engine\Logging\Logger` | Experimental | 1.0 candidate |
 | `App\Engine\Logging\LoggingException` | Experimental | |
+| `App\Engine\Mail\*` | Experimental | `Mailer`, `Message`, the transports; a queued `SendMessageJob` (with its `Message`) is a persisted format |
+| `App\Engine\Mail\MimeBuilder` | Internal | used by `Mailer` |
 | `App\Engine\MCP\*` | Experimental | what a tool, resource or prompt implements, returns or throws, and what an `mcp.*` hook receives; see [MCP](docs/reference/mcp.md) |
 | `App\Engine\MCP\McpAuthorizer` | Internal | a permission is an auth capability |
 | `App\Engine\MCP\McpConfig` | Internal | built by `Bootstrap` from `mcp.*` |
@@ -198,17 +211,25 @@ namespace beats a shorter one.
 | `App\Engine\Security\*` | Internal | |
 | `App\Engine\Security\CounterStore` | Experimental | a conformance suite defines it |
 | `App\Engine\Security\Csrf` | Experimental | `token()`, for forms |
+| `App\Engine\Security\Encrypter` | Experimental | `encrypt()`, `decrypt()`; the `v1.` token format is persisted, so a release must decrypt what the previous one wrote |
 | `App\Engine\Security\RateLimit` | Experimental | |
 | `App\Engine\Security\Secret` | Experimental | |
 | `App\Engine\Security\SecurityException` | Experimental | |
-| `App\Engine\Security\Signer` | Experimental | |
+| `App\Engine\Security\SignedUrl` | Experimental | `sign()`, `verify()`; `Routing\UrlSigner` for named routes |
+| `App\Engine\Security\Signer` | Experimental | `hmac()` is for a protocol's own key (S3, webhooks); `sign()` for this application's |
 | `App\Engine\Security\UploadPolicy` | Experimental | |
+| `App\Engine\Security\Webhook` | Experimental | |
+| `App\Engine\Security\Webhooks` | Experimental | `receive()`, `release()`; the formats are configuration |
 | `App\Engine\Session\*` | Experimental | |
 | `App\Engine\Session\SessionId` | Internal | |
 | `App\Engine\Session\SessionManager` | Internal | |
 | `App\Engine\Session\SessionTableMigration` | Internal | run by `migrate` while `session.store` is `database` |
 | `App\Engine\Session\Stores\*` | Internal | selected by name: `SESSION_STORE=file\|database\|memory` |
+| `App\Engine\Storage\*` | Experimental | `Disk` is defined by its conformance suite; see [Storage](docs/reference/storage.md) |
+| `App\Engine\Storage\Contents` | Internal | |
+| `App\Engine\Storage\StoragePath` | Internal | the path rule every disk applies |
 | `App\Engine\Support\*` | Internal | |
+| `App\Engine\Support\QrCode` | Experimental | `svg()`, `encode()`, `matrix()` |
 | `App\Engine\System\*` | Experimental | the newest API here; see [System operations](docs/reference/system.md) |
 | `App\Engine\System\Command\CommandSlot` | Internal | held by the executor and a `Process` |
 | `App\Engine\System\Command\Invocation` | Internal | |

@@ -89,7 +89,7 @@ final class TranslationLoaderTest extends LocalizationTestCase
         $directory = $this->directory(['en.php' => ['messages' => ['updated' => 'Updated']]]);
 
         $this->expectException(LocalizationException::class);
-        $this->expectExceptionMessage('maps "messages" to array instead of a string');
+        $this->expectExceptionMessage('gives "messages" plural forms without "other"');
 
         (new TranslationLoader())->load($directory . '/en.php');
     }

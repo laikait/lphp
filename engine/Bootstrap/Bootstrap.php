@@ -17,10 +17,19 @@ use App\Engine\Auth\Authenticators\TokenAuthenticator;
 use App\Engine\Auth\AuthGuard;
 use App\Engine\Auth\AuthManager;
 use App\Engine\Auth\Authorizer;
+use App\Engine\Auth\EmailVerification;
 use App\Engine\Auth\Identity;
 use App\Engine\Auth\Password;
+use App\Engine\Auth\PasswordReset;
 use App\Engine\Auth\Providers\EmptyProvider;
+use App\Engine\Auth\Social\FacebookProvider;
+use App\Engine\Auth\Social\GitHubProvider;
+use App\Engine\Auth\Social\OidcProvider;
+use App\Engine\Auth\Social\Provider;
+use App\Engine\Auth\Social\SocialException;
+use App\Engine\Auth\Social\SocialLogin;
 use App\Engine\Auth\TokenProvider;
+use App\Engine\Auth\TwoFactor;
 use App\Engine\Auth\UserProvider;
 use App\Engine\Cache\Cache;
 use App\Engine\Cache\CacheStore;
@@ -44,14 +53,20 @@ use App\Engine\Container\Container;
 use App\Engine\Core\Application;
 use App\Engine\Core\ExecutionContext;
 use App\Engine\Core\HttpKernel;
+use App\Engine\Core\Maintenance;
 use App\Engine\Database\Connection;
 use App\Engine\Database\ConnectionManager;
 use App\Engine\Dispatch\Dispatcher;
 use App\Engine\Error\ErrorContext;
 use App\Engine\Error\ErrorHandler;
 use App\Engine\Error\ErrorPage;
+use App\Engine\Feature\Features;
 use App\Engine\Filter\FilterEngine;
 use App\Engine\Hook\HookEngine;
+use App\Engine\Http\Client\Client;
+use App\Engine\Http\Client\CurlTransport;
+use App\Engine\Http\Client\StreamTransport;
+use App\Engine\Http\HttpException;
 use App\Engine\Http\Request;
 use App\Engine\Http\Response;
 use App\Engine\Localization\ChainCountryResolver;
@@ -76,6 +91,14 @@ use App\Engine\Logging\Writers\DatabaseWriter;
 use App\Engine\Logging\Writers\FileWriter;
 use App\Engine\Logging\Writers\StreamWriter;
 use App\Engine\Logging\Writers\SyslogWriter;
+use App\Engine\Mail\Address;
+use App\Engine\Mail\Mailer;
+use App\Engine\Mail\MailException;
+use App\Engine\Mail\Transport;
+use App\Engine\Mail\Transports\ArrayTransport;
+use App\Engine\Mail\Transports\LogTransport;
+use App\Engine\Mail\Transports\SendmailTransport;
+use App\Engine\Mail\Transports\SmtpTransport;
 use App\Engine\MCP\McpAuthorizer;
 use App\Engine\MCP\McpConfig;
 use App\Engine\MCP\McpRegistry;
@@ -106,8 +129,11 @@ use App\Engine\Queue\Stores\FileStore as QueueFileStore;
 use App\Engine\Queue\Stores\MemoryStore;
 use App\Engine\Queue\Stores\SyncStore;
 use App\Engine\Queue\Worker;
+use App\Engine\Routing\AppUrl;
 use App\Engine\Routing\Route;
 use App\Engine\Routing\Router;
+use App\Engine\Routing\RoutingException;
+use App\Engine\Routing\UrlSigner;
 use App\Engine\Scheduler\Locks\FileLock;
 use App\Engine\Scheduler\Locks\MemoryLock;
 use App\Engine\Scheduler\ScheduleLock;
@@ -117,11 +143,15 @@ use App\Engine\Security\Counters\FileStore as CounterFileStore;
 use App\Engine\Security\Counters\MemoryStore as CounterMemoryStore;
 use App\Engine\Security\CounterStore;
 use App\Engine\Security\Csrf;
+use App\Engine\Security\Encrypter;
 use App\Engine\Security\Guard;
 use App\Engine\Security\RateLimiter;
 use App\Engine\Security\RequestLimits;
+use App\Engine\Security\Secret;
 use App\Engine\Security\SecurityHeaders;
+use App\Engine\Security\SignedUrl;
 use App\Engine\Security\Signer;
+use App\Engine\Security\Webhooks;
 use App\Engine\Session\Session;
 use App\Engine\Session\SessionManager;
 use App\Engine\Session\SessionStore;
@@ -129,6 +159,8 @@ use App\Engine\Session\SessionTableMigration;
 use App\Engine\Session\Stores\ArrayStore as SessionArrayStore;
 use App\Engine\Session\Stores\DatabaseStore as SessionDatabaseStore;
 use App\Engine\Session\Stores\FileStore as SessionFileStore;
+use App\Engine\Storage\Storage;
+use App\Engine\Storage\StorageException;
 use App\Engine\Support\Extensions;
 use App\Engine\Support\Path;
 use App\Engine\System\Audit\SystemAudit;
@@ -344,6 +376,7 @@ final class Bootstrap
         $container->instance(TemplateRegistry::class, $views);
         $container->instance(TemplateManager::class, $templates);
         $container->instance(TemplateHelpers::class, $helpers);
+        self::features($container, $settings, $hooks, $filters, $helpers);
 
         // The console. The framework's own commands are registered here through
         // the same collector a module uses, so there is nothing the kernel
@@ -443,6 +476,7 @@ final class Bootstrap
         ));
 
         $container->singleton(Dispatcher::class);
+        $container->singleton(Maintenance::class, static fn(): Maintenance => new Maintenance($basePath));
         $container->singleton(HttpKernel::class);
         $container->singleton(ConsoleKernel::class);
 
@@ -549,6 +583,9 @@ final class Bootstrap
         }
 
         self::system($container, $settings, $basePath);
+        self::httpClient($container, $settings);
+        self::storage($container, $settings, $basePath);
+        self::mail($container, $settings);
         self::update($container, $basePath);
         self::mcp($container, $settings);
 
@@ -582,14 +619,27 @@ final class Bootstrap
             $settings->int('security.max_request_bytes', RequestLimits::DEFAULT_BYTES)
                 ?? RequestLimits::DEFAULT_BYTES,
         );
-        $guard = new Guard($csrf, $limiter, $limits, $settings->bool('security.csrf.enabled', true));
+        $signedUrls = new SignedUrl($signer);
+        $guard = new Guard($csrf, $limiter, $limits, $settings->bool('security.csrf.enabled', true), $signedUrls);
 
         $container->instance(Signer::class, $signer);
+        $container->singleton(Encrypter::class, static fn(): Encrypter => Encrypter::fromEnvironment(
+            $settings->string('security.key'),
+            $settings->string('security.previous_keys'),
+        ));
         $container->instance(Csrf::class, $csrf);
         $container->instance(RateLimiter::class, $limiter);
         $container->instance(CounterStore::class, $limiter->store());
         $container->instance(RequestLimits::class, $limits);
         $container->instance(Guard::class, $guard);
+        $container->instance(SignedUrl::class, $signedUrls);
+        $container->singleton(Webhooks::class, static function (Container $container) use ($settings): Webhooks {
+            /** @var mixed $sources */
+            $sources = $settings->get('security.webhooks');
+
+            return new Webhooks(\is_array($sources) ? $sources : [], $container->get(Cache::class));
+        });
+        $container->singleton(UrlSigner::class, static fn(Container $container): UrlSigner => new UrlSigner($container->get(Router::class), $signedUrls));
 
         $headers = self::securityHeaders($settings);
         $container->instance(SecurityHeaders::class, $headers);
@@ -688,6 +738,55 @@ final class Bootstrap
             Authorizer::class,
             static fn(): Authorizer => new Authorizer($access, $filters),
         );
+
+        // Links that leave the page -- in an email, as an OAuth redirect_uri --
+        // are built from APP_URL, never from the Host header the client sent.
+        $container->singleton(AppUrl::class, static fn(Container $container): AppUrl => new AppUrl(
+            $settings->string('app.url'),
+            $container->get(Router::class),
+        ));
+
+        // Password reset and email verification. Each refuses, naming the
+        // interface, until the UserProvider implements PasswordResettable or
+        // EmailVerifiable; the routes and pages are the application's.
+        $container->singleton(PasswordReset::class, static fn(Container $container): PasswordReset => new PasswordReset(
+            $container->get(UserProvider::class),
+            $container->get(Password::class),
+            $container->get(Signer::class),
+            $container->get(Mailer::class),
+            $container->get(AppUrl::class),
+            $container->get(RateLimiter::class),
+            $hooks,
+            $settings->int('auth.passwords.ttl', PasswordReset::TTL) ?? PasswordReset::TTL,
+            $settings->string('auth.passwords.route', 'password.reset') ?? 'password.reset',
+        ));
+        $container->singleton(TwoFactor::class, static fn(Container $container): TwoFactor => new TwoFactor(
+            $container->get(AuthManager::class),
+            $container->get(UserProvider::class),
+            $container->get(Password::class),
+            $sessions,
+            $settings->string('auth.two_factor.issuer', 'LPHP') ?? 'LPHP',
+            $hooks,
+        ));
+        $container->singleton(SocialLogin::class, static fn(Container $container): SocialLogin => new SocialLogin(
+            self::socialProviders($settings, $container),
+            $container->get(Encrypter::class),
+            $container->get(AppUrl::class),
+            $container->get(AuthManager::class),
+            $container->get(UserProvider::class),
+            $filters,
+            $hooks,
+            (bool) $settings->bool('auth.social.register', false),
+        ));
+        $container->singleton(EmailVerification::class, static fn(Container $container): EmailVerification => new EmailVerification(
+            $container->get(UserProvider::class),
+            $container->get(Signer::class),
+            $container->get(Mailer::class),
+            $container->get(AppUrl::class),
+            $hooks,
+            $settings->int('auth.verification.ttl', EmailVerification::TTL) ?? EmailVerification::TTL,
+            $settings->string('auth.verification.route', 'email.verify') ?? 'email.verify',
+        ));
 
         // Resolved per call, never shared: a worker that held one request's
         // identity for the life of the process would answer the next request's
@@ -1145,13 +1244,176 @@ final class Bootstrap
      * own manager instead.
      */
     /**
+     * Email: the transport mail.transport names, and a Mailer over it. Built
+     * when first asked for, so an application that sends nothing never reads
+     * a mail setting.
+     */
+    private static function mail(Container $container, Config $settings): void
+    {
+        $container->singleton(Transport::class, static function (Container $container) use ($settings): Transport {
+            $name = $settings->string('mail.transport', 'log') ?? 'log';
+
+            return match ($name) {
+                'smtp' => new SmtpTransport(
+                    $settings->string('mail.smtp.host', '127.0.0.1') ?? '127.0.0.1',
+                    $settings->int('mail.smtp.port', 587) ?? 587,
+                    $settings->string('mail.smtp.encryption', 'tls') ?? 'tls',
+                    $settings->string('mail.smtp.username'),
+                    new Secret($settings->string('mail.smtp.password') ?? ''),
+                    (float) ($settings->int('mail.smtp.timeout', 30) ?? 30),
+                ),
+                'sendmail' => new SendmailTransport(
+                    $container->get(CommandExecutor::class),
+                    $settings->string('mail.sendmail.path', SendmailTransport::PATH) ?? SendmailTransport::PATH,
+                ),
+                'log' => new LogTransport($container->get(LogManager::class)->channel(LogTransport::CHANNEL)),
+                'array' => new ArrayTransport(),
+                default => throw MailException::unknownTransport($name),
+            };
+        });
+
+        $container->singleton(Mailer::class, static function (Container $container) use ($settings): Mailer {
+            $address = $settings->string('mail.from.address');
+
+            return new Mailer(
+                $container->get(Transport::class),
+                $container->get(TemplateManager::class),
+                $address === null || $address === '' ? null : new Address($address, $settings->string('mail.from.name', '') ?? ''),
+                $container->get(FilterEngine::class),
+                $container->get(HookEngine::class),
+                $container->get(Queue::class),
+            );
+        });
+    }
+
+    /**
+     * Outgoing HTTP. curl when the extension is loaded, PHP's own stream
+     * wrapper otherwise; the same Client either way.
+     */
+    private static function httpClient(Container $container, Config $settings): void
+    {
+        $container->singleton(Client::class, static function (Container $container) use ($settings): Client {
+            /** @var mixed $agent */
+            $agent = $settings->get('http.client.user_agent');
+
+            return new Client(
+                CurlTransport::available() ? new CurlTransport() : new StreamTransport(),
+                $container->get(FilterEngine::class),
+                $container->get(HookEngine::class),
+                (float) ($settings->get('http.client.timeout') ?? Client::DEFAULT_TIMEOUT),
+                ['User-Agent' => \is_string($agent) && $agent !== '' ? $agent : 'LPHP/' . Application::VERSION],
+            );
+        });
+    }
+
+    /**
+     * Feature flags: the service, feature() in templates, and meta(['feature'
+     * => …]) on a route, which answers 404 while the flag is off -- after the
+     * rate limit and before authentication, so a switched-off page looks like
+     * no page at all.
+     */
+    private static function features(Container $container, Config $settings, HookEngine $hooks, FilterEngine $filters, TemplateHelpers $helpers): void
+    {
+        $container->singleton(Features::class, static function (Container $container) use ($settings, $filters): Features {
+            /** @var mixed $flags */
+            $flags = $settings->get('features');
+
+            return new Features(
+                \is_array($flags) ? $flags : [],
+                static fn(): Identity => $container->get(AuthManager::class)->identity(),
+                $filters,
+            );
+        });
+
+        $helpers->addFunction('feature', static fn(string $name): bool => $container->get(Features::class)->active($name));
+
+        $hooks->add('dispatch.before', static function (Route $route) use ($container): void {
+            $flag = $route->metaValue(Features::META);
+
+            if (\is_string($flag) && !$container->get(Features::class)->active($flag)) {
+                throw HttpException::notFound();
+            }
+        }, 6, 'engine');
+    }
+
+    /**
+     * The providers under auth.social.providers, each built on first use.
+     *
+     * @return array<string, \Closure(): Provider>
+     */
+    private static function socialProviders(Config $settings, Container $container): array
+    {
+        /** @var mixed $configured */
+        $configured = $settings->get('auth.social.providers');
+        $providers = [];
+
+        foreach (\is_array($configured) ? $configured : [] as $name => $options) {
+            $name = (string) $name;
+
+            if (!\is_array($options)) {
+                throw SocialException::misconfigured($name, 'its settings are not an array.');
+            }
+
+            $providers[$name] = static function () use ($name, $options, $container): Provider {
+                $string = static fn(string $key, string $default = ''): string => \is_string($options[$key] ?? null) ? $options[$key] : $default;
+                $scopes = \is_array($options['scopes'] ?? null) ? \array_values(\array_filter($options['scopes'], \is_string(...))) : null;
+                $http = $container->get(Client::class);
+                $cache = $container->get(Cache::class);
+
+                return match ($string('driver', $name)) {
+                    'google' => OidcProvider::google($http, $string('client_id'), $string('client_secret'), $cache, $scopes ?? ['openid', 'email', 'profile']),
+                    'microsoft' => OidcProvider::microsoft($http, $string('client_id'), $string('client_secret'), $string('tenant', 'common'), $cache, $scopes ?? ['openid', 'email', 'profile']),
+                    'apple' => OidcProvider::apple($http, $string('client_id'), $string('team_id'), $string('key_id'), $string('private_key'), $cache, $scopes ?? ['openid', 'email', 'name']),
+                    'oidc' => new OidcProvider($http, $name, $string('issuer'), $string('client_id'), $string('client_secret'), $scopes ?? ['openid', 'email', 'profile'], [], $cache),
+                    'github' => new GitHubProvider($http, $name, $string('client_id'), $string('client_secret'), $scopes ?? ['read:user', 'user:email']),
+                    'facebook' => new FacebookProvider($http, $string('client_id'), $string('client_secret'), $scopes ?? ['email', 'public_profile'], ($options['trust_email'] ?? false) === true, $name),
+                    default => throw SocialException::misconfigured($name, \sprintf('the driver "%s" is not google, microsoft, apple, github, facebook or oidc.', $string('driver', $name))),
+                };
+            };
+        }
+
+        return $providers;
+    }
+
+    /**
+     * Disks. A local disk's temporary URL is a signed link to the Shared
+     * module's "storage.file" route; an application that removed the route
+     * gets an error saying so when it asks for one.
+     */
+    private static function storage(Container $container, Config $settings, string $basePath): void
+    {
+        $container->singleton(Storage::class, static function (Container $container) use ($settings, $basePath): Storage {
+            /** @var mixed $disks */
+            $disks = $settings->get('storage.disks');
+
+            return Storage::fromConfig(
+                \is_array($disks) ? $disks : [],
+                $settings->string('storage.default', 'local') ?? 'local',
+                $basePath,
+                static fn(): Client => $container->get(Client::class),
+                static function (string $disk, string $path, int $expiresAt) use ($container): string {
+                    try {
+                        return $container->get(UrlSigner::class)->signed(
+                            Storage::ROUTE,
+                            ['disk' => $disk, 'path' => $path],
+                            new \DateTimeImmutable('@' . $expiresAt),
+                        );
+                    } catch (RoutingException $e) {
+                        throw StorageException::noTemporaryUrls($disk, $e->getMessage());
+                    }
+                },
+            );
+        });
+    }
+
+    /**
      * framework:update's collaborators: the application directory it updates,
      * and where releases come from. Neither does anything until a command asks.
      */
     private static function update(Container $container, string $basePath): void
     {
         $container->singleton(Updater::class, static fn(): Updater => new Updater($basePath));
-        $container->singleton(ReleaseSource::class, static fn(): ReleaseSource => new GithubReleaseSource());
+        $container->singleton(ReleaseSource::class, static fn(Container $container): ReleaseSource => new GithubReleaseSource($container->get(Client::class)));
     }
 
     private static function system(Container $container, Config $settings, string $basePath): void
@@ -1544,6 +1806,11 @@ final class Bootstrap
                 // changes shape depending on where the code is running is a bug
                 // found at month end.
                 'timezone' => Env::string('APP_TIMEZONE', 'UTC'),
+                // The public address, with a subdirectory if there is one:
+                // https://example.com/shop. Links that leave the page (a reset
+                // email, an OAuth callback) are built from it, never from the
+                // Host header, which the client chooses.
+                'url' => Env::string('APP_URL'),
                 // PHP's memory_limit, in PHP's notation: 256M, 1G, -1 for none.
                 // null leaves php.ini's. Set it here rather than in php.ini so
                 // the laptop and the server agree.
@@ -1565,6 +1832,32 @@ final class Bootstrap
                 // Apache in a subdirectory and the built-in server.
                 'base_path' => null,
                 'trusted_proxies' => [],
+                // Outgoing requests, through Http\Client\Client.
+                'client' => [
+                    'timeout' => Client::DEFAULT_TIMEOUT,
+                    // null for "LPHP/<version>".
+                    'user_agent' => null,
+                ],
+            ],
+            'mail' => [
+                // log writes each message to the "mail" log channel and sends
+                // nothing, so a development machine never mails a customer.
+                // smtp, sendmail, or array (kept in memory, for tests).
+                'transport' => Env::string('MAIL_TRANSPORT', 'log'),
+                'from' => [
+                    'address' => Env::string('MAIL_FROM_ADDRESS'),
+                    'name' => Env::string('MAIL_FROM_NAME', ''),
+                ],
+                'smtp' => [
+                    'host' => Env::string('MAIL_HOST', '127.0.0.1'),
+                    'port' => Env::int('MAIL_PORT', 587),
+                    // tls (STARTTLS, 587), ssl (465) or none (a relay on this machine).
+                    'encryption' => Env::string('MAIL_ENCRYPTION', 'tls'),
+                    'username' => Env::string('MAIL_USERNAME'),
+                    'password' => Env::string('MAIL_PASSWORD'),
+                    'timeout' => 30,
+                ],
+                'sendmail' => ['path' => SendmailTransport::PATH],
             ],
             'database' => [
                 // Named connections, so that a reporting replica or a legacy
@@ -1585,6 +1878,39 @@ final class Bootstrap
                 'versioning' => AssetVersioning::Content->value,
                 'manifests' => true,
                 'max_age' => AssetServer::IMMUTABLE_MAX_AGE,
+            ],
+            'storage' => [
+                // Which disk $storage->disk() means without a name.
+                'default' => Env::string('STORAGE_DISK', 'local'),
+                // Named disks. "local" is a directory, relative to the
+                // application unless absolute; "s3" is any S3-compatible bucket
+                // (S3, R2, Spaces, B2, MinIO); "memory" is for tests. Built on
+                // first use, so an unused disk costs nothing and a missing
+                // bucket is an error only where it is used.
+                'disks' => [
+                    'local' => [
+                        'driver' => 'local',
+                        'root' => 'system/Storage',
+                        // Where the root is served publicly, if it is. Usually
+                        // not: temporaryUrl() makes a signed link instead.
+                        'url' => null,
+                    ],
+                    's3' => [
+                        'driver' => 's3',
+                        'bucket' => Env::string('S3_BUCKET'),
+                        'region' => Env::string('S3_REGION', 'us-east-1'),
+                        'key' => Env::string('S3_KEY'),
+                        'secret' => Env::string('S3_SECRET'),
+                        // Empty for AWS; the service's endpoint otherwise.
+                        'endpoint' => Env::string('S3_ENDPOINT'),
+                        // bucket in the path rather than the host name: MinIO
+                        // and most self-hosted servers want this.
+                        'path_style' => Env::bool('S3_PATH_STYLE', false),
+                        // A public base URL (a CDN) for url().
+                        'url' => Env::string('S3_URL'),
+                        'root' => '',
+                    ],
+                ],
             ],
             'cache' => [
                 // Memory by default: real within a request, gone after it, and
@@ -1642,6 +1968,10 @@ final class Bootstrap
                 // safe, but a sibling subdomain could plant a matching pair.
                 // security:check reports which mode is running.
                 'key' => Env::string('APP_KEY'),
+                // Retired keys, comma separated: Encrypter still decrypts with
+                // them, never encrypts. Remove each once what it sealed has
+                // been re-encrypted; security:check reminds while one is set.
+                'previous_keys' => Env::string('APP_PREVIOUS_KEYS'),
                 'csrf' => [
                     'enabled' => Env::bool('CSRF_ENABLED', true),
                     // Checked when present, absent means "cannot tell". See
@@ -1656,6 +1986,9 @@ final class Bootstrap
                 'counters' => 'file',
                 // Refused with 413 before anything reads the body.
                 'max_request_bytes' => Env::int('MAX_REQUEST_BYTES', RequestLimits::DEFAULT_BYTES),
+                // Webhooks received, by name: ['format' => 'stripe', 'secret' =>
+                // …]. See Security\Webhooks for the formats and their options.
+                'webhooks' => [],
                 'headers' => [
                     // Deliberately empty. A useful policy names this
                     // application's own sources; a generic one is the kind
@@ -1683,6 +2016,31 @@ final class Bootstrap
                 // An application with genuinely public data can declare a role
                 // here instead of scattering "if guest" through its handlers.
                 'guest_roles' => [],
+                // "Forgot your password?": how long a link works, and the route
+                // it points at, which the application declares.
+                'passwords' => [
+                    'ttl' => 3600,
+                    'route' => 'password.reset',
+                ],
+                // Proving an address: the same two, for the verification link.
+                'verification' => [
+                    'ttl' => 86400,
+                    'route' => 'email.verify',
+                ],
+                // Signing in with another site. Each provider is a name =>
+                // settings: 'google' => ['client_id' => …, 'client_secret' => …];
+                // the driver is the name unless 'driver' says otherwise
+                // (google, microsoft, apple, github, facebook, oidc). register
+                // creates an account for a newcomer; off, only somebody who
+                // already has one gets in.
+                'social' => [
+                    'register' => false,
+                    'providers' => [],
+                ],
+                // The name an authenticator app shows beside the six digits.
+                'two_factor' => [
+                    'issuer' => 'LPHP',
+                ],
             ],
             'session' => [
                 // file, database or memory. Memory is for tests only: a web
@@ -1882,6 +2240,9 @@ final class Bootstrap
                 // otherwise leave the module on. Shared cannot be disabled.
                 'disabled' => [],
             ],
+            // Feature flags: name => true, false, or rules (accounts, roles,
+            // percent). See Feature\Features.
+            'features' => [],
         ];
 
         return self::merge($defaults, $overrides);

@@ -20,6 +20,7 @@
         "phpunit/phpunit": "^11.5"
     },
     "suggest": {
+        "ext-sodium": "Security\\Encrypter. Bundled with PHP; only needed if it was switched off.",
         "filp/whoops": "The debug error page: source, request and environment for each frame (app.debug only).",
         "maxmind-db/reader": "Country detection from a local MaxMind GeoLite2/GeoIP2 database (localization.maxmind_database)."
     },

@@ -50,11 +50,15 @@ final class Guard
 
     public const RATE_LIMIT_META = 'rate_limit';
 
+    /** meta(['signed' => true]): only a link made by SignedUrl gets in. */
+    public const SIGNED_META = 'signed';
+
     public function __construct(
         private readonly Csrf $csrf,
         private readonly RateLimiter $limiter,
         private readonly RequestLimits $limits,
         private readonly bool $csrfEnabled = true,
+        private readonly ?SignedUrl $signedUrls = null,
     ) {}
 
     /**
@@ -95,6 +99,12 @@ final class Guard
     public function onDispatch(Route $route, Request $request): void
     {
         $this->enforceRateLimit($route, $request);
+
+        // After the limit, so guessing signatures is throttled too.
+        if ($route->metaValue(self::SIGNED_META) === true) {
+            ($this->signedUrls ?? throw SecurityException::keyNotSet())->verify($request);
+        }
+
         $this->enforceCsrf($route, $request);
     }
 

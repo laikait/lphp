@@ -59,4 +59,18 @@ final class RoutingException extends FrameworkException
     {
         return new self(\sprintf('"%s" is not a supported HTTP method.', $method));
     }
+
+    public static function noAppUrl(): self
+    {
+        return new self(
+            'An absolute link needs APP_URL, the application\'s public address (https://example.com, '
+            . 'with a subdirectory if it has one). It is never taken from the request\'s Host header, '
+            . 'which the client chooses.',
+        );
+    }
+
+    public static function invalidAppUrl(string $url): self
+    {
+        return new self(\sprintf('APP_URL "%s" is not an http or https URL without a query.', $url));
+    }
 }

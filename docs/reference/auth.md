@@ -235,6 +235,189 @@ The plaintext arrives as a `Secret`. Not so that it cannot be read, but so that
 reading it says `reveal()` at the call site. An architecture test keeps
 `Auth\Password` the only place in the project that calls `password_hash()`.
 
+## Password reset and email verification
+
+```php
+public function __construct(
+    private readonly PasswordReset $resets,
+    private readonly EmailVerification $verification,
+) {}
+
+// POST /forgot-password
+$this->resets->request($email, $request->ip());   // false only when rate limited
+// …then the same page whatever the address: "If it has an account, a link is on its way."
+
+// GET /account/reset?token=…  — show the form only while the link is good
+$this->resets->check($token) ?? throw HttpException::notFound();
+
+// POST /account/reset
+$identity = $this->resets->reset($token, new Secret($password));   // null: not good any more
+
+// after sign-up, and "send it again"
+$this->verification->send($account);
+
+// GET /account/verify?token=…
+$identity = $this->verification->verify($token);   // null: invalid or expired
+```
+
+The framework ships no pages for these, as it ships no login page. It mails the
+link, checks the token and changes the account; the routes and the forms are
+yours. The link points at the route named in `auth.passwords.route`
+(`password.reset`) or `auth.verification.route` (`email.verify`), with
+`?token=…`.
+
+**Your provider answers the questions only it can.** Implement
+`PasswordResettable` (`emailFor()`, `resetPassword($account, $hash)`) and
+`EmailVerifiable` (`emailFor()`, `isEmailVerified()`, `markEmailVerified()`)
+on the class bound as `UserProvider`. Without them, each service refuses with an
+error naming the interface.
+
+**Links are built from `APP_URL`, never from the request.** The `Host` header
+is whatever the client sent. A reset requested with `Host: evil.example` would
+otherwise mail the victim a link to the attacker, token included. Without
+`APP_URL` nothing is sent.
+
+**Nobody learns which addresses are registered.** `request()` gives the same
+answer for every address. It returns false only when a rate limit is hit: 3 a
+quarter-hour per address, 10 per client IP, and addresses with no account count
+too. The email is queued, so how long sending takes is not in the response
+either, unless `QUEUE_STORE` is `sync`, which sends it inline.
+
+**The tokens are stateless.** Each is signed with `APP_KEY` and expires (one
+hour for a reset, a day for verification). Nothing is stored, so there is no
+table to migrate or clean up. Each token is bound to what it changes:
+
+- **A reset link works once.** It names a fingerprint of the account's current
+  password hash. Setting the new password changes the hash, which ends that link
+  and every other outstanding one, as any password change does.
+- **A verification link verifies one address.** It names a fingerprint of the
+  address it was sent to. Change the address and the link stops working.
+  Verifying twice is harmless, so it may be clicked again.
+
+`reset()` does not log the visitor in. Call `AuthManager::login()` if you want
+it to. Hooks: `auth.password_reset_requested` (an account exists and was mailed),
+`auth.password_reset` and `auth.email_verified`, each with the `Identity`.
+
+## Two-factor login
+
+```php
+// POST /login, instead of AuthManager::attempt()
+return match ($this->twoFactor->attempt($email, new Secret($password))) {
+    TwoFactorResult::LoggedIn => redirect to the account,
+    TwoFactorResult::ChallengeRequired => show the code form,
+    TwoFactorResult::Failed => throw HttpException::unauthorized('Those details are not right.'),
+};
+
+// POST /login/code
+$identity = $this->twoFactor->challenge($code);   // a code from the app, or a recovery code; null if wrong
+
+// account settings: switching it on
+$enrolment = $this->twoFactor->begin($account);    // ->qrSvg to show, ->secret to type in
+$recoveryCodes = $this->twoFactor->confirm($account, $code);   // show these once
+```
+
+Codes come from an authenticator app (Google Authenticator, 1Password, Authy
+and so on): TOTP, [RFC 6238](https://www.rfc-editor.org/rfc/rfc6238), six
+digits every thirty seconds. `Auth\Totp` is checked against the RFC's own test
+vectors. A code from the step either side of now still counts, for a phone
+whose clock is a little out.
+
+- **A password alone logs nobody in** on an account with two-factor turned on.
+  The account waits in the session for five minutes and five tries, and only a
+  right code calls `AuthManager::login()`, which is when the session id changes.
+  After five wrong codes the password has to be typed again. Rate-limit the code
+  route as you do the login route.
+- **A code works once.** The step it matched is stored, and that code or an
+  older one is refused afterwards.
+- **Turning it on takes two steps**, so a secret nobody scanned never locks
+  anybody out. `begin()` makes the secret and its QR code (an SVG drawn by
+  `Support\QrCode`, no library) and keeps them in the session. `confirm()` with
+  a code from the app stores the secret.
+- **Ten recovery codes** come back from `confirm()`, once, in plain text, for a
+  lost phone. Only their hashes are stored, each works once, and
+  `regenerateRecoveryCodes()` replaces the set.
+- **Your provider stores it**, through `TwoFactorAccounts`. Keep the secret
+  encrypted, for example as an `#[Encrypted]` model property, because whoever
+  reads it can make codes.
+
+`AuthManager::verify()` is `attempt()` without the login, for any other second
+step. The authenticator app shows the name from `auth.two_factor.issuer`.
+
+## Signing in with Google, Microsoft, Apple, GitHub or Facebook
+
+```php
+// config/auth.php
+return [
+    'social' => [
+        'register' => false,   // true: a first sign-in creates an account
+        'providers' => [
+            'google'    => ['client_id' => Env::string('GOOGLE_ID'), 'client_secret' => Env::string('GOOGLE_SECRET')],
+            'microsoft' => ['client_id' => …, 'client_secret' => …, 'tenant' => 'common'],
+            'apple'     => ['client_id' => 'com.example.web', 'team_id' => …, 'key_id' => …, 'private_key' => Env::string('APPLE_KEY')],
+            'github'    => ['client_id' => …, 'client_secret' => …],
+            'facebook'  => ['client_id' => …, 'client_secret' => …],
+            'staff'     => ['driver' => 'oidc', 'issuer' => 'https://sso.example.com/realms/staff', 'client_id' => …, 'client_secret' => …],
+        ],
+    ],
+];
+```
+
+```html
+<a href="/auth/google?return=/account">Sign in with Google</a>
+```
+
+The Shared module declares `GET /auth/{provider}` and the callback,
+`GET|POST /auth/{provider}/callback` (named `social.callback`). Register that
+callback with each provider as `APP_URL` + `/auth/<name>/callback`. A provider
+that is not configured is a 404, so a fresh install answers nothing there.
+
+**`oidc` is any OpenID Connect issuer**: Okta, Auth0, Keycloak, GitLab, your own.
+`google`, `microsoft` and `apple` are the same driver with the issuer filled
+in. Endpoints and keys come from the issuer's discovery document, cached for a
+day; the keys for an hour.
+
+**The flow is the authorization-code flow with PKCE, a `state` and an OpenID
+`nonce`.** All three are made per sign-in and kept in a ten-minute cookie
+encrypted with `APP_KEY`. A callback whose `state` is not this browser's is a
+400, which stops an attacker signing a victim into the attacker's account. The
+cookie is used rather than the session because Apple posts its callback from
+its own site, and a session cookie set `SameSite=Lax` does not come with that
+request. For the same reason the POST callback has no CSRF check: the `state` is
+the check.
+
+**The `id_token` is verified, not trusted**, with no library:
+
+- its signature, against the issuer's published keys (RS256/384/512 or
+  ES256/384/512; `none` and the HMAC algorithms are refused);
+- then its claims: the issuer, this application as the audience, the expiry and
+  the `nonce`.
+
+A key that is not published yet is fetched again once, for a provider that has
+just rotated keys. GitHub and Facebook are not OpenID providers: their answers
+come straight from their APIs over TLS.
+
+**Who the visitor is.** Your `UserProvider` implements `SocialAccounts`
+(`findBySocial`, `findByEmail`, `linkSocial`, `createFromSocial`), and the
+engine decides in this order:
+
+1. the account already linked to that provider and id;
+2. otherwise an account with the same email, linked from now on, **only when the
+   provider says the email is verified**. Google and Apple do say so. Microsoft
+   never does, and Facebook only when you set `'trust_email' => true`.
+   Linking on an unproven address is how one person signs in as another;
+3. otherwise a new account, when `register` is on. It has no password hash, so
+   password login refuses it until one is set;
+4. otherwise nobody: 403.
+
+The `social.account` filter receives that answer (an `Account`, or `false`)
+and the `SocialUser`, and has the last word: for example, a company domain only,
+or always ask before linking.
+
+**In your own handler**, the pieces are `SocialLogin::redirect()`,
+`callback()` (returns a `SocialUser`), `login()` (or `account()` to decide
+yourself), `returnTo()` and `forgetCookie()`. A provider of your own implements
+`Auth\Social\Provider` and is added with `$social->extend('name', …)`.
+
 ## If it doesn't work
 
 | What you see | Why | Fix |
@@ -243,6 +426,13 @@ reading it says `reveal()` at the call site. An architecture test keeps
 | The boot fails naming a capability | A route requires a capability nobody declared — usually a typo | Declare it with `$module->access()`, or fix the name |
 | A user has the role but is still refused | An `authorization.decision` filter refused for that record | The filter is in the module that owns the data |
 | Tokens work locally, 401 in production | Apache is dropping `Authorization` | Keep the shipped `.htaccess`, or set `CGIPassAuth On` |
+| "An absolute link needs APP_URL" | Reset and verification links are never built from the `Host` header | Set `APP_URL` |
+| "needs the UserProvider to implement PasswordResettable" | The provider cannot store a new hash | Implement the interface on your provider |
+| 400 "This sign-in link is stale" | The flow cookie is missing: over ten minutes, another browser, or a cookie blocked | Start again; over HTTP in development the cookie is `Lax`, so Apple's POST will not carry it |
+| 403 after a social sign-in | No account is linked and the email is not verified, or `register` is off | Link the account, or turn on `auth.social.register` |
+| 500 "The id_token was refused" | Wrong `client_id`, a clock more than a minute out, or a misconfigured issuer | The message names the claim |
+| `redirect_uri_mismatch` from the provider | The callback registered with the provider is not `APP_URL` + `/auth/<name>/callback` | Register exactly that |
+| A reset link says it is not good | It was used, it is over an hour old, or the password changed since | Ask for another |
 | Everyone is refused after adding a role | `invoice.*` does not cover `invoices.void` | Check the capability names with `php laika auth:access` |
 
 ## Why it works this way

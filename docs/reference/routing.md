@@ -20,7 +20,7 @@ $module->routes(static function (RouteCollector $routes): void {
 | `group($prefix, $routes, $name, $meta)` | a prefix, a name prefix and shared meta |
 | `->name(…)` | the name `url()` uses. Names must be unique |
 | `->where($param, $regex)` · `->whereMany([...])` | what a parameter may contain |
-| `->meta([...])` | `auth`, `can`, `csrf`, `rate_limit`, and anything of your own |
+| `->meta([...])` | `auth`, `can`, `csrf`, `rate_limit`, `signed`, and anything of your own |
 
 `php laika route:list` prints every route, its module and its access.
 
@@ -99,6 +99,34 @@ $hooks->add('dispatch.before', static function (Route $route) use ($settings): v
     }
 });
 ```
+
+## Signed links
+
+A link that proves it was made by this application — unsubscribe, verify an
+email, download for ten minutes — without the visitor being logged in:
+
+```php
+$collector->get('/unsubscribe/{id}', [Newsletter::class, 'unsubscribe'])
+    ->name('newsletter.unsubscribe')
+    ->meta(['signed' => true]);
+
+// wherever the link is made, e.g. in a mail:
+public function __construct(private readonly UrlSigner $urls) {}
+
+$link = $this->urls->signed('newsletter.unsubscribe', ['id' => 7], '+30 days');
+// /unsubscribe/7?expires=1760000000&signature=…
+```
+
+A route marked `signed` refuses a request whose signature is missing or does not
+match with **403**, and an expired one with **410**, before the handler runs. The
+signature covers the path and every query parameter, so changing `id`, the
+expiry, or adding a parameter breaks it; the order of the query does not matter.
+The scheme and host are not signed, so a link survives a proxy or CDN.
+
+`expires` is a moment, a relative string (`'+7 days'`), seconds from now, or
+`null` for a link that never expires. Signing needs `APP_KEY` and throws without
+one. Changing `APP_KEY` invalidates every link already sent. For a full URL,
+put your host in front: `https://example.com` . `$link`.
 
 ## If it doesn't work
 

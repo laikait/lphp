@@ -4,6 +4,9 @@ declare(strict_types=1);
 
 namespace App\Engine\Update;
 
+use App\Engine\Http\Client\Client;
+use App\Engine\Http\Client\HttpClientException;
+
 /**
  * Releases published on GitHub by the release workflow.
  *
@@ -13,8 +16,8 @@ namespace App\Engine\Update;
  * downloading the whole release. The zip is checked against the checksum
  * before it is unpacked; a mismatch stops the update.
  *
- * Plain https through PHP's own stream wrapper -- no HTTP client, no
- * dependency -- with a timeout, and a User-Agent, which GitHub's API requires.
+ * Fetched through Http\Client\Client, so redirects -- GitHub sends every
+ * asset download to its CDN -- timeouts and retries behave as everywhere else.
  */
 final class GithubReleaseSource implements ReleaseSource
 {
@@ -25,13 +28,9 @@ final class GithubReleaseSource implements ReleaseSource
     /** @var array<string, array<string, string>> version => asset name => download URL */
     private array $assets = [];
 
-    /**
-     * @param ?\Closure(string): string $http GET a URL and return the body, or throw; for tests
-     */
     public function __construct(
+        private readonly Client $http = new Client(),
         private readonly string $repository = self::REPOSITORY,
-        private readonly float $timeout = 30.0,
-        private readonly ?\Closure $http = null,
     ) {}
 
     public function latest(): string
@@ -124,55 +123,22 @@ final class GithubReleaseSource implements ReleaseSource
 
     private function get(string $url): string
     {
-        if ($this->http !== null) {
-            return ($this->http)($url);
-        }
-
-        if (!\str_starts_with($url, 'https://')) {
-            throw UpdateException::download($url, 'only https is used');
-        }
-
-        $context = \stream_context_create([
-            'http' => [
-                'method' => 'GET',
-                'timeout' => $this->timeout,
-                'follow_location' => 1,
-                'ignore_errors' => true,
-                'header' => "User-Agent: lphp-framework-update\r\nAccept: application/vnd.github+json, application/octet-stream\r\n",
-            ],
-        ]);
-
-        // A stream rather than file_get_contents(), for its headers:
-        // stream_get_meta_data() gives them on every supported PHP, where
-        // http_get_last_response_headers() is 8.4+ and $http_response_header
-        // is deprecated from 8.5.
-        $stream = @\fopen($url, 'r', false, $context);
-
-        if ($stream === false) {
-            throw UpdateException::download($url, 'no answer');
-        }
-
         try {
-            $meta = \stream_get_meta_data($stream);
-            $body = \stream_get_contents($stream);
-        } finally {
-            \fclose($stream);
+            // GitHub's API answers only a request that names itself, and a
+            // release download can take a while; one retry covers a blip.
+            $response = $this->http
+                ->accept('application/vnd.github+json, application/octet-stream')
+                ->timeout(120)
+                ->retry(1, 500)
+                ->get($url);
+        } catch (HttpClientException $e) {
+            throw UpdateException::download($url, $e->getMessage());
         }
 
-        // The http wrapper lists the headers of every response, redirects
-        // included; the last status line is the answer.
-        $status = 0;
-
-        foreach (\is_array($meta['wrapper_data'] ?? null) ? $meta['wrapper_data'] : [] as $header) {
-            if (\is_string($header) && \preg_match('#^HTTP/\S+\s+(\d{3})#', $header, $match) === 1) {
-                $status = (int) $match[1];
-            }
+        if ($response->status() !== 200) {
+            throw UpdateException::download($url, $response->status() === 0 ? 'no answer' : 'HTTP ' . $response->status());
         }
 
-        if ($body === false || $status !== 200) {
-            throw UpdateException::download($url, $status === 0 ? 'no answer' : 'HTTP ' . $status);
-        }
-
-        return $body;
+        return $response->body();
     }
 }

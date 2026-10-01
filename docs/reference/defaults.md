@@ -35,9 +35,11 @@ A real environment variable beats the same name in `.env`.
 | `APP_TIMEZONE` | `app.timezone` | UTC | Timezone for every date. An unknown name stops the boot. |
 | `MEMORY_LIMIT` | `app.memory_limit` | unset (php.ini) | PHP memory_limit: 256M, 1G, -1. Workers stop at 80% of it. |
 | `MAX_EXECUTION_TIME` | `app.max_execution_time` | unset (php.ini) | Seconds a web request may run; 0 = no limit. Not the console. |
-| `APP_KEY` | `security.key` | unset | The one secret: signs CSRF tokens. php laika security:key. |
+| `APP_KEY` | `security.key` | unset | The one secret: signs CSRF tokens, and is what Encrypter derives its key from. php laika security:key. |
+| `APP_PREVIOUS_KEYS` | `security.previous_keys` | unset | Retired keys, comma separated: decrypt only, for rotating APP_KEY. |
 | `CSRF_ENABLED` | `security.csrf.enabled` | true | CSRF checks on unsafe methods. |
 | `MAX_REQUEST_BYTES` | `security.max_request_bytes` | 8388608 (8 MiB) | Larger request bodies get 413. |
+| `security.webhooks` | `[]` | — |
 | `LOCALIZATION_COUNTRY_HEADER` | `localization.country_header` | unset | CDN country header, e.g. CF-IPCountry; trusted proxies only. |
 | `LOCALIZATION_MAXMIND_DATABASE` | `localization.maxmind_database` | unset | Local GeoLite2/GeoIP2 Country or City .mmdb file. |
 | `DB_DSN` | `database.connections` | unset | One database with no config file, e.g. mysql:host=…;dbname=…. |
@@ -53,6 +55,23 @@ A real environment variable beats the same name in `.env`.
 | `QUEUE_TRIES` | `queue.tries` | 3 | Attempts before a job is recorded as failed. |
 | `QUEUE_TIMEOUT` | `queue.timeout` | 60 | Seconds a job may run / hold its reservation. |
 | `QUEUE_MAX_MEMORY` | `queue.max_memory` | unset (80% of MEMORY_LIMIT) | A worker stops between jobs at this size: 128M. |
+| `APP_URL` | `app.url` | unset | The public address; links in emails are built from it. |
+| `STORAGE_DISK` | `storage.default` | local | The disk `$storage->disk()` means without a name. |
+| `S3_BUCKET` | `storage.disks.s3.bucket` | unset | Bucket of the `s3` disk. |
+| `S3_REGION` | `storage.disks.s3.region` | us-east-1 | |
+| `S3_KEY` | `storage.disks.s3.key` | unset | Access key id. |
+| `S3_SECRET` | `storage.disks.s3.secret` | unset | Secret access key. |
+| `S3_ENDPOINT` | `storage.disks.s3.endpoint` | unset (AWS) | R2, Spaces, B2, MinIO: the service's endpoint. |
+| `S3_PATH_STYLE` | `storage.disks.s3.path_style` | false | Bucket in the path rather than the host name. |
+| `S3_URL` | `storage.disks.s3.url` | unset | Public base URL (a CDN) for `url()`. |
+| `MAIL_TRANSPORT` | `mail.transport` | log | log (send nothing), smtp, sendmail or array. |
+| `MAIL_FROM_ADDRESS` | `mail.from.address` | unset | The From of a message that sets none. |
+| `MAIL_FROM_NAME` | `mail.from.name` | empty | |
+| `MAIL_HOST` | `mail.smtp.host` | 127.0.0.1 | |
+| `MAIL_PORT` | `mail.smtp.port` | 587 | |
+| `MAIL_ENCRYPTION` | `mail.smtp.encryption` | tls | tls (STARTTLS), ssl or none. |
+| `MAIL_USERNAME` | `mail.smtp.username` | unset | |
+| `MAIL_PASSWORD` | `mail.smtp.password` | unset | |
 | `SESSION_STORE` | `session.store` | file | file, database or memory (tests). |
 | `SESSION_CONNECTION` | `session.connection` | empty (default connection) | Connection for the database session store. |
 | `SESSION_IDLE` | `session.idle` | 7200 | Seconds of inactivity before a session ends. |
@@ -86,6 +105,7 @@ the defaults with no environment variable set.
 | `app.env` | `'production'` | `APP_ENV` |
 | `app.debug` | `false` | `APP_DEBUG` |
 | `app.timezone` | `'UTC'` | `APP_TIMEZONE` |
+| `app.url` | `null` | `APP_URL` |
 | `app.memory_limit` | `null` | `MEMORY_LIMIT` |
 | `app.max_execution_time` | `null` | `MAX_EXECUTION_TIME` |
 | `app.editor` | `null` | `APP_EDITOR` |
@@ -97,6 +117,8 @@ the defaults with no environment variable set.
 |---|---|---|
 | `http.base_path` | `null` | — |
 | `http.trusted_proxies` | `[]` | — |
+| `http.client.timeout` | `30` | — |
+| `http.client.user_agent` | `null` (LPHP/&lt;version&gt;) | — |
 
 ### `database`
 
@@ -114,6 +136,26 @@ the defaults with no environment variable set.
 | `assets.manifests` | `true` | — |
 | `assets.max_age` | `31536000` | — |
 
+### `storage`
+
+| Key | Default | Environment variable |
+|---|---|---|
+| `storage.default` | `'local'` | `STORAGE_DISK` |
+| `storage.disks.local.driver` | `'local'` | — |
+| `storage.disks.local.root` | `'system/Storage'` | — |
+| `storage.disks.local.url` | `null` | — |
+| `storage.disks.s3.driver` | `'s3'` | — |
+| `storage.disks.s3.bucket` | `unset` | `S3_BUCKET` |
+| `storage.disks.s3.region` | `'us-east-1'` | `S3_REGION` |
+| `storage.disks.s3.key` | `unset` | `S3_KEY` |
+| `storage.disks.s3.secret` | `unset` | `S3_SECRET` |
+| `storage.disks.s3.endpoint` | `unset` | `S3_ENDPOINT` |
+| `storage.disks.s3.path_style` | `false` | `S3_PATH_STYLE` |
+| `storage.disks.s3.url` | `unset` | `S3_URL` |
+| `storage.disks.s3.root` | `''` | — |
+
+See [Storage](storage.md).
+
 ### `cache`
 
 | Key | Default | Environment variable |
@@ -123,6 +165,21 @@ the defaults with no environment variable set.
 | `cache.table` | `'cache'` | — |
 | `cache.ttl` | `3600` | `CACHE_TTL` |
 | `cache.namespace` | `''` | — |
+
+### `mail`
+
+| Key | Default | Environment variable |
+|---|---|---|
+| `mail.transport` | `'log'` | `MAIL_TRANSPORT` |
+| `mail.from.address` | `unset` | `MAIL_FROM_ADDRESS` |
+| `mail.from.name` | `''` | `MAIL_FROM_NAME` |
+| `mail.smtp.host` | `'127.0.0.1'` | `MAIL_HOST` |
+| `mail.smtp.port` | `587` | `MAIL_PORT` |
+| `mail.smtp.encryption` | `'tls'` | `MAIL_ENCRYPTION` |
+| `mail.smtp.username` | `unset` | `MAIL_USERNAME` |
+| `mail.smtp.password` | `unset` | `MAIL_PASSWORD` |
+| `mail.smtp.timeout` | `30` | — |
+| `mail.sendmail.path` | `'/usr/sbin/sendmail'` | — |
 
 ### `queue`
 
@@ -146,6 +203,7 @@ the defaults with no environment variable set.
 | Key | Default | Environment variable |
 |---|---|---|
 | `security.key` | `unset` | `APP_KEY` |
+| `security.previous_keys` | `unset` | `APP_PREVIOUS_KEYS` |
 | `security.csrf.enabled` | `true` | `CSRF_ENABLED` |
 | `security.csrf.check_origin` | `true` | — |
 | `security.csrf.lifetime` | `7200` | — |
@@ -162,6 +220,13 @@ the defaults with no environment variable set.
 |---|---|---|
 | `auth.password.options` | `[]` | — |
 | `auth.guest_roles` | `[]` | — |
+| `auth.passwords.ttl` | `3600` | — |
+| `auth.passwords.route` | `'password.reset'` | — |
+| `auth.verification.ttl` | `86400` | — |
+| `auth.verification.route` | `'email.verify'` | — |
+| `auth.social.register` | `false` | — |
+| `auth.social.providers` | `[]` | — |
+| `auth.two_factor.issuer` | `'LPHP'` | — |
 
 ### `session`
 
@@ -264,3 +329,11 @@ the defaults with no environment variable set.
 |---|---|---|
 | `modules.paths` | `['modules']` | — |
 | `modules.disabled` | `[]` | — |
+
+### `features`
+
+| Key | Default | Environment variable |
+|---|---|---|
+| `features` | `[]` | — |
+
+See [Feature flags](features.md).

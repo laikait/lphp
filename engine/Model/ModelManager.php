@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Engine\Model;
 
+use App\Engine\Security\Encrypter;
 use App\Engine\Support\Coercion;
 
 /**
@@ -46,6 +47,15 @@ final class ModelManager
 
     /** @var array<class-string, list<\ReflectionParameter>> */
     private array $constructors = [];
+
+    /** @var array<class-string, list<string>> the #[Encrypted] parameters of each class */
+    private array $encrypted = [];
+
+    /**
+     * @param ?Encrypter $encrypter for #[Encrypted] properties; without one,
+     *                              a model that has any is refused
+     */
+    public function __construct(private readonly ?Encrypter $encrypter = null) {}
 
     // ---- hydration --------------------------------------------------------
 
@@ -212,6 +222,11 @@ final class ModelManager
 
             /** @var mixed $value */
             $value = $row[$name];
+
+            if (\in_array($name, $this->encryptedParameters($model, $reflection), true)) {
+                $value = $this->open($model, $name, $value);
+            }
+
             $arguments[$name] = $this->convert($model, $parameter, $value);
         }
 
@@ -220,6 +235,93 @@ final class ModelManager
         } catch (\TypeError|\ValueError|\ArgumentCountError $e) {
             throw ModelException::constructorRejected($model, $e->getMessage());
         }
+    }
+
+    // ---- encrypted attributes ---------------------------------------------
+
+    /**
+     * A row as it must be stored: every #[Encrypted] attribute of $class in it
+     * encrypted. Called by the repository on every write; the rest of the row
+     * is returned untouched.
+     *
+     * @param string               $class a model or read model class; anything else passes the row through
+     * @param array<string, mixed> $row
+     *
+     * @return array<string, mixed>
+     */
+    public function seal(string $class, array $row): array
+    {
+        if (!\class_exists($class)) {
+            return $row;
+        }
+
+        foreach ($this->encryptedParameters($class, new \ReflectionClass($class)) as $name) {
+            if (!\array_key_exists($name, $row) || $row[$name] === null) {
+                continue;
+            }
+
+            if (!\is_string($row[$name])) {
+                throw ModelException::encryptedNotString($class, $name, \get_debug_type($row[$name]));
+            }
+
+            $encrypter = $this->encrypter ?? throw ModelException::encrypterMissing($class, $name);
+            $row[$name] = $encrypter->encrypt($row[$name], self::purpose($class, $name));
+        }
+
+        return $row;
+    }
+
+    /** The context an attribute is encrypted under, so a token is good in one column only. */
+    public static function purpose(string $class, string $attribute): string
+    {
+        return $class . '.' . $attribute;
+    }
+
+    private function open(string $model, string $name, mixed $value): mixed
+    {
+        if ($value === null) {
+            return null;
+        }
+
+        if (!\is_string($value)) {
+            throw ModelException::notDecryptable($model, $name);
+        }
+
+        $encrypter = $this->encrypter ?? throw ModelException::encrypterMissing($model, $name);
+
+        return $encrypter->decrypt($value, self::purpose($model, $name))
+            ?? throw ModelException::notDecryptable($model, $name);
+    }
+
+    /**
+     * @param class-string             $class
+     * @param \ReflectionClass<object> $reflection
+     *
+     * @return list<string>
+     */
+    private function encryptedParameters(string $class, \ReflectionClass $reflection): array
+    {
+        if (isset($this->encrypted[$class])) {
+            return $this->encrypted[$class];
+        }
+
+        $names = [];
+
+        foreach ($this->parameters($class, $reflection) as $parameter) {
+            if ($parameter->getAttributes(Encrypted::class) === []) {
+                continue;
+            }
+
+            $type = $parameter->getType();
+
+            if (!$type instanceof \ReflectionNamedType || $type->getName() !== 'string') {
+                throw ModelException::encryptedNotString($class, $parameter->getName(), (string) $type);
+            }
+
+            $names[] = $parameter->getName();
+        }
+
+        return $this->encrypted[$class] = $names;
     }
 
     /**

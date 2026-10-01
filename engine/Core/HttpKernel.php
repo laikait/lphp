@@ -34,6 +34,7 @@ use App\Engine\Routing\Router;
  *   request.received    hook
  *   router.path         filter  the path about to be matched
  *   asset.response      filter  an asset response, when the path was one
+ *   ... a 503, while `php laika down` (Core\Maintenance) ...
  *   ... the MCP endpoint, when the path is it (MCP\Transport\HttpTransport) ...
  *   route.match         filter  the RouteMatch
  *   ... dispatch (see Dispatcher) ...
@@ -51,6 +52,7 @@ final class HttpKernel
         private readonly FilterEngine $filters,
         private readonly ErrorHandler $errors,
         private readonly HttpTransport $mcp,
+        private readonly Maintenance $maintenance,
     ) {}
 
     public function handle(Request $request): Response
@@ -77,10 +79,18 @@ final class HttpKernel
                 return $served;
             }
 
-            // MCP is not a route either: one exact path, answered by the
-            // protocol's own rules rather than by route meta and dispatch.
-            // Off unless configured, and then one string comparison.
-            if ($this->mcp->handles($path)) {
+            // Maintenance mode after assets -- the 503 page keeps its
+            // stylesheet -- and before anything that runs the application.
+            // While up this is one is_file(). Down, it throws a 503, answers
+            // the bypass link, or lets an allowed visitor through.
+            $bypass = $this->maintenance->intercept($request);
+
+            if ($bypass !== null) {
+                $response = $bypass;
+            } elseif ($this->mcp->handles($path)) {
+                // MCP is not a route either: one exact path, answered by the
+                // protocol's own rules rather than by route meta and dispatch.
+                // Off unless configured, and then one string comparison.
                 $response = $this->mcp->handle($request);
             } else {
                 $match = $this->filters->apply(

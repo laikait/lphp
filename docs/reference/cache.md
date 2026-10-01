@@ -159,6 +159,41 @@ instead.
 Reading an expired entry deletes it on the way past, so anything still being
 asked for tidies up on its own.
 
+## Locks
+
+Only one process at a time — one worker generating a report, one request
+rebuilding a cache entry:
+
+```php
+$lock = $cache->lock('report.' . $id, seconds: 120);
+
+if ($lock->get()) {
+    try {
+        // ... the work ...
+    } finally {
+        $lock->release();
+    }
+}
+
+// Or wait up to 5 seconds for it, run, and release whatever happens:
+$cache->lock('report.' . $id, 120)->block(5, fn() => $this->build($id));
+```
+
+- **Every lock expires** after its seconds, so a process killed while holding
+  one does not hold it for ever. Choose a little more than the longest run.
+- **Only its holder releases it.** Each `Lock` carries a random owner token;
+  `release()` removes the lock only while it still holds that token, so a
+  process that overran and lost its lock cannot release the next holder's.
+  Another process can release it with `$cache->lock($name, $seconds, $owner)`.
+- **As wide as the store.** The **file** store locks across every process on one
+  machine, the **database** store across machines, the **array** store within
+  one process only. The **null** store refuses: a lock everyone gets is no lock.
+- `block()` throws `CacheException` if the lock is not free in time.
+
+A store of your own supports locks by implementing `AtomicStore`: `add()` (store
+only if nothing unexpired is there, atomically) and `forgetIf()` (remove only if
+it still holds the given value). The conformance suite checks both.
+
 ## If it doesn't work
 
 | What you see | Why | Fix |

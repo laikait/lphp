@@ -172,6 +172,22 @@ final class Cache
         return $value;
     }
 
+    /**
+     * A lock named $name, held for at most $seconds. See Lock.
+     *
+     * @param ?string $owner another holder's token, to release a lock taken elsewhere
+     *
+     * @throws CacheException when the store cannot lock (the null store, or one of your own without AtomicStore)
+     */
+    public function lock(string $name, int $seconds, ?string $owner = null): Lock
+    {
+        if (!$this->store instanceof AtomicStore) {
+            throw CacheException::cannotLock($this->store->describe());
+        }
+
+        return new Lock($this->store, $this->qualify(Lock::PREFIX . $name), \max(1, $seconds), $owner);
+    }
+
     /** The key as the store sees it, namespace included. */
     public function qualify(string $key): string
     {

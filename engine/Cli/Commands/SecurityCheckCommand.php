@@ -10,6 +10,7 @@ use App\Engine\Auth\Providers\EmptyProvider;
 use App\Engine\Cli\Output;
 use App\Engine\Config\Config;
 use App\Engine\Core\Application;
+use App\Engine\Core\Maintenance;
 use App\Engine\Network\Cidr;
 use App\Engine\Routing\Router;
 use App\Engine\Security\Counters\MemoryStore;
@@ -67,6 +68,7 @@ final class SecurityCheckCommand
         private readonly Router $router,
         private readonly SessionManager $sessions,
         private readonly AuthManager $auth,
+        private readonly Maintenance $maintenance,
     ) {}
 
     public function __invoke(Output $output, bool $verbose = false): int
@@ -74,6 +76,7 @@ final class SecurityCheckCommand
         $production = $this->config->string('app.env', 'production') === 'production';
 
         $findings = [
+            ...$this->checkMaintenance(),
             ...$this->checkDebug($production),
             ...$this->checkKey(),
             ...$this->checkCsrf(),
@@ -82,6 +85,7 @@ final class SecurityCheckCommand
             ...$this->checkSessions($production),
             ...$this->checkAccess(),
             ...$this->checkHeaders($production),
+            ...$this->checkMail($production),
             ...$this->checkWebServer(),
             ...$this->checkExtensions(),
         ];
@@ -156,19 +160,52 @@ final class SecurityCheckCommand
         return [[self::OK, $debug ? 'Debug mode is on (not production).' : 'Debug mode is off.', '']];
     }
 
-    /** @return list<array{string, string, string}> */
-    private function checkKey(): array
+    /**
+     * Not a weakness, but the one thing worth seeing first: a deployment
+     * that ran `down` and never `up` is a site that answers 503 to everyone.
+     *
+     * @return list<array{string, string, string}>
+     */
+    private function checkMaintenance(): array
     {
-        if ($this->signer->isConfigured()) {
-            return [[self::OK, 'APP_KEY is set, so tokens are signed.', '']];
+        $state = $this->maintenance->state();
+
+        if ($state === null) {
+            return [[self::OK, 'The application is up.', '']];
         }
 
         return [[
             self::WARN,
-            'No APP_KEY, so CSRF tokens are not signed.',
-            'They still work. What is lost is protection against a sibling subdomain planting a '
-            . 'matching cookie and field. Generate one: php laika security:key',
+            \sprintf('The application is down for maintenance%s.', $state['since'] > 0 ? ' since ' . \gmdate('Y-m-d H:i', $state['since']) . ' UTC' : ''),
+            'Every web request gets 503. php laika up brings it back.',
         ]];
+    }
+
+    /** @return list<array{string, string, string}> */
+    private function checkKey(): array
+    {
+        if (!$this->signer->isConfigured()) {
+            return [[
+                self::WARN,
+                'No APP_KEY, so CSRF tokens are not signed and nothing can be encrypted.',
+                'Tokens still work. What is lost is protection against a sibling subdomain planting a '
+                . 'matching cookie and field, and Encrypter refuses to run. Generate one: php laika security:key',
+            ]];
+        }
+
+        $findings = [[self::OK, 'APP_KEY is set, so tokens are signed and Encrypter can run.', '']];
+        $previous = \array_filter(\array_map('trim', \explode(',', $this->config->string('security.previous_keys') ?? '')));
+
+        if ($previous !== []) {
+            $findings[] = [
+                self::WARN,
+                \sprintf('%d retired key(s) in APP_PREVIOUS_KEYS are still accepted for decrypting.', \count($previous)),
+                'They exist for rotation. Once what they encrypted has been decrypted and encrypted again, '
+                . 'remove them: a leaked old key keeps working for as long as it is listed.',
+            ];
+        }
+
+        return $findings;
     }
 
     /** @return list<array{string, string, string}> */
@@ -430,6 +467,28 @@ final class SecurityCheckCommand
         }
 
         return $findings;
+    }
+
+    /**
+     * The log transport is the safe default and the wrong one in production:
+     * every password reset is written to a log and never arrives.
+     *
+     * @return list<array{string, string, string}>
+     */
+    private function checkMail(bool $production): array
+    {
+        $transport = $this->config->string('mail.transport', 'log') ?? 'log';
+
+        if ($production && \in_array($transport, ['log', 'array'], true)) {
+            return [[
+                self::WARN,
+                \sprintf('mail.transport is "%s", so no email is sent.', $transport),
+                'Messages are written to the log (or kept in memory) instead. If this application sends '
+                . 'email, set MAIL_TRANSPORT=smtp or sendmail; if it sends none, nothing is wrong.',
+            ]];
+        }
+
+        return [[self::OK, \sprintf('Mail goes out through %s.', $transport), '']];
     }
 
     /** @return list<array{string, string, string}> */

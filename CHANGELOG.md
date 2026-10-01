@@ -11,6 +11,123 @@ public, is in [`STABILITY.md`](STABILITY.md).
 
 ## [Unreleased]
 
+### Added
+
+- **Signed links.** `Routing\UrlSigner::signed('route.name', $parameters,
+  '+7 days')` makes a URL whose path and query are signed by `Signer`; a route
+  with `meta(['signed' => true])` refuses a missing or changed signature with 403
+  and an expired one with 410. See [Routing](docs/reference/routing.md#signed-links).
+- **Cache locks.** `$cache->lock('name', 60)` with `get()`, `block($wait,
+  $callback)` and `release()`; every lock expires, and only its holder's token
+  releases it. Built on a new `Cache\AtomicStore` (`add()`, `forgetIf()`) that
+  the file store implements with `flock`, the database store with its primary
+  key, and the array store in memory. See [Cache](docs/reference/cache.md#locks).
+- **Plural translations.** A message may be an array of CLDR plural forms
+  (`one`, `few`, `other`… and `=0`-style exact counts), and the `count`
+  parameter picks one by the language's own rules through ICU — six forms for
+  Arabic, `0` as `one` in Bengali. See
+  [Localization](docs/reference/localization.md#plurals).
+- **Encrypted cookies and model attributes.** `Cookie::encrypted($encrypter,
+  'cart', $value)` and `$request->decryptedCookie($encrypter, 'cart')`, bound to
+  the cookie's name; and `#[Encrypted]` on a model's string property, encrypted
+  by the repository on every write and decrypted on hydration under the purpose
+  `<Model>.<property>`. A value that does not decrypt is a `ModelException`. See
+  [Models](docs/reference/models.md#encrypted-attributes).
+- **Storage.** `$storage->disk('uploads')` with `put`, `get`, `readStream`,
+  `exists`, `delete`, `size`, `lastModified`, `files`, `url` and
+  `temporaryUrl`, over three drivers: `local` (rooted, symlink-safe, atomic
+  writes; temporary URLs are signed links to the Shared module's new
+  `GET /files/{disk}` route), `s3` (S3, R2, Spaces, B2, MinIO through the HTTP
+  client, with AWS Signature V4 written in, multipart uploads above 16 MB and
+  presigned URLs), and `memory`, with `Storage::fake()` for tests.
+  `UploadPolicy::storeOn()` puts an upload on any disk, and `Signer::hmac()`
+  computes an HMAC under a protocol's own key. New `storage` configuration and
+  `STORAGE_DISK` and `S3_*` variables. See [Storage](docs/reference/storage.md).
+- **Password reset and email verification.** `Auth\PasswordReset`
+  (`request()`, `check()`, `reset()`) and `Auth\EmailVerification` (`send()`,
+  `verify()`) mail a link and check its token; the routes and pages stay the
+  application's. Tokens are stateless and signed: a reset link works once,
+  because it is bound to the password hash it replaces, and a verification link
+  to the address it was sent to. Requests give the same answer for every address
+  and are rate limited per address and per IP. The provider opts in with the new
+  `PasswordResettable` and `EmailVerifiable` interfaces. Links are built from
+  the new `APP_URL` (`Routing\AppUrl`), never from the `Host` header. Hooks
+  `auth.password_reset_requested`, `auth.password_reset` and
+  `auth.email_verified`. See [Authentication](docs/reference/auth.md#password-reset-and-email-verification).
+- **Social login.** Sign in with Google, Microsoft, Apple, GitHub, Facebook or
+  any OpenID Connect issuer, configured under `auth.social.providers`; the
+  Shared module declares `/auth/{provider}` and its callback. The
+  authorization-code flow with PKCE, `state` and `nonce`, kept in an encrypted
+  cookie so Apple's cross-site POST works. The `id_token` is verified against
+  the issuer's published keys (RS/ES 256–512, written in as `Auth\Social\Jwt`)
+  and its claims checked. An existing account is linked by email only when the
+  provider says the email is verified. Providers opt in with `SocialAccounts`;
+  the `social.account` filter has the last word. See
+  [Authentication](docs/reference/auth.md#signing-in-with-google-microsoft-apple-github-or-facebook).
+- **Receiving webhooks.** `Security\Webhooks::receive('stripe', $request)`
+  verifies a delivery against `security.webhooks` and returns its id, type and
+  payload: Stripe, GitHub, Shopify, Standard Webhooks (Svix, Resend, Clerk) and a
+  configurable HMAC, with secrets that may be rotated. A signed timestamp
+  outside five minutes is refused, and an id already received comes back as a
+  duplicate, through the cache's atomic `add()`. See
+  [Security](docs/reference/security.md#receiving-webhooks).
+- **Two-factor login.** `Auth\TwoFactor` puts an authenticator-app code
+  between the password and the login: `attempt()` returns `LoggedIn`,
+  `ChallengeRequired` or `Failed`, and `challenge()` takes the code or a
+  recovery code, five tries within five minutes. Turning it on is `begin()`
+  (a secret and its QR code) then `confirm()`, which returns ten recovery codes
+  that are stored hashed. `Auth\Totp` implements RFC 6238 and passes its test
+  vectors; a used code is refused. `Support\QrCode` draws QR codes as SVG
+  with no library, matching an established encoder module for module. Providers
+  opt in with `TwoFactorAccounts`. New `AuthManager::verify()`, `attempt()`
+  without the login. See [Authentication](docs/reference/auth.md#two-factor-login).
+- **Feature flags.** A new `features` configuration section: a flag is true,
+  false, or rules (`accounts`, `roles`, `percent`), and any one rule switches it
+  on. A percentage rollout is stable per person and only grows as it is raised.
+  Use `Feature\Features::active()`, `feature()` in templates, or
+  `meta(['feature' => …])` on a route, which answers 404 while the flag is off.
+  The `feature.active` filter has the last word. Rules that do not parse fail
+  loudly. See [Feature flags](docs/reference/features.md).
+- **More health checks.** `GET /health` also checks mail (an SMTP greeting,
+  EHLO and STARTTLS with no login, through the new `SmtpTransport::probe()`),
+  storage (a file written and read back on the default disk or
+  `Shared.health.disks`) and maintenance mode. Mail and storage answers are
+  reused for five minutes. A new `warn` status covers a queue over
+  `Shared.health.queue_backlog` and maintenance mode, and reports without
+  failing. A module adds its own check with the `health.checks` filter. See
+  [Running](docs/operations/running.md#watching-it).
+
+- **Encryption.** `Security\Encrypter` hides a value and detects tampering:
+  libsodium XChaCha20-Poly1305 with a fresh nonce each time, a purpose bound into
+  every token, and a key derived from `APP_KEY` through HKDF so it is never the
+  signing key. `decrypt()` returns `null` for anything wrong. `APP_PREVIOUS_KEYS`
+  lets `APP_KEY` rotate (decrypt only), and `security:check` warns while one is
+  set. See [Security](docs/reference/security.md#encryption).
+- **An HTTP client.** `Http\Client\Client` sends requests to other services:
+  JSON and form bodies, base URL, tokens, timeouts, redirects followed by the
+  client (credentials dropped when they leave the host), retries for failures
+  that might pass (never a POST unless asked), and `publicOnly()` to refuse
+  private addresses for URLs a user supplied. curl when loaded, PHP's stream
+  wrapper otherwise; `FakeTransport` for tests. `http.client.request` and
+  `http.client.sent` are its extension points. The framework updater now uses
+  it. See [HTTP client](docs/reference/http-client.md).
+- **Mail.** `Mail\Mailer` sends a `Message` now or through the queue
+  (`queue()`), with the body from text, HTML or a template view (`<view>` and an
+  optional `<view>.text`), attachments, and line breaks in headers refused.
+  Transports: SMTP (STARTTLS required when asked for, AUTH PLAIN/LOGIN),
+  sendmail through the system command executor, `log` — the default, which
+  sends nothing — and `array` for tests. `mail.message`, `mail.allowed` and
+  `mail.sent` are its extension points, and `security:check` warns when
+  production only logs mail. See [Mail](docs/reference/mail.md).
+- **Maintenance mode.** `php laika down` makes every web request a 503 with
+  `Retry-After` and a new `errors/503` page showing `--message`; assets are
+  still served. `--allow` lets addresses or CIDR blocks in (through the
+  trusted-proxy rules), and `--secret` gives a `/?lphp_bypass=<secret>` link
+  that sets a cookie for one browser, valid for that maintenance window only.
+  `php laika up` ends it; the console, workers and scheduler are unaffected, and
+  `security:check` warns while the application is down. See
+  [Running](docs/operations/running.md#maintenance-mode).
+
 ## [3.0.1] - 2026-10-01
 
 ### Changed
