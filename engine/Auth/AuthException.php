@@ -118,4 +118,20 @@ final class AuthException extends FrameworkException
     {
         return new self('A login identifier cannot be an empty string.');
     }
+
+    public static function providerLacks(string $interface, string $provider, string $feature): self
+    {
+        return new self(\sprintf(
+            '%s needs the UserProvider to implement %s, and %s does not. Implement it on the provider '
+            . 'registered as UserProvider.',
+            $feature,
+            $interface,
+            $provider,
+        ));
+    }
+
+    public static function noEmail(string $id): self
+    {
+        return new self(\sprintf('Account "%s" has no email address to send to.', $id));
+    }
 }

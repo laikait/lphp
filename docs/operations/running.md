@@ -93,11 +93,13 @@ to open besides the web server's.
 ## Every deployment
 
 ```bash
+php laika down --retry=60          # optional: the web gets a 503 page meanwhile
 composer install --no-dev --optimize-autoloader
 php laika cache:clear
 php laika cache:warm
 php laika migrate
 php laika security:check
+php laika up
 ```
 
 - **`cache:warm`** prepares the configuration and module list, so a request reads
@@ -120,6 +122,32 @@ php laika security:check
 
 Then run the `curl` checks in [Deployment and security](deployment.md) once more,
 to confirm the web server still serves no source files.
+
+## Maintenance mode
+
+```bash
+php laika down --retry=120 --message="Back at 14:00 UTC" --allow=203.0.113.7,10.0.0.0/8 --secret=preview-token
+php laika up
+```
+
+While down, every web request gets **503** with `Retry-After` and the
+`errors/503` page (the `--message` is shown on it), so search engines and
+clients know to come back rather than treating the site as gone. Assets are
+still served, so the page keeps its stylesheet.
+
+Who still gets in:
+
+- **`--allow`**: addresses and CIDR blocks. It is the client address
+  `Request::ip()` reports, so it honours `http.trusted_proxies` and cannot be
+  claimed with a forged `X-Forwarded-For`.
+- **`--secret`**: visiting `/?lphp_bypass=<secret>` once redirects to the same
+  page without it and sets a cookie that lets that browser in until `up`. The
+  cookie is not the secret, and a later `down` needs a new visit.
+
+**Not affected:** the console, queue workers and the scheduler. Stop the workers
+yourself (`systemctl stop <name>-worker@default`) if a migration needs the queue
+quiet. The state is a file in `system/Runtime/`, per machine: run `down` and `up`
+on each web server. `security:check` warns while the application is down.
 
 ## Cron
 
@@ -270,19 +298,45 @@ as a second machine serves the same site:
 
   ```json
   {"status":"ok","checks":{"database":{"status":"ok"},"cache":{"status":"ok"},
-   "queue":{"status":"ok","pending":{"default":3}},"disk":{"status":"ok"}}}
+   "queue":{"status":"ok","pending":{"default":3}},"disk":{"status":"ok"},
+   "mail":{"status":"ok"},"storage":{"status":"ok"},"maintenance":{"status":"ok"}}}
   ```
 
   | Check | Fails when |
   |---|---|
   | `database` | the default connection cannot run `SELECT 1` (skipped with no database) |
   | `cache` | a value written to the cache does not come back |
-  | `queue` | the queue store cannot be read; a backlog is reported, never a failure (skipped for `sync`) |
+  | `queue` | the queue store cannot be read. A backlog is reported; over `Shared.health.queue_backlog` (1000) it is `warn`, never a failure (skipped for `sync`) |
   | `disk` | `system/` is not writable, or has less than 50 MB free |
+  | `mail` | the SMTP server does not answer a greeting, EHLO and STARTTLS (no login, no message), or sendmail is not executable (skipped for `log` and `array`) |
+  | `storage` | a file written to a disk does not come back: the default disk, or those in `Shared.health.disks` |
+  | `maintenance` | never. `warn` while `php laika down` is on, which only an allowed address can see |
 
-  It names checks and states only — never a DSN, a path or an error message.
-  With `APP_DEBUG=true` a `details` field says why a check failed. It is never
-  cached. To check something else, declare `GET /health` in your own module:
+  A check is `ok`, `warn`, `fail` or `skipped`, and only `fail` makes the answer
+  503. A load balancer acts on the code, and a person reads `warn`.
+
+  **Mail and storage are checked at most every five minutes**
+  (`Shared.health.cache_seconds`), with the answer reused in between, because a
+  load balancer asks every few seconds and neither an SMTP relay nor an S3 bill
+  should hear about each one. Reusing the answer takes a cache store shared
+  between requests (`file` or `database`). Change these settings in
+  `config/Shared.php`.
+
+  It names checks and states only, never a DSN, a path or an error message.
+  With `APP_DEBUG=true` a `details` field says why a check failed. The response
+  itself is never cached.
+
+  **To add a check**, a module listens to the `health.checks` filter. It
+  receives name => closure, and each closure returns `['status' => …]`:
+
+  ```php
+  $module->filter('health.checks', static fn(array $checks): array => [
+      ...$checks,
+      'payments' => static fn(): array => ['status' => Gateway::reachable() ? 'ok' : 'fail'],
+  ]);
+  ```
+
+  To answer differently altogether, declare `GET /health` in your own module:
   the route declared last wins, as for `/`.
 - **`X-Request-Id`** is on every response. When a user quotes it, you can find
   every log record for that request. The same id follows the work into the queue

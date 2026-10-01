@@ -45,6 +45,14 @@ final class SecurityException extends FrameworkException
         );
     }
 
+    public static function noSodium(): self
+    {
+        return new self(
+            'Encryption needs the sodium extension, which PHP bundles but this installation has switched off. '
+            . 'Enable extension=sodium in php.ini.',
+        );
+    }
+
     public static function unusableLimit(string $limit): self
     {
         return new self(\sprintf(
@@ -59,6 +67,30 @@ final class SecurityException extends FrameworkException
         return new self(\sprintf(
             'Uploads cannot be stored in %s: the directory does not exist and could not be created.',
             $path,
+        ));
+    }
+
+    /** @param list<string> $configured */
+    public static function unknownWebhook(string $source, array $configured): self
+    {
+        return new self(\sprintf(
+            'There is no "%s" webhook. Configured under security.webhooks: %s.',
+            $source,
+            $configured === [] ? '(none)' : \implode(', ', $configured),
+        ));
+    }
+
+    public static function webhookWithoutSecret(string $source): self
+    {
+        return new self(\sprintf('The "%s" webhook has no secret, so nothing it receives can be verified.', $source));
+    }
+
+    public static function unknownWebhookFormat(string $source, string $format): self
+    {
+        return new self(\sprintf(
+            'The "%s" webhook has format "%s"; use stripe, github, shopify, standard or hmac (with an HMAC algorithm such as sha256, sha1 or sha512).',
+            $source,
+            $format,
         ));
     }
 }

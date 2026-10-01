@@ -127,4 +127,35 @@ final class ModelException extends FrameworkException
             $model,
         ));
     }
+
+    public static function notDecryptable(string $model, string $attribute): self
+    {
+        return new self(\sprintf(
+            'Cannot hydrate %s: "%s" is #[Encrypted] but the stored value does not decrypt. '
+            . 'It was written with another APP_KEY (list retired keys in APP_PREVIOUS_KEYS), '
+            . 'copied from another column, changed, or never encrypted.',
+            $model,
+            $attribute,
+        ));
+    }
+
+    public static function encryptedNotString(string $model, string $attribute, string $type): self
+    {
+        return new self(\sprintf(
+            '%s::$%s is #[Encrypted], so it must be declared string or ?string, not %s.',
+            $model,
+            $attribute,
+            $type,
+        ));
+    }
+
+    public static function encrypterMissing(string $model, string $attribute): self
+    {
+        return new self(\sprintf(
+            '%s::$%s is #[Encrypted], but this ModelManager has no Encrypter. '
+            . 'Construct it with one, or let the container build it.',
+            $model,
+            $attribute,
+        ));
+    }
 }

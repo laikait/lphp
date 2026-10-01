@@ -36,7 +36,8 @@ final class TemplateHelperSliceTest extends TestCase
         self::assertInstanceOf(TemplateHelpers::class, $helpers);
 
         self::assertSame(['money', 'badge'], \array_keys($helpers->filters()));
-        self::assertSame(['shout'], \array_keys($helpers->functions()));
+        // feature() is the engine's own; the rest came from the module.
+        self::assertSame(['feature', 'shout'], \array_keys($helpers->functions()));
         self::assertSame('Pricing', $helpers->filters()['money']->module);
         self::assertSame(0, Money::$built, 'booting built nothing');
 

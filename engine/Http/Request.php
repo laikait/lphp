@@ -6,6 +6,7 @@ namespace App\Engine\Http;
 
 use App\Engine\Network\IpAddress;
 use App\Engine\Network\IpSet;
+use App\Engine\Security\Encrypter;
 use App\Engine\Support\Unicode;
 
 /**
@@ -471,6 +472,18 @@ final class Request
     public function cookie(string $name, ?string $default = null): ?string
     {
         return $this->cookies[$name] ?? $default;
+    }
+
+    /**
+     * A cookie set with Cookie::encrypted(), decrypted: null when it is
+     * missing, was changed, was copied from another cookie, or was made with a
+     * key this application no longer has.
+     */
+    public function decryptedCookie(Encrypter $encrypter, string $name): ?string
+    {
+        $value = $this->cookies[$name] ?? null;
+
+        return $value === null || $value === '' ? null : $encrypter->decrypt($value, Cookie::purpose($name));
     }
 
     /** @return array<string, string> */

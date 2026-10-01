@@ -117,11 +117,15 @@ abstract class Repository
             unset($row[$key]);
         }
 
-        $identity = $this->source->insert($this->collection(), $key, $row)
-            ?? throw DataException::insertReturnedNoIdentity($this->collection(), $key);
-
         /** @var class-string<Model> $class */
         $class = $this->model();
+
+        // #[Encrypted] attributes are written as tokens, and the model comes
+        // back from the row as written: hydration decrypts them again.
+        $row = $this->models->seal($class, $row);
+
+        $identity = $this->source->insert($this->collection(), $key, $row)
+            ?? throw DataException::insertReturnedNoIdentity($this->collection(), $key);
 
         return $this->models->hydrate($class, [...$row, $key => $identity]);
     }
@@ -140,7 +144,7 @@ abstract class Repository
         $identity = $model->identity()
             ?? throw DataException::cannotRemoveWithoutIdentity($model::class);
 
-        $this->source->update($this->collection(), $this->key(), $identity, $changes);
+        $this->source->update($this->collection(), $this->key(), $identity, $this->models->seal($model::class, $changes));
         $model->markClean();
 
         return $model;
@@ -173,6 +177,9 @@ abstract class Repository
      */
     final protected function insertMany(array $rows): int
     {
+        $class = $this->model();
+        $rows = \array_map(fn(array $row): array => $this->models->seal($class, $row), $rows);
+
         return $this->bulk()->insertMany($this->collection(), $this->key(), $rows);
     }
 
@@ -188,7 +195,7 @@ abstract class Repository
      */
     final protected function updateWhere(Query $query, array $changes): int
     {
-        $changed = $this->bulk()->updateWhere($query, $changes);
+        $changed = $this->bulk()->updateWhere($query, $this->models->seal($this->model(), $changes));
         $this->forgetLoaded();
 
         return $changed;

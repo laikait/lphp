@@ -374,6 +374,24 @@ final class SecuritySliceTest extends TestCase
         self::assertStringContainsString('trusts every address: 0.0.0.0/0', $output);
     }
 
+    /** A retired key is a rotation in progress: worth a reminder, not a failure. */
+    public function test_security_check_reminds_about_previous_keys(): void
+    {
+        [, $output] = $this->console(
+            $this->app(['security' => ['key' => Signer::generate(), 'previous_keys' => Signer::generate()]]),
+            'security:check',
+        );
+
+        self::assertStringContainsString('1 retired key(s) in APP_PREVIOUS_KEYS', $output);
+    }
+
+    public function test_security_check_warns_when_mail_is_only_logged_in_production(): void
+    {
+        [, $output] = $this->console($this->app(['app' => ['env' => 'production']]), 'security:check');
+
+        self::assertStringContainsString('mail.transport is "log"', $output);
+    }
+
     public function test_security_key_prints_a_usable_key(): void
     {
         [$status, $output] = $this->console($this->app(), 'security:key', '--bare');

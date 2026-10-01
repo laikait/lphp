@@ -4,8 +4,8 @@ declare(strict_types=1);
 
 namespace App\Engine\Cache\Stores;
 
+use App\Engine\Cache\AtomicStore;
 use App\Engine\Cache\CacheEntry;
-use App\Engine\Cache\CacheStore;
 
 /**
  * Memory, for the length of one process.
@@ -28,7 +28,7 @@ use App\Engine\Cache\CacheStore;
  * so here and not elsewhere. The conformance test for the file store covers the
  * other half.
  */
-final class ArrayStore implements CacheStore
+final class ArrayStore implements AtomicStore
 {
     /** @var array<string, CacheEntry> */
     private array $entries = [];
@@ -73,6 +73,30 @@ final class ArrayStore implements CacheStore
 
     public function forget(string $key): bool
     {
+        unset($this->entries[$key]);
+
+        return true;
+    }
+
+    public function add(string $key, mixed $value, ?int $ttl = null): bool
+    {
+        $existing = $this->entries[$key] ?? null;
+
+        if ($existing !== null && !$existing->hasExpired()) {
+            return false;
+        }
+
+        return $this->put($key, $value, $ttl);
+    }
+
+    public function forgetIf(string $key, mixed $value): bool
+    {
+        $existing = $this->entries[$key] ?? null;
+
+        if ($existing === null || $existing->hasExpired() || $existing->value !== $value) {
+            return false;
+        }
+
         unset($this->entries[$key]);
 
         return true;

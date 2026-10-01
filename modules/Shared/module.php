@@ -13,7 +13,10 @@ use App\Engine\Http\Response;
 use App\Engine\Module\ModuleContext;
 use App\Engine\Routing\RouteCollector;
 use App\Engine\Template\TemplateManager;
+use App\Engine\Storage\Storage;
+use App\Modules\Shared\Auth\SocialSignIn;
 use App\Modules\Shared\Health\HealthCheck;
+use App\Modules\Shared\Storage\FileDownload;
 
 /**
  * The shared module.
@@ -22,14 +25,26 @@ use App\Modules\Shared\Health\HealthCheck;
  * ground: a model or service belongs here only when more than one module really
  * needs it, and it registers first so that everything else can rely on it.
  *
- * A fresh installation ships it with three things: the front page, a health
- * check, and the choice of where repositories store their data.
+ * A fresh installation ships it with five things: the front page, a health
+ * check, the route behind a local disk's signed file links, the routes for
+ * signing in with Google and the rest once one is configured, and the choice
+ * of where repositories store their data.
  */
 return static function (ModuleContext $module): void {
     $module
         ->name('Shared')
         ->version('0.1.0')
-        ->description('The front page, /health, and where repositories store their data.');
+        ->description('The front page, /health, signed file links, social sign-in, and where repositories store their data.');
+
+    // GET /health's thresholds, as Shared.health.* (config/Shared.php to change them).
+    $module->config(['health' => [
+        // A queue holding more jobs than this is a warning, never a failure.
+        'queue_backlog' => 1000,
+        // How long a mail or storage check's answer is reused; 0 asks every time.
+        'cache_seconds' => 300,
+        // The disks the storage check writes to; empty means the default disk.
+        'disks' => [],
+    ]]);
 
     $module->services(static function (ServiceRegistrar $services): void {
         // Where every repository in the application reads and writes.
@@ -72,5 +87,17 @@ return static function (ModuleContext $module): void {
         // For a load balancer or an uptime monitor: 200 when this instance can
         // serve, 503 when it cannot. Replaceable the same way as "/".
         $routes->get('/health', HealthCheck::class)->name('health')->meta(['api' => true]);
+
+        // Where a local disk's temporaryUrl() points: a signed link, refused
+        // with 403 when changed and 410 once expired, before the handler runs.
+        $routes->get('/files/{disk}', FileDownload::class)->name(Storage::ROUTE)->meta(['signed' => true]);
+
+        // Sign in with the providers under auth.social.providers; a 404 for
+        // any other. The callback takes POST too, because Apple posts it from
+        // its own site -- without a CSRF token, so the check is off there and
+        // the sign-in's own state check is what protects it.
+        $routes->get('/auth/{provider}', [SocialSignIn::class, 'redirect'])->name('social.redirect')->meta(['rate_limit' => '30/1m']);
+        $routes->get('/auth/{provider}/callback', [SocialSignIn::class, 'callback'])->name('social.callback')->meta(['rate_limit' => '30/1m']);
+        $routes->post('/auth/{provider}/callback', [SocialSignIn::class, 'callback'])->meta(['rate_limit' => '30/1m', 'csrf' => false]);
     });
 };

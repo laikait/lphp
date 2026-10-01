@@ -81,14 +81,47 @@ modules/Billing/lang/
   bn.php
 ```
 
-- A file returns a flat array of strings. Anything else stops the request with
-  a `LocalizationException` naming the file.
+- A file returns an array of strings — or, for a message that depends on a
+  count, of [plural forms](#plurals). Anything else stops the request with a
+  `LocalizationException` naming the file.
 - **The files are the list of languages.** `lang/de.php` existing is what makes
   `de` available; there is no list to keep in step with it.
 - A file is named by its canonical tag: `en`, `bn`, `pt-BR`, `es-419`,
   `zh-Hant`. `pt_BR.php` or `EN.php` is not read.
 - Only the active language's files are loaded, once per request, command or
   job. Edits show on the next request; there is nothing to clear.
+
+## Plurals
+
+A message that depends on a number gives one form per plural category, and the
+`count` parameter picks one by the rules of the language:
+
+```php
+// lang/en.php
+'cart' => [
+    '=0'    => 'Your cart is empty',
+    'one'   => ':count item in your cart',
+    'other' => ':count items in your cart',
+],
+```
+
+```twig
+{{ 'cart'|local({count: cart.size}) }}
+```
+
+```php
+$localization->get('cart', ['count' => 3]);   // "3 items in your cart"
+```
+
+- **Categories** are CLDR's: `zero`, `one`, `two`, `few`, `many`, `other`. Each
+  language uses some of them — English `one` and `other`, Russian adds `few` and
+  `many`, Arabic uses all six — and the rules are ICU's, through `intl`.
+  Bengali counts 0 as `one`, for example; you never write that rule yourself.
+- **`=0`, `=1`…** match one exact count, and are tried first.
+- **`other` is required**, and is used when the count's category is missing or
+  there is no `count` at all.
+- A message found in the fallback language is pluralised by **that** language's
+  rules, so an English fallback reads as correct English.
 
 ## Module translations
 

@@ -60,6 +60,9 @@ $this->queue->push(new RecalculateBilling(), queue: 'billing');
 - `queue: 'billing'` puts it on a separate queue named `billing`, so a worker
   can handle billing work on its own. Without it, jobs go on `default`.
 
+Email is the commonest thing to send later, and needs no job class of your own:
+`$mailer->queue($message)` queues it. See [Mail](../reference/mail.md#sending-later).
+
 ## Step 3: choose where jobs wait, and start a worker
 
 The setting `QUEUE_STORE` decides where queued jobs wait. Your `push()` code stays

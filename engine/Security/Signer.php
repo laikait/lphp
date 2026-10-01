@@ -64,6 +64,18 @@ final class Signer
             return new self();
         }
 
+        return new self(self::readKey($value));
+    }
+
+    /**
+     * An APP_KEY-shaped value decoded into its bytes: "base64:..." or bare base64,
+     * at least MINIMUM_BYTES long. Shared with Encrypter, so both read a key the
+     * same way and reject the same mistakes.
+     *
+     * @throws SecurityException when it is not base64 or is too short
+     */
+    public static function readKey(string $value): Secret
+    {
         $encoded = \str_starts_with($value, self::PREFIX)
             ? \substr($value, \strlen(self::PREFIX))
             : $value;
@@ -78,7 +90,7 @@ final class Signer
             throw SecurityException::keyTooShort(\strlen($decoded), self::MINIMUM_BYTES);
         }
 
-        return new self(new Secret($decoded));
+        return new Secret($decoded);
     }
 
     /** A new key, in the form APP_KEY expects. */
@@ -144,6 +156,21 @@ final class Signer
     public static function matches(string $known, string $candidate): bool
     {
         return \hash_equals($known, $candidate);
+    }
+
+    /**
+     * An HMAC under somebody else's key: an S3 secret, a webhook secret.
+     *
+     * The one place outside this class's own key that hash_hmac() runs, so a
+     * protocol that needs a raw HMAC still has one implementation to trust.
+     * Compare what it returns with matches(), never ===.
+     *
+     * @param string $algorithm one of hash_hmac_algos(): sha256, sha1, sha512…
+     * @param bool   $binary    raw bytes rather than lowercase hex
+     */
+    public static function hmac(string $algorithm, string $data, string $key, bool $binary = false): string
+    {
+        return \hash_hmac($algorithm, $data, $key, $binary);
     }
 
     /** A random, URL-safe token. */

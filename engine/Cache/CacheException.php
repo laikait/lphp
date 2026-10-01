@@ -46,4 +46,18 @@ final class CacheException extends FrameworkException
             $type,
         ));
     }
+
+    public static function cannotLock(string $store): self
+    {
+        return new self(\sprintf(
+            'The cache store (%s) cannot hold a lock: a lock needs a store that can take a key only when it is free. '
+            . 'Use the file or database store; the null store gives every caller the lock, which is no lock.',
+            $store,
+        ));
+    }
+
+    public static function lockTimeout(string $key, float $seconds): self
+    {
+        return new self(\sprintf('The lock %s was not free within %s seconds.', $key, (string) $seconds));
+    }
 }

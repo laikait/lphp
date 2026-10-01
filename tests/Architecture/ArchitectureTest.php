@@ -437,6 +437,7 @@ final class ArchitectureTest extends TestCase
     {
         $infrastructure = [
             'Attributes.php',
+            'Encrypted.php',
             'Model.php',
             'ModelCollection.php',
             'ModelException.php',
@@ -1560,6 +1561,7 @@ final class ArchitectureTest extends TestCase
             'engine/Cli/Commands/ConfigCacheCommand.php',
             'engine/Cli/Commands/ConfigListCommand.php',
             'engine/Cli/Commands/DbSeedCommand.php',
+            'engine/Cli/Commands/DownCommand.php',
             'engine/Cli/Commands/FrameworkManifestCommand.php',
             'engine/Cli/Commands/FrameworkRollbackCommand.php',
             'engine/Cli/Commands/FrameworkUpdateCommand.php',
@@ -1592,6 +1594,7 @@ final class ArchitectureTest extends TestCase
             'engine/Cli/Commands/SystemSystemdInstallCommand.php',
             'engine/Cli/Commands/SystemSystemdRemoveCommand.php',
             'engine/Cli/Commands/TemplateListCommand.php',
+            'engine/Cli/Commands/UpCommand.php',
         ];
 
         $found = [];
@@ -1743,6 +1746,9 @@ final class ArchitectureTest extends TestCase
             'framework:update',
             'framework:rollback',
             'framework:manifest',
+            // Writes one state file under system/Runtime.
+            'down',
+            'up',
             // An interface to capabilities modules register, not a way to run code.
             'mcp:list',
             'mcp:stdio',
@@ -2118,11 +2124,13 @@ final class ArchitectureTest extends TestCase
     public function test_the_cache_layer_holds_infrastructure_only(): void
     {
         $infrastructure = [
+            'engine/Cache/AtomicStore.php',
             'engine/Cache/Cache.php',
             'engine/Cache/CacheEntry.php',
             'engine/Cache/CacheException.php',
             'engine/Cache/CacheStore.php',
             'engine/Cache/CacheTableMigration.php',
+            'engine/Cache/Lock.php',
             'engine/Cache/PrunableStore.php',
             'engine/Cache/Stores/ArrayStore.php',
             'engine/Cache/Stores/DatabaseStore.php',
@@ -2339,10 +2347,14 @@ final class ArchitectureTest extends TestCase
      */
     public function test_no_job_lives_in_the_engine(): void
     {
+        // Delivery, not work: it sends a message the application composed and
+        // queued itself, and decides nothing about what background work exists.
+        $plumbing = ['engine/Mail/SendMessageJob.php'];
+
         foreach ($this->engineFiles() as $path) {
             $relative = $this->relative($path);
 
-            if (\str_starts_with($relative, 'engine/Queue/')) {
+            if (\str_starts_with($relative, 'engine/Queue/') || \in_array($relative, $plumbing, true)) {
                 continue;
             }
 
@@ -2479,6 +2491,7 @@ final class ArchitectureTest extends TestCase
             'engine/Security/Counters/FileStore.php',
             'engine/Security/Counters/MemoryStore.php',
             'engine/Security/Csrf.php',
+            'engine/Security/Encrypter.php',
             'engine/Security/Guard.php',
             'engine/Security/RateLimit.php',
             'engine/Security/RateLimiter.php',
@@ -2486,8 +2499,11 @@ final class ArchitectureTest extends TestCase
             'engine/Security/Secret.php',
             'engine/Security/SecurityException.php',
             'engine/Security/SecurityHeaders.php',
+            'engine/Security/SignedUrl.php',
             'engine/Security/Signer.php',
             'engine/Security/UploadPolicy.php',
+            'engine/Security/Webhook.php',
+            'engine/Security/Webhooks.php',
         ];
 
         $found = [];

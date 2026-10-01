@@ -4,15 +4,20 @@ declare(strict_types=1);
 
 namespace App\Tests\Unit\Cache;
 
+use App\Engine\Cache\AtomicStore;
+use App\Engine\Cache\Cache;
+use App\Engine\Cache\CacheException;
 use App\Engine\Cache\CacheStore;
 use App\Engine\Cache\CacheTableMigration;
 use App\Engine\Cache\Stores\ArrayStore;
 use App\Engine\Cache\Stores\DatabaseStore;
 use App\Engine\Cache\Stores\FileStore;
+use App\Engine\Cache\Stores\NullStore;
 use App\Engine\Database\Connection;
 use App\Tests\Support\TestCase;
 use App\Tests\Support\TestDatabases;
 use PHPUnit\Framework\Attributes\DataProvider;
+use PHPUnit\Framework\Attributes\RequiresOperatingSystemFamily;
 
 /**
  * What it means to be a store, asserted against every store there is.
@@ -326,5 +331,123 @@ final class StoreConformanceTest extends TestCase
     public function test_every_store_can_say_what_it_is(\Closure $make): void
     {
         self::assertNotSame('', $make()->describe());
+    }
+
+    // ---- atomic: what a lock is built on --------------------------------------------
+
+    /** @param \Closure(): CacheStore $make */
+    private function atomic(\Closure $make): AtomicStore
+    {
+        $store = $make();
+        self::assertInstanceOf(AtomicStore::class, $store, 'every shipped store but null can lock');
+
+        return $store;
+    }
+
+    /** @param \Closure(): CacheStore $make */
+    #[DataProvider('stores')]
+    public function test_add_takes_a_free_key_only(\Closure $make): void
+    {
+        $store = $this->atomic($make);
+
+        self::assertTrue($store->add('ns:lock.a', 'first', 60));
+        self::assertFalse($store->add('ns:lock.a', 'second', 60), 'held');
+        self::assertSame('first', $store->get('ns:lock.a')?->value);
+    }
+
+    /** @param \Closure(): CacheStore $make */
+    #[DataProvider('stores')]
+    public function test_add_takes_an_expired_key(\Closure $make): void
+    {
+        $store = $this->atomic($make);
+        $store->put('ns:lock.b', 'stale', -1);
+
+        self::assertTrue($store->add('ns:lock.b', 'fresh', 60));
+        self::assertSame('fresh', $store->get('ns:lock.b')?->value);
+    }
+
+    /** @param \Closure(): CacheStore $make */
+    #[DataProvider('stores')]
+    public function test_forget_if_removes_only_the_holders_value(\Closure $make): void
+    {
+        $store = $this->atomic($make);
+        $store->add('ns:lock.c', 'mine', 60);
+
+        self::assertFalse($store->forgetIf('ns:lock.c', 'yours'));
+        self::assertSame('mine', $store->get('ns:lock.c')?->value);
+        self::assertTrue($store->forgetIf('ns:lock.c', 'mine'));
+        self::assertNull($store->get('ns:lock.c'));
+        self::assertFalse($store->forgetIf('ns:lock.c', 'mine'), 'already gone');
+    }
+
+    /** @param \Closure(): CacheStore $make */
+    #[DataProvider('stores')]
+    public function test_a_lock_is_exclusive_and_released_by_its_holder(\Closure $make): void
+    {
+        $cache = new Cache($this->atomic($make), namespace: 'jobs');
+        $first = $cache->lock('report', 60);
+        $second = $cache->lock('report', 60);
+
+        self::assertTrue($first->get());
+        self::assertFalse($second->get());
+        self::assertTrue($second->isHeld());
+        self::assertFalse($second->release(), 'not its lock to release');
+        self::assertTrue($first->release());
+        self::assertTrue($second->get());
+
+        // Another process may release it with the holder's token.
+        self::assertTrue($cache->lock('report', 60, $second->owner())->release());
+        self::assertFalse($second->isHeld());
+    }
+
+    /** @param \Closure(): CacheStore $make */
+    #[DataProvider('stores')]
+    public function test_block_runs_the_callback_holding_the_lock_and_releases_it(\Closure $make): void
+    {
+        $cache = new Cache($this->atomic($make));
+
+        self::assertSame('done', $cache->lock('task', 60)->block(1, static fn(): string => 'done'));
+        self::assertFalse($cache->lock('task', 60)->isHeld());
+
+        $cache->lock('task', 60)->get();
+        $this->expectException(CacheException::class);
+        $cache->lock('task', 60)->block(0.1);
+    }
+
+    public function test_the_null_store_refuses_to_lock(): void
+    {
+        $this->expectException(CacheException::class);
+        (new Cache(new NullStore()))->lock('x', 10);
+    }
+
+    /**
+     * The file store across processes: twenty children race for one key, and
+     * exactly one wins.
+     */
+    #[RequiresOperatingSystemFamily('Linux')]
+    public function test_the_file_store_lock_holds_across_processes(): void
+    {
+        $directory = \sys_get_temp_dir() . '/cache-race-' . \bin2hex(\random_bytes(6));
+        self::$directories[] = $directory;
+        $autoload = \dirname(__DIR__, 3) . '/vendor/autoload.php';
+        $script = 'require ' . \var_export($autoload, true) . '; echo (new App\\Engine\\Cache\\Stores\\FileStore(' . \var_export($directory, true) . '))->add("ns:lock.race", getmypid(), 60) ? "won" : "lost";';
+
+        $processes = [];
+
+        for ($i = 0; $i < 20; ++$i) {
+            $process = \proc_open([\PHP_BINARY, '-r', $script], [1 => ['pipe', 'w']], $pipes);
+            self::assertIsResource($process);
+            $processes[] = $process;
+            $outputs[$i] = $pipes[1];
+        }
+
+        $results = [];
+
+        foreach ($processes as $i => $process) {
+            $results[] = \stream_get_contents($outputs[$i]);
+            \proc_close($process);
+        }
+
+        self::assertSame(1, \count(\array_keys($results, 'won', true)), \implode(',', $results));
     }
 }

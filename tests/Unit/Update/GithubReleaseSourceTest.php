@@ -4,6 +4,10 @@ declare(strict_types=1);
 
 namespace App\Tests\Unit\Update;
 
+use App\Engine\Http\Client\Client;
+use App\Engine\Http\Client\ClientRequest;
+use App\Engine\Http\Client\ClientResponse;
+use App\Engine\Http\Client\FakeTransport;
 use App\Engine\Update\GithubReleaseSource;
 use App\Engine\Update\Manifest;
 use App\Engine\Update\UpdateException;
@@ -20,11 +24,17 @@ final class GithubReleaseSourceTest extends UpdateTestCase
     /** @param array<string, string> $responses URL => body */
     private function source(array $responses): GithubReleaseSource
     {
-        return new GithubReleaseSource('laikait/lphp', http: function (string $url) use ($responses): string {
-            $this->asked[] = $url;
+        $fake = new FakeTransport();
 
-            return $responses[$url] ?? throw UpdateException::download($url, 'HTTP 404');
-        });
+        for ($i = 0; $i < 10; ++$i) {
+            $fake->pushAnswer(function (ClientRequest $request) use ($responses): ClientResponse {
+                $this->asked[] = $request->url;
+
+                return isset($responses[$request->url]) ? new ClientResponse(200, [], $responses[$request->url]) : new ClientResponse(404);
+            });
+        }
+
+        return new GithubReleaseSource(new Client($fake), 'laikait/lphp');
     }
 
     /** @return array<string, string> */

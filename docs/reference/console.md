@@ -207,6 +207,8 @@ uses, under the module name `engine`. The kernel has no idea they exist: delete
 | `system:cron:install` | Install the crontab line that runs `schedule:run` every minute. |
 | `system:cron:list` | The jobs this application owns in the crontab. |
 | `system:cron:remove` | Remove this application's crontab jobs. |
+| `down` | Maintenance mode: the web gets a 503 page; `--retry`, `--message`, `--allow`, `--secret`. See [Running](../operations/running.md#maintenance-mode). |
+| `up` | Leave maintenance mode. |
 | `framework:update` | Update this application's copy of the framework to a newer release; `--check`, `--dry-run`, `--from=<zip>`. See [Updating the framework](../operations/updating.md). |
 | `framework:rollback` | Undo the last `framework:update` from its backup. |
 | `framework:manifest` | Build `framework.json` for a release. Run by the release workflow. |

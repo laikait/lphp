@@ -14,13 +14,20 @@ namespace App\Engine\Localization;
  */
 final class TranslationLoader
 {
-    /** @var array<string, array<string, string>> keyed by file */
+    /** The CLDR plural categories a plural message may name, besides "=N" for an exact count. */
+    public const PLURAL_CATEGORIES = ['zero', 'one', 'two', 'few', 'many', 'other'];
+
+    /** @var array<string, array<string, string|array<string, string>>> keyed by file */
     private array $loaded = [];
 
     /**
-     * @return array<string, string>
+     * A message is a string, or -- when it depends on a count -- an array of
+     * plural forms: ['one' => ':count item', 'other' => ':count items'], with
+     * "other" required and "=0", "=1"... allowed for an exact count.
      *
-     * @throws LocalizationException when the file is missing or does not return a flat array of strings
+     * @return array<string, string|array<string, string>>
+     *
+     * @throws LocalizationException when the file is missing or a message is neither
      */
     public function load(string $file): array
     {
@@ -37,7 +44,7 @@ final class TranslationLoader
         $this->loaded = [];
     }
 
-    /** @return array<string, string> */
+    /** @return array<string, string|array<string, string>> */
     private static function read(string $file): array
     {
         if (!\is_file($file)) {
@@ -56,12 +63,39 @@ final class TranslationLoader
                 throw LocalizationException::invalidFile($file, \sprintf('has the non-string key %s', \var_export($key, true)));
             }
 
+            if (\is_array($message)) {
+                self::checkPlural($file, $key, $message);
+
+                continue;
+            }
+
             if (!\is_string($message)) {
                 throw LocalizationException::invalidFile($file, \sprintf('maps "%s" to %s instead of a string', $key, \get_debug_type($message)));
             }
         }
 
-        /** @var array<string, string> $messages */
+        /** @var array<string, string|array<string, string>> $messages */
         return $messages;
+    }
+
+    /** @param array<array-key, mixed> $forms */
+    private static function checkPlural(string $file, string $key, array $forms): void
+    {
+        if (!isset($forms['other']) || !\is_string($forms['other'])) {
+            throw LocalizationException::invalidFile($file, \sprintf('gives "%s" plural forms without "other", which every language needs', $key));
+        }
+
+        foreach ($forms as $form => $text) {
+            $known = \in_array($form, self::PLURAL_CATEGORIES, true) || (\is_string($form) && \preg_match('/^=\d+$/D', $form) === 1);
+
+            if (!$known || !\is_string($text)) {
+                throw LocalizationException::invalidFile($file, \sprintf(
+                    'gives "%s" the plural form "%s"; forms are %s, or "=N" for an exact count, each a string',
+                    $key,
+                    (string) $form,
+                    \implode(', ', self::PLURAL_CATEGORIES),
+                ));
+            }
+        }
     }
 }

@@ -48,11 +48,11 @@ a guide links to it, or when you need the details.
 | Area | Pages |
 |---|---|
 | Structure | [Modules](reference/modules.md) · [Hooks and filters](reference/hooks-and-filters.md) · [Project layout](reference/project-layout.md) |
-| HTTP | [Routing](reference/routing.md) · [REST](reference/rest.md) · [Errors](reference/errors.md) |
+| HTTP | [Routing](reference/routing.md) · [REST](reference/rest.md) · [Errors](reference/errors.md) · [HTTP client](reference/http-client.md) |
 | Output | [Templates](reference/templates.md) · [Assets](reference/assets.md) · [Localization](reference/localization.md) |
-| Data | [Models](reference/models.md) · [Schemas](reference/schemas.md) · [Repositories and queries](reference/data.md) · [The database](reference/database.md) |
-| Runtime | [Configuration](reference/configuration.md) · [Default settings](reference/defaults.md) · [Cache](reference/cache.md) · [Logging](reference/logging.md) · [CLI](reference/console.md) |
-| Background | [Queue and worker](reference/queue.md) · [Scheduler](reference/scheduler.md) |
+| Data | [Models](reference/models.md) · [Schemas](reference/schemas.md) · [Repositories and queries](reference/data.md) · [The database](reference/database.md) · [Storage](reference/storage.md) |
+| Runtime | [Configuration](reference/configuration.md) · [Default settings](reference/defaults.md) · [Cache](reference/cache.md) · [Feature flags](reference/features.md) · [Logging](reference/logging.md) · [CLI](reference/console.md) |
+| Background | [Queue and worker](reference/queue.md) · [Scheduler](reference/scheduler.md) · [Mail](reference/mail.md) |
 | Security | [Security](reference/security.md) · [Sessions](reference/sessions.md) · [Authentication and authorization](reference/auth.md) · [IP addresses](reference/network.md) |
 | Operations | [Performance](reference/performance.md) · [Observability](reference/observability.md) · [System operations](reference/system.md) · [MCP](reference/mcp.md) |
 

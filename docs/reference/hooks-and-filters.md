@@ -123,7 +123,7 @@ they carry.
 | `command.matched` | `asset.response` (engine listeners only — see [Assets](assets.md#an-asset-request-loads-no-module)) |
 | `command.finished` | `dispatch.response` |
 | `command.failed` |  |
-| `error.reported` |  |
+| `error.reported` | `mail.allowed` |
 | `job.queued`, `job.started` |  |
 | `job.finished`, `job.failed` |  |
 | `schedule.started` |  |
@@ -133,6 +133,11 @@ they carry.
 | `auth.identified`, `auth.login` |  |
 | `auth.logout`, `auth.failed` |  |
 | `auth.rehash` | `authorization.decision` |
+| `auth.password_reset_requested`, `auth.password_reset` |  |
+| `auth.email_verified` |  |
+| `auth.social_user` | `social.account` (an `Account`, or `false` for nobody) |
+| `auth.two_factor_enabled`, `auth.two_factor_disabled` |  |
+| `auth.two_factor_failed`, `auth.recovery_code_used` | `feature.active` |
 | `system.audit` | `system.command.timeout` (narrow only) |
 | `mcp.request.received`, `mcp.request.failed` | `mcp.tool.input` (before validation) |
 | `mcp.response.created`, `mcp.access.denied` | `mcp.tool.output` |
@@ -142,6 +147,8 @@ they carry.
 | `database.query.failed` |  |
 | `database.transaction.committed`, `database.transaction.rolled_back` |  |
 | `database.transaction.retrying` |  |
+| `http.client.sent` | `http.client.request` |
+| `mail.sent` | `mail.message` |
 
 The `database.*` hooks report what has already happened. A listener cannot undo
 a commit or replace a database failure, and nothing it throws causes a

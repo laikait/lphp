@@ -157,4 +157,13 @@ class HttpException extends FrameworkException
             \implode(', ', $offered),
         ));
     }
+
+    /**
+     * 503: the application is down on purpose (see Core\Maintenance), or a
+     * dependency is. Retry-After tells clients and crawlers when to come back.
+     */
+    public static function serviceUnavailable(int $retryAfter = 0, string $message = ''): self
+    {
+        return new self(503, $message, $retryAfter > 0 ? ['Retry-After' => (string) $retryAfter] : []);
+    }
 }

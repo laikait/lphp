@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Engine\Cache\Stores;
 
+use App\Engine\Cache\AtomicStore;
 use App\Engine\Cache\Cache;
 use App\Engine\Cache\CacheEntry;
 use App\Engine\Cache\CacheException;
@@ -33,7 +34,7 @@ use App\Engine\Database\Query\QueryBuilder;
  * cache exists from the start of boot, before any connection has been
  * configured, and a request that never touches the cache never opens one.
  */
-final class DatabaseStore implements PrunableStore
+final class DatabaseStore implements PrunableStore, AtomicStore
 {
     public const DEFAULT_TABLE = 'cache';
 
@@ -109,6 +110,38 @@ final class DatabaseStore implements PrunableStore
         }
 
         return true;
+    }
+
+    /**
+     * The primary key does the work: an expired row for the key is cleared,
+     * then an INSERT either succeeds or meets the row another process put
+     * there first, and fails. No read-then-write gap to race through.
+     */
+    public function add(string $key, mixed $value, ?int $ttl = null): bool
+    {
+        try {
+            $this->entries()->where('id', self::id($key))->whereNotNull('expires_at')->where('expires_at', '<=', \time())->delete();
+            $this->entries()->insert([
+                'id' => self::id($key),
+                'namespace' => self::namespaceOf($key),
+                'value' => self::encode($key, $value),
+                'expires_at' => $ttl === null ? null : \time() + $ttl,
+            ]);
+        } catch (DatabaseException) {
+            return false;
+        }
+
+        return true;
+    }
+
+    /** One DELETE matching the key and the value it was given -- removed only if it still holds that. */
+    public function forgetIf(string $key, mixed $value): bool
+    {
+        try {
+            return $this->entries()->where('id', self::id($key))->where('value', self::encode($key, $value))->delete() > 0;
+        } catch (DatabaseException) {
+            return false;
+        }
     }
 
     /** Everything, or one namespace: the part of the prefix before its first separator. */

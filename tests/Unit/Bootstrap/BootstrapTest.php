@@ -137,6 +137,8 @@ final class BootstrapTest extends TestCase
             'assets.versioning',
             'assets.manifests',
             'assets.max_age',
+            'storage.default',
+            'storage.disks',
             'templates.cache',
             'modules.paths',
             'modules.disabled',
@@ -190,6 +192,13 @@ final class BootstrapTest extends TestCase
             'app.max_execution_time',
             'queue.max_memory',
             'localization.maxmind_database',
+            'security.previous_keys',
+            'http.client.timeout',
+            'http.client.user_agent',
+            'mail.transport',
+            'mail.from.address',
+            'mail.smtp.host',
+            'mail.smtp.encryption',
         ] as $key) {
             self::assertTrue($config->has($key), $key . ' is missing from the defaults');
         }
@@ -199,8 +208,8 @@ final class BootstrapTest extends TestCase
         // growing a subsystem, which is a deliberate act rather than a drive-by.
         self::assertSame(
             [
-                'app', 'http', 'database', 'assets', 'cache', 'queue', 'security', 'auth', 'session',
-                'scheduler', 'system', 'mcp', 'logging', 'observability', 'localization', 'templates', 'modules',
+                'app', 'http', 'mail', 'database', 'assets', 'storage', 'cache', 'queue', 'security', 'auth', 'session',
+                'scheduler', 'system', 'mcp', 'logging', 'observability', 'localization', 'templates', 'modules', 'features',
             ],
             \array_keys($config->all()),
         );

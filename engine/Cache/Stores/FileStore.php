@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Engine\Cache\Stores;
 
+use App\Engine\Cache\AtomicStore;
 use App\Engine\Cache\Cache;
 use App\Engine\Cache\CacheEntry;
 use App\Engine\Cache\CacheException;
@@ -36,7 +37,7 @@ use App\Engine\Support\Path;
  * under "billing" lives in one subdirectory, so clearing it is removing that
  * directory rather than reading every entry in the cache to see whose it is.
  */
-final class FileStore implements PrunableStore
+final class FileStore implements PrunableStore, AtomicStore
 {
     public const EXTENSION = '.cache';
 
@@ -120,6 +121,48 @@ final class FileStore implements PrunableStore
         $file = $this->pathFor($key);
 
         return !\is_file($file) || @\unlink($file);
+    }
+
+    /**
+     * Under an exclusive flock() on a companion .lock file, so the look and
+     * the write are one step for every process on this machine.
+     */
+    public function add(string $key, mixed $value, ?int $ttl = null): bool
+    {
+        return $this->exclusively($key, fn(): bool => $this->get($key) === null && $this->put($key, $value, $ttl));
+    }
+
+    public function forgetIf(string $key, mixed $value): bool
+    {
+        return $this->exclusively($key, function () use ($key, $value): bool {
+            $entry = $this->get($key);
+
+            return $entry !== null && $entry->value === $value && $this->forget($key);
+        });
+    }
+
+    /** @param \Closure(): bool $work */
+    private function exclusively(string $key, \Closure $work): bool
+    {
+        $file = $this->pathFor($key);
+        $directory = \dirname($file);
+
+        if (!\is_dir($directory) && !@\mkdir($directory, $this->permissions, true) && !\is_dir($directory)) {
+            return false;
+        }
+
+        $handle = @\fopen($file . '.lock', 'c');
+
+        if ($handle === false) {
+            return false;
+        }
+
+        try {
+            return \flock($handle, \LOCK_EX) && $work();
+        } finally {
+            \flock($handle, \LOCK_UN);
+            \fclose($handle);
+        }
     }
 
     public function flush(string $prefix = ''): bool
