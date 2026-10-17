@@ -209,6 +209,13 @@ something later unserialises, so a folder anybody could write to is a folder tha
 could hand a worker an object of its choosing. `system/` is outside `public/`,
 and an architecture test keeps it there.
 
+**And with `APP_KEY` set, payloads are sealed.** Each one carries an HMAC made
+with a key derived from `APP_KEY`, and a worker checks it before unserialising:
+a job written into the store by anybody else — through a shared database, a
+directory with loose permissions — fails without being unserialised. A job
+queued before the key was set, or under a key since changed, fails the same way,
+so drain the queue before setting or rotating `APP_KEY`.
+
 ## If it doesn't work
 
 | What you see | Why | Fix |

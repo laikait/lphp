@@ -56,6 +56,13 @@ needs CSRF exactly as much as a form does, which is why `'api' => true` grants
 nothing and the exemption is written out by hand, one group at a time.
 `security:check` lists every route that took it.
 
+**And the framework holds you to it.** On a route with `'csrf' => false` the
+session cookie identifies nobody: only a bearer token does. With the check off,
+a session would let any site in the world post to that route as whoever is
+logged in, because the browser attaches the cookie on its own. A login made
+during such a request (the social sign-in callback is one) still counts. With
+CSRF switched off everywhere (`security.csrf.enabled`), this does not apply.
+
 ### What is checked
 
 Two independent checks, either of which fails the request:

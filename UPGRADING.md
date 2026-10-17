@@ -51,6 +51,31 @@ order. An entry that cannot say who is affected is not finished.
 - **Do:** nothing, usually. Wait for a login request to finish before sending
   the next authenticated one.
 
+### Queued jobs and cache entries are sealed with APP_KEY
+
+- **Changed:** with `APP_KEY` set, every queued job and every entry in the
+  `file` and `database` cache stores carries an HMAC, and one without a valid
+  HMAC is never unserialized. A job fails with "was not written by this
+  application with its current APP_KEY"; a cache entry is a miss.
+- **Affected:** jobs already waiting in a `file` or `database` queue when you
+  deploy — they were queued unsealed, and fail — and every cached value, which
+  is recomputed once. The same happens whenever `APP_KEY` is set or rotated
+  later. Code that called `QueuedJob::job()` itself must pass the sealer.
+- **Do:** let the workers drain the queue (`php laika queue:status` shows it
+  empty) before deploying, and again before changing `APP_KEY`. Failed jobs can
+  be dispatched again from their source, not retried.
+
+### A route with 'csrf' => false ignores the session cookie
+
+- **Changed:** on a route whose meta says `'csrf' => false`, the session cookie
+  no longer identifies the visitor; only a bearer token does. A login made
+  during the request still counts.
+- **Affected:** a page of your own that calls a CSRF-exempt route — usually an
+  API group — with the session cookie instead of a token. It now gets `401`,
+  where it used to be logged in and unprotected against cross-site requests.
+- **Do:** take `'csrf' => false` off that group and send the token in
+  `X-CSRF-TOKEN`, or have that client use a bearer token.
+
 ## To 3.0.1, from 2.1.2
 
 ### Request::ip() reads X-Forwarded-For from the right

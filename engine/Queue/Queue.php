@@ -6,6 +6,7 @@ namespace App\Engine\Queue;
 
 use App\Engine\Hook\HookEngine;
 use App\Engine\Observability\Tracer;
+use App\Engine\Support\Sealer;
 
 /**
  * The queue an application is handed.
@@ -42,6 +43,8 @@ final class Queue
         private readonly HookEngine $hooks,
         private readonly string $default = self::DEFAULT,
         private readonly ?Tracer $tracer = null,
+        /** Seals each payload, so a worker unserializes only what was queued here. */
+        private readonly Sealer $sealer = new Sealer(),
     ) {}
 
     public function store(): QueueStore
@@ -177,7 +180,7 @@ final class Queue
     private function serialise(Job $job): string
     {
         try {
-            return \serialize($job);
+            return $this->sealer->seal(\serialize($job));
         } catch (\Throwable $e) {
             throw QueueException::notStorable($job::class, $e);
         }

@@ -28,6 +28,12 @@ final class AuthManager
 
     private ?Identity $identity = null;
 
+    /** See ignoreSession(). */
+    private bool $sessionIgnored = false;
+
+    /** Whether $identity came from the session cookie, and so goes with it. */
+    private bool $identifiedBySession = false;
+
     /** @param list<Authenticator> $authenticators */
     public function __construct(
         private readonly UserProvider $provider,
@@ -59,6 +65,26 @@ final class AuthManager
     {
         $this->request = $request;
         $this->identity = null;
+        $this->sessionIgnored = false;
+        $this->identifiedBySession = false;
+    }
+
+    /**
+     * For the rest of this request, the session cookie identifies nobody.
+     *
+     * Called for a route that opted out of CSRF: a cookie the browser attached
+     * by itself is exactly what CSRF exploits, so with the check off only a
+     * credential the client put on the request deliberately -- a bearer token
+     * -- may say who it is. A login during the request still counts.
+     */
+    public function ignoreSession(): void
+    {
+        $this->sessionIgnored = true;
+
+        if ($this->identifiedBySession) {
+            $this->identity = null;
+            $this->identifiedBySession = false;
+        }
     }
 
     /**
@@ -81,10 +107,17 @@ final class AuthManager
         }
 
         foreach ($this->authenticators as $authenticator) {
+            $bySession = $authenticator instanceof SessionAuthenticator;
+
+            if ($bySession && $this->sessionIgnored) {
+                continue;
+            }
+
             $identity = $authenticator->identify($request);
 
             if ($identity !== null) {
                 $this->hooks?->do('auth.identified', $identity, $authenticator->describe());
+                $this->identifiedBySession = $bySession;
 
                 return $this->identity = $identity;
             }
@@ -180,6 +213,7 @@ final class AuthManager
     public function login(Identity $identity): void
     {
         $this->identity = $identity;
+        $this->identifiedBySession = false;
 
         if ($this->sessions !== null) {
             $session = $this->sessions->session();
@@ -209,6 +243,7 @@ final class AuthManager
         }
 
         $this->identity = Identity::guest($this->guestRoles);
+        $this->identifiedBySession = false;
 
         if (!$previous->isGuest()) {
             $this->hooks?->do('auth.logout', $previous);

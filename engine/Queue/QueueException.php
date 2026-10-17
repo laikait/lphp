@@ -48,6 +48,15 @@ final class QueueException extends FrameworkException
         ), 0, $previous);
     }
 
+    public static function unsealedPayload(string $class): self
+    {
+        return new self(\sprintf(
+            'A queued %s was not written by this application with its current APP_KEY, so it was not '
+            . 'unserialized. It was queued before the key was set or changed -- or somebody else wrote it.',
+            $class,
+        ));
+    }
+
     public static function unusableQueueName(string $name): self
     {
         return new self(\sprintf(

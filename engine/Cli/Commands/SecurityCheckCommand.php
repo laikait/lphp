@@ -86,6 +86,7 @@ final class SecurityCheckCommand
             ...$this->checkAccess(),
             ...$this->checkHeaders($production),
             ...$this->checkMail($production),
+            ...$this->checkCommands($production),
             ...$this->checkWebServer(),
             ...$this->checkExtensions(),
         ];
@@ -489,6 +490,33 @@ final class SecurityCheckCommand
         }
 
         return [[self::OK, \sprintf('Mail goes out through %s.', $transport), '']];
+    }
+
+    /**
+     * Operating-system commands with no allowlist: any executable, from
+     * anywhere in the application, including a code path a request can reach.
+     * On by default because sendmail, system:cron and system:systemd go through
+     * it; listing what this deployment actually runs is what makes it narrow.
+     *
+     * @return list<array{string, string, string}>
+     */
+    private function checkCommands(bool $production): array
+    {
+        if (!$this->config->bool('system.enabled', true)) {
+            return [[self::OK, 'Operating-system commands are switched off.', '']];
+        }
+
+        if ($this->config->get('system.commands.allowed') !== null || $this->config->get('system.commands.scripts') !== null) {
+            return [[self::OK, 'Operating-system commands are limited to an allowlist.', '']];
+        }
+
+        return [[
+            $production ? self::WARN : self::OK,
+            'Operating-system commands may run any executable (system.commands.allowed is null).',
+            'List the absolute paths this deployment runs -- /usr/sbin/sendmail, /usr/bin/crontab, '
+            . '/usr/bin/systemctl -- in system.commands.allowed, or set system.enabled to false if it '
+            . 'runs none. A code path that builds a command from a request then cannot reach anything else.',
+        ]];
     }
 
     /** @return list<array{string, string, string}> */
