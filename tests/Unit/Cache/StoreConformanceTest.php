@@ -14,6 +14,7 @@ use App\Engine\Cache\Stores\DatabaseStore;
 use App\Engine\Cache\Stores\FileStore;
 use App\Engine\Cache\Stores\NullStore;
 use App\Engine\Database\Connection;
+use App\Engine\Support\Sealer;
 use App\Tests\Support\TestCase;
 use App\Tests\Support\TestDatabases;
 use PHPUnit\Framework\Attributes\DataProvider;
@@ -90,7 +91,16 @@ final class StoreConformanceTest extends TestCase
 
                 return new FileStore($directory);
             }],
+            // Every behaviour again with an APP_KEY, so sealing changes none of
+            // them -- forgetIf() included, which finds a row by its stored bytes.
+            'file, sealed' => [static function (): CacheStore {
+                $directory = \sys_get_temp_dir() . '/cache-store-' . \bin2hex(\random_bytes(6));
+                self::$directories[] = $directory;
+
+                return new FileStore($directory, sealer: new Sealer(\random_bytes(32)));
+            }],
             ...self::databaseStores(),
+            ...self::databaseStores(new Sealer(\random_bytes(32))),
         ];
     }
 
@@ -101,12 +111,13 @@ final class StoreConformanceTest extends TestCase
      *
      * @return array<string, array{\Closure(): CacheStore}>
      */
-    private static function databaseStores(): array
+    private static function databaseStores(Sealer $sealer = new Sealer()): array
     {
         $stores = [];
 
         foreach (TestDatabases::available() as $driver => [$config]) {
-            $stores['database on ' . $driver] = [static function () use ($config): CacheStore {
+            $name = 'database on ' . $driver . ($sealer->isActive() ? ', sealed' : '');
+            $stores[$name] = [static function () use ($config, $sealer): CacheStore {
                 $connection = new Connection($config);
                 self::$connections[] = $connection;
 
@@ -119,7 +130,7 @@ final class StoreConformanceTest extends TestCase
 
                 $migration->up($tables);
 
-                return new DatabaseStore(static fn(): Connection => $connection, self::TABLE);
+                return new DatabaseStore(static fn(): Connection => $connection, self::TABLE, $sealer);
             }];
         }
 

@@ -21,10 +21,12 @@ use App\Engine\Error\ErrorHandler;
 use App\Engine\Hook\HookEngine;
 use App\Engine\Http\Request;
 use App\Engine\Http\Response;
+use App\Engine\Routing\Route;
 use App\Engine\Routing\Router;
 use App\Engine\Security\Csrf;
 use App\Engine\Security\Signer;
 use App\Engine\Session\SessionManager;
+use App\Tests\Fixtures\Showcase\Shared\Auth\SessionEndpoints;
 use App\Tests\Support\TestCase;
 
 /**
@@ -234,6 +236,51 @@ final class AuthSliceTest extends TestCase
         ]));
 
         self::assertSame(401, $after->status());
+    }
+
+    /**
+     * A route that opted out of CSRF does not take the session cookie as a
+     * login. Otherwise any site could post to it as whoever is logged in --
+     * the check is off, and the browser attaches the cookie on its own. A
+     * bearer token still works, because a browser never sends one unasked.
+     */
+    public function test_a_csrf_exempt_route_ignores_the_session_cookie(): void
+    {
+        $app = $this->app();
+        $app->container()->get(Router::class)->add(
+            (new Route('POST', '/api/v1/whoami', [SessionEndpoints::class, 'me']))->meta(['auth' => true, 'csrf' => false]),
+        );
+        [$session] = $this->login($app, 'ada');
+
+        $bySession = $app->handle(Request::create('POST', '/api/v1/whoami', [
+            'cookies' => [SessionManager::DEFAULT_COOKIE => $session],
+        ]));
+        $byToken = $app->handle(Request::create('POST', '/api/v1/whoami', [
+            'headers' => ['Authorization' => 'Bearer ada-token-do-not-use'],
+        ]));
+        $elsewhere = $app->handle(Request::create('GET', '/me', [
+            'cookies' => [SessionManager::DEFAULT_COOKIE => $session],
+        ]));
+
+        self::assertSame(401, $bySession->status(), 'a cross-site POST would have been logged in');
+        self::assertSame(200, $byToken->status());
+        self::assertSame('ada', $this->data($byToken)['name']);
+        self::assertSame(200, $elsewhere->status(), 'the session itself was harmed');
+    }
+
+    public function test_with_csrf_off_everywhere_the_session_still_counts(): void
+    {
+        $app = $this->app(['security' => ['csrf' => ['enabled' => false]]]);
+        $app->container()->get(Router::class)->add(
+            (new Route('POST', '/api/v1/whoami', [SessionEndpoints::class, 'me']))->meta(['auth' => true, 'csrf' => false]),
+        );
+        [$session] = $this->login($app, 'ada');
+
+        $response = $app->handle(Request::create('POST', '/api/v1/whoami', [
+            'cookies' => [SessionManager::DEFAULT_COOKIE => $session],
+        ]));
+
+        self::assertSame(200, $response->status());
     }
 
     // ---- tokens ------------------------------------------------------------

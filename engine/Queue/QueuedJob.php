@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace App\Engine\Queue;
 
+use App\Engine\Support\Sealer;
+
 /**
  * A job on a queue: the work, plus everything the queue knows about it.
  *
@@ -54,14 +56,20 @@ final class QueuedJob
     /**
      * The job itself.
      *
+     * The payload is checked by $sealer before anything is unserialized:
+     * unserialize() on bytes somebody else wrote runs their objects' code.
+     *
      * @throws QueueException when the payload no longer describes a usable job --
-     *                        a class that has been renamed or deleted since it was queued
+     *                        a class that has been renamed or deleted since it was queued --
+     *                        or was not sealed by this application
      */
-    public function job(): Job
+    public function job(Sealer $sealer = new Sealer()): Job
     {
+        $bytes = $sealer->open($this->payload) ?? throw QueueException::unsealedPayload($this->class)->withheld();
+
         try {
             /** @var mixed $job */
-            $job = @\unserialize($this->payload);
+            $job = @\unserialize($bytes);
         } catch (\Throwable $e) {
             throw QueueException::unreadablePayload($this->class, $e)->withheld();
         }

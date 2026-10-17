@@ -47,6 +47,14 @@ final class CurlTransport implements Transport
             },
         ]);
 
+        // A checked address is the one connected to: curl's own lookup of the
+        // host never happens, so a DNS answer that changed since cannot win.
+        // TLS still verifies the certificate against the host name.
+        if ($request->address !== null) {
+            $address = \str_contains($request->address, ':') ? '[' . \trim($request->address, '[]') . ']' : $request->address;
+            \curl_setopt($handle, \CURLOPT_RESOLVE, [$request->host() . ':' . $request->port() . ':' . $address]);
+        }
+
         if ($request->method === 'HEAD') {
             \curl_setopt($handle, \CURLOPT_NOBODY, true);
         } elseif ($request->body !== '') {

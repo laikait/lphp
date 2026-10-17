@@ -22,6 +22,7 @@ use App\Engine\Queue\Stores\MemoryStore;
 use App\Engine\Queue\Stores\SyncStore;
 use App\Engine\Queue\Worker;
 use App\Engine\Queue\WorkerOptions;
+use App\Engine\Security\Signer;
 use App\Tests\Fixtures\Logging\CollectingWriter;
 use App\Tests\Fixtures\Queue\FailingJob;
 use App\Tests\Fixtures\Queue\RecordingJob;
@@ -225,6 +226,31 @@ final class QueueSliceTest extends TestCase
         self::assertSame(0, $queue->pending());
         self::assertCount(1, $queue->failed());
         self::assertSame(2, $queue->failed()[0]->attempts);
+    }
+
+    /**
+     * With an APP_KEY every payload is sealed when it is queued and checked
+     * before the worker unserializes it -- so the queue and the runner were
+     * handed the same key -- and a job written into the store by anybody else
+     * is refused rather than run.
+     */
+    public function test_with_a_key_only_jobs_queued_here_are_run(): void
+    {
+        $app = $this->app(['queue' => ['store' => 'memory'], 'security' => ['key' => Signer::generate()]]);
+        $queue = $app->container()->get(Queue::class);
+
+        $queue->push(new RecordingJob('sealed'));
+        $queue->store()->push(new QueuedJob(
+            id: '0000000000forged',
+            queue: $queue->defaultQueue(),
+            class: RecordingJob::class,
+            payload: \serialize(new RecordingJob('forged')),
+        ));
+
+        $app->container()->get(Worker::class)->run(new WorkerOptions(tries: 1, sleep: 0, stopWhenEmpty: true));
+
+        self::assertSame(['sealed'], RecordingJob::$ran);
+        self::assertCount(1, $queue->store()->failed());
     }
 
     /** A failure is announced, which is how the log hears about it without the queue knowing. */
