@@ -7,6 +7,7 @@ namespace App\Tests\Unit\Http\Client;
 use App\Engine\Http\Client\Client;
 use App\Engine\Http\Client\ClientRequest;
 use App\Engine\Http\Client\ClientResponse;
+use App\Engine\Http\Client\CurlTransport;
 use App\Engine\Http\Client\FakeTransport;
 use App\Engine\Http\Client\HttpClientException;
 use App\Tests\Support\TestCase;
@@ -261,6 +262,65 @@ final class ClientTest extends TestCase
         $this->fake->push(200);
 
         self::assertSame(200, $this->client()->publicOnly()->get('https://example.com/')->status());
+    }
+
+    /**
+     * DNS rebinding: the host answers with a public address for the check and a
+     * private one when the transport looks it up again. So the transport is
+     * handed the address that was checked, and never looks it up at all.
+     */
+    public function test_public_only_pins_the_address_it_checked(): void
+    {
+        $this->fake->push(302, '', ['Location' => 'https://other.example.com/next']);
+        $this->fake->push(200);
+
+        $this->client(['example.com' => ['93.184.216.34'], 'other.example.com' => ['93.184.216.99']])
+            ->publicOnly()
+            ->get('https://example.com/');
+
+        self::assertSame('93.184.216.34', $this->sent(0)->address);
+        self::assertSame('93.184.216.99', $this->sent(1)->address, 'a redirect is checked and pinned afresh');
+    }
+
+    public function test_without_public_only_nothing_is_pinned(): void
+    {
+        $this->fake->push(200);
+        $this->client()->get('https://example.com/');
+
+        self::assertNull($this->sent()->address);
+    }
+
+    /** Where parse_url() and curl disagree about the host, the URL is refused rather than guessed at. */
+    public function test_public_only_refuses_urls_whose_host_is_ambiguous(): void
+    {
+        foreach (['https://example.com\\@127.0.0.1/', 'https://user@example.com/', 'https://a@b@example.com/'] as $url) {
+            try {
+                $this->client()->publicOnly()->get($url);
+                self::fail($url . ' was sent');
+            } catch (HttpClientException) {
+                // refused, as it should be
+            }
+        }
+
+        self::assertSame([], $this->fake->sent());
+    }
+
+    public function test_curl_connects_to_the_pinned_address(): void
+    {
+        if (!CurlTransport::available()) {
+            self::markTestSkipped('curl is not installed');
+        }
+
+        // A host that cannot resolve, pinned to a local port nothing listens
+        // on: if the pin were ignored this would be a DNS failure instead.
+        $request = new ClientRequest('GET', 'http://pinned.invalid:9/', [], '', 2.0, '127.0.0.1');
+
+        try {
+            (new CurlTransport())->send($request);
+            self::fail('something answered on port 9');
+        } catch (HttpClientException $e) {
+            self::assertStringNotContainsStringIgnoringCase('resolve', $e->getMessage());
+        }
     }
 
     public function test_an_unanswered_fake_says_so(): void

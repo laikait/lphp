@@ -82,6 +82,13 @@ loopback, link-local or reserved (see [IP addresses](network.md)), and checks
 every redirect the same way. Without it, a user could point your server at its
 own database port or at a cloud provider's metadata endpoint.
 
+The request then **connects to the address that was checked**, not to whatever
+the host resolves to a moment later: a host that answers with a public address
+for the check and a private one for the connection (DNS rebinding) gets
+nowhere. TLS still verifies the certificate against the host name. A URL with a
+user part or a backslash (`https://a.example\@127.0.0.1/`) is refused, because
+that is where PHP and curl disagree about which host it names.
+
 ## Transports
 
 `curl` when the extension is loaded, PHP's own stream wrapper otherwise; both

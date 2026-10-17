@@ -152,6 +152,26 @@ public, is in [`STABILITY.md`](STABILITY.md).
 - **Two-factor codes are limited per account**, ten in fifteen minutes across
   every session (`TwoFactor::LIMIT_PER_ACCOUNT`), because typing the password
   again reset the session's five tries. `auth.two_factor_throttled` is new.
+- **Cache entries and queued jobs are sealed before they are unserialized.**
+  With `APP_KEY` set, the file and database cache stores and the queue store an
+  HMAC (new `Support\Sealer`, a key derived from `APP_KEY` per purpose) beside
+  each `serialize()`d value, and refuse anything that does not carry a valid one
+  — a cache miss, or a failed job — without unserializing it. Somebody able to
+  write the cache directory, the cache table or the queue could otherwise run
+  code through an object's `__wakeup` or `__destruct`.
+- **A route with `'csrf' => false` ignores the session cookie.** Only a bearer
+  token identifies a request there, because with the check off a session would
+  let any site act as whoever is logged in. Not applied when CSRF is switched
+  off everywhere.
+- **`Client::publicOnly()` connects to the address it checked**
+  (`ClientRequest::$address`, `CURLOPT_RESOLVE` and its stream equivalent), so
+  DNS rebinding cannot swap in a private address between the check and the
+  connection; a URL with a user part or a backslash is refused.
+- **`security:check` warns** in production when operating-system commands may
+  run any executable (`system.commands.allowed` is null).
+- **Responses send `X-Engine: LPHP` and no `X-Powered-By`.** PHP's own
+  `X-Powered-By: PHP/<version>` is removed, so a response no longer advertises
+  the interpreter's version; `http.headers` changes or removes `X-Engine`.
 
 ## [3.0.1] - 2026-10-01
 

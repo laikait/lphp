@@ -8,6 +8,7 @@ use App\Engine\Container\Container;
 use App\Engine\Hook\HookEngine;
 use App\Engine\Observability\TraceKind;
 use App\Engine\Observability\Tracer;
+use App\Engine\Support\Sealer;
 
 /**
  * Runs one job, and announces that it did.
@@ -35,6 +36,8 @@ final class JobRunner
         private readonly Container $container,
         private readonly HookEngine $hooks,
         private readonly ?Tracer $tracer = null,
+        /** Opens what Queue sealed; see Support\Sealer. */
+        private readonly Sealer $sealer = new Sealer(),
     ) {}
 
     /**
@@ -63,7 +66,7 @@ final class JobRunner
 
     private function execute(QueuedJob $queued): void
     {
-        $job = $queued->job();
+        $job = $queued->job($this->sealer);
 
         $this->assertHandleable($job);
 

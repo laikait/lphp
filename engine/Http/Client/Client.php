@@ -262,9 +262,12 @@ final class Client
     private function follow(ClientRequest $request): ClientResponse
     {
         for ($hop = 0; ; ++$hop) {
-            $this->assertSendable($request->url);
+            // Every hop is checked afresh, and under publicOnly() it goes to the
+            // very address that passed: a host looked up twice can answer the
+            // second time with somewhere private.
+            $checked = $this->assertSendable($request->url);
 
-            $response = $this->transport->send($request);
+            $response = $this->transport->send($checked === null ? $request : $request->withAddress($checked));
             $location = $response->header('Location');
 
             if (!$response->redirect() || $location === null) {
@@ -294,7 +297,12 @@ final class Client
         }
     }
 
-    private function assertSendable(string $url): void
+    /**
+     * Refuse what may not be sent.
+     *
+     * @return ?string under publicOnly(), the checked address to connect to; otherwise null
+     */
+    private function assertSendable(string $url): ?string
     {
         $parts = \parse_url($url);
         $scheme = \is_array($parts) ? \strtolower($parts['scheme'] ?? '') : '';
@@ -305,7 +313,18 @@ final class Client
         }
 
         if (!$this->publicOnly) {
-            return;
+            return null;
+        }
+
+        // The host checked here has to be the host the transport connects to.
+        // A user part or a backslash is where parse_url() and curl disagree
+        // about which host a URL names -- http://a.example\@127.0.0.1/ -- so
+        // a URL with either is refused rather than interpreted.
+        $rest = (string) \preg_replace('#^[a-z][a-z0-9+.-]*://#i', '', $url);
+        $authority = \substr($rest, 0, \strcspn($rest, '/?#'));
+
+        if (isset($parts['user']) || isset($parts['pass']) || \str_contains($authority, '@') || \str_contains($url, '\\')) {
+            throw HttpClientException::invalidUrl($url);
         }
 
         $addresses = $this->resolve !== null ? ($this->resolve)($host) : self::addressesOf($host);
@@ -321,6 +340,8 @@ final class Client
                 throw HttpClientException::notPublic($url, $address);
             }
         }
+
+        return $addresses[0];
     }
 
     /**

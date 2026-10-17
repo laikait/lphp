@@ -54,6 +54,13 @@ fills up a disk on somebody else's machine. It is a real cache even so — a pag
 that resolves the same template from six partials pays for one search — and
 `CACHE_STORE=file` is how you opt into keeping values between requests.
 
+**With `APP_KEY` set, the file and database stores seal what they write.** A
+value is stored with `serialize()`, so it can be an object, and reading it back
+with `unserialize()` runs code from whatever wrote it. Each entry carries an HMAC
+made with a key derived from `APP_KEY`, and one that does not match — written by
+anybody else, or before the key changed — is a miss and is never unserialised.
+Setting or rotating `APP_KEY` therefore empties the cache, which is all it costs.
+
 ### The database store
 
 This is the shared cache that needs nothing installed beyond the database you

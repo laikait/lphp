@@ -365,6 +365,22 @@ final class SecuritySliceTest extends TestCase
         self::assertStringContainsString('switched off application-wide', $output);
     }
 
+    public function test_security_check_warns_about_commands_without_an_allowlist(): void
+    {
+        // A warning prints on its own; the two OK lines need --verbose.
+        [, $open] = $this->console($this->app(['app' => ['env' => 'production']]), 'security:check');
+        [, $listed] = $this->console(
+            $this->app(['app' => ['env' => 'production'], 'system' => ['commands' => ['allowed' => ['/usr/sbin/sendmail']]]]),
+            'security:check',
+            '--verbose',
+        );
+        [, $off] = $this->console($this->app(['system' => ['enabled' => false]]), 'security:check', '--verbose');
+
+        self::assertStringContainsString('may run any executable', $open);
+        self::assertStringContainsString('limited to an allowlist', $listed);
+        self::assertStringContainsString('commands are switched off', $off);
+    }
+
     /** A limiter counting in memory has never stopped anything. */
     public function test_security_check_fails_on_in_memory_counters(): void
     {

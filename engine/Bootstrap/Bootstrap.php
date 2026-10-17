@@ -163,6 +163,7 @@ use App\Engine\Storage\Storage;
 use App\Engine\Storage\StorageException;
 use App\Engine\Support\Extensions;
 use App\Engine\Support\Path;
+use App\Engine\Support\Sealer;
 use App\Engine\System\Audit\SystemAudit;
 use App\Engine\System\Command\CommandExecutor;
 use App\Engine\System\Command\Invocation;
@@ -523,7 +524,9 @@ final class Bootstrap
         // the store is chosen exactly the way the cache's and the log's are,
         // from configuration, because where background work waits is a
         // deployment decision.
-        $runner = new JobRunner($container, $hooks, $tracer);
+        // One sealer, both ends: what Queue seals the runner opens.
+        $jobSealer = self::sealer($settings, 'queue');
+        $runner = new JobRunner($container, $hooks, $tracer, $jobSealer);
         $queue = new Queue(
             self::queueStore($settings, $basePath, $runner, $container),
             $runner,
@@ -531,6 +534,7 @@ final class Bootstrap
             $settings->string('queue.queue', Queue::DEFAULT) ?? Queue::DEFAULT,
             // So a queued job carries the correlation of the work that queued it.
             $tracer,
+            $jobSealer,
         );
 
         $container->instance(JobRunner::class, $runner);
@@ -693,6 +697,9 @@ final class Bootstrap
         // put there, and the manager must see the one the kernel is handling.
         $served = new class {
             public ?Request $request = null;
+
+            /** The route being dispatched opted out of CSRF; see below. */
+            public bool $sessionless = false;
         };
 
         $container->singleton(AuthManager::class, static function (Container $container) use (
@@ -730,6 +737,10 @@ final class Bootstrap
             // request.received it would otherwise have heard.
             if ($served->request !== null) {
                 $manager->onRequest($served->request);
+            }
+
+            if ($served->sessionless) {
+                $manager->ignoreSession();
             }
 
             return $manager;
@@ -835,11 +846,34 @@ final class Bootstrap
         // already exists or when one is built.
         $hooks->add('request.received', static function (Request $request) use ($container, $served): void {
             $served->request = $request;
+            $served->sessionless = false;
 
             if ($container->resolved(AuthManager::class)) {
                 $container->get(AuthManager::class)->onRequest($request);
             }
         }, 3, 'engine');
+
+        // A route that opted out of CSRF is not identified by the session
+        // cookie. The cookie is the credential a browser attaches on its own,
+        // which is the whole of what CSRF is; with the check off, honouring it
+        // would let any site in the world act as whoever is logged in. Such a
+        // route -- an API, a webhook -- answers to bearer tokens, which a
+        // browser never attaches by itself. With CSRF off everywhere
+        // (security.csrf.enabled) the application has said it has no browser
+        // clients, and this does not apply.
+        if ($settings->bool('security.csrf.enabled', true)) {
+            $hooks->add('dispatch.before', static function (Route $route) use ($container, $served): void {
+                if ($route->metaValue(Guard::CSRF_META) !== false) {
+                    return;
+                }
+
+                $served->sessionless = true;
+
+                if ($container->resolved(AuthManager::class)) {
+                    $container->get(AuthManager::class)->ignoreSession();
+                }
+            }, 6, 'engine');
+        }
 
         $hooks->add('dispatch.before', static function (Route $route, Request $request) use ($container): void {
             if (!AuthGuard::isProtected($route)) {
@@ -1047,12 +1081,23 @@ final class Bootstrap
      * deployment's configuration should not stop an application from starting,
      * and cache:clear reports which store is actually in use.
      */
+    /**
+     * What a store that unserialize()s checks its bytes with: an HMAC keyed
+     * from APP_KEY for one purpose, or nothing without a key. See Sealer.
+     */
+    private static function sealer(Config $settings, string $purpose): Sealer
+    {
+        $key = $settings->string('security.key');
+
+        return Sealer::derive($key === null || $key === '' ? '' : Signer::readKey($key)->reveal(), $purpose);
+    }
+
     private static function cache(Config $settings, string $basePath, Container $container): Cache
     {
         $ttl = $settings->int('cache.ttl');
 
         $store = match ($settings->string('cache.store', 'array')) {
-            'file' => new FileStore(Path::join($basePath, 'system', 'Cache', 'data')),
+            'file' => new FileStore(Path::join($basePath, 'system', 'Cache', 'data'), sealer: self::sealer($settings, 'cache')),
             // The connection is found on first use: the cache is built before
             // the connections are.
             'database' => new CacheDatabaseStore(
@@ -1060,6 +1105,7 @@ final class Bootstrap
                     $settings->string('cache.connection') ?: null,
                 ),
                 $settings->string('cache.table', CacheDatabaseStore::DEFAULT_TABLE) ?? CacheDatabaseStore::DEFAULT_TABLE,
+                self::sealer($settings, 'cache'),
             ),
             'null', 'none' => new NullStore(),
             default => new ArrayStore(),
@@ -2153,9 +2199,13 @@ final class Bootstrap
                 'timezone' => Env::string('SCHEDULER_TIMEZONE'),
             ],
             'system' => [
-                // Operating-system operations: see System\SystemConfig. Every
-                // default is the cautious one, and nothing here costs anything
-                // until a module asks the container for a system manager.
+                // Operating-system operations: see System\SystemConfig. Nothing
+                // here costs anything until a module asks the container for a
+                // system manager. Services, filesystem roots and the shell are
+                // closed by default; commands are not, because sendmail and the
+                // system:cron and system:systemd commands go through them --
+                // security:check warns in production until commands.allowed
+                // lists what this deployment runs.
                 'enabled' => true,
                 'execution' => [
                     'default_timeout' => CommandExecutor::DEFAULT_TIMEOUT,

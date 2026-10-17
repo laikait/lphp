@@ -66,7 +66,8 @@ What each part does:
 > **CSRF applies to API routes too.** A browser that is logged in with a session
 > cookie can be tricked into sending a `POST`; that is what CSRF protection stops.
 > Add `'csrf' => false` to the group **only** if clients log in with a token and
-> never with the session cookie. See
+> never with the session cookie: on such a group the session cookie identifies
+> nobody, so a page of your own calling it with the session gets `401`. See
 > [API clients: tokens](users-and-permissions.md#api-clients-tokens).
 
 ## Step 2: answer with one record

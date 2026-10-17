@@ -10,6 +10,7 @@ use App\Engine\Cache\CacheEntry;
 use App\Engine\Cache\CacheException;
 use App\Engine\Cache\PrunableStore;
 use App\Engine\Support\Path;
+use App\Engine\Support\Sealer;
 
 /**
  * Files under system/Cache/data, one per entry.
@@ -47,6 +48,7 @@ final class FileStore implements PrunableStore, AtomicStore
     public function __construct(
         private readonly string $directory,
         private readonly int $permissions = 0o775,
+        private readonly Sealer $sealer = new Sealer(),
     ) {}
 
     public function describe(): string
@@ -260,7 +262,7 @@ final class FileStore implements PrunableStore, AtomicStore
     private function encode(string $key, mixed $value, ?int $expiresAt): string
     {
         try {
-            return \serialize(['key' => $key, 'expires' => $expiresAt, 'value' => $value]);
+            return $this->sealer->seal(\serialize(['key' => $key, 'expires' => $expiresAt, 'value' => $value]));
         } catch (\Throwable) {
             // Cache refuses a closure outright; this catches one buried inside
             // an array or an object property, which is not worth walking every
@@ -269,10 +271,17 @@ final class FileStore implements PrunableStore, AtomicStore
         }
     }
 
+    /** Null -- a miss -- for a file this application did not write; see Sealer. */
     private function decode(string $contents): ?CacheEntry
     {
+        $bytes = $this->sealer->open($contents);
+
+        if ($bytes === null) {
+            return null;
+        }
+
         /** @var mixed $data */
-        $data = @\unserialize($contents);
+        $data = @\unserialize($bytes);
 
         if (!\is_array($data) || !\array_key_exists('value', $data) || !\array_key_exists('expires', $data)) {
             return null;

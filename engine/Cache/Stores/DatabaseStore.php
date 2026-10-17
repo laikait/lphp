@@ -12,6 +12,7 @@ use App\Engine\Cache\PrunableStore;
 use App\Engine\Database\Connection;
 use App\Engine\Database\DatabaseException;
 use App\Engine\Database\Query\QueryBuilder;
+use App\Engine\Support\Sealer;
 
 /**
  * Entries in a table, shared by every machine that shares the database.
@@ -44,6 +45,7 @@ final class DatabaseStore implements PrunableStore, AtomicStore
     public function __construct(
         private readonly \Closure $connect,
         private readonly string $table = self::DEFAULT_TABLE,
+        private readonly Sealer $sealer = new Sealer(),
     ) {}
 
     public function describe(): string
@@ -64,7 +66,7 @@ final class DatabaseStore implements PrunableStore, AtomicStore
         }
 
         $expires = \is_numeric($row['expires_at'] ?? null) ? (int) $row['expires_at'] : null;
-        $entry = self::decode($row['value'] ?? null, $expires);
+        $entry = $this->decode($row['value'] ?? null, $expires);
 
         if ($entry === null || $entry->hasExpired()) {
             // Unreadable, or past its time: either way a miss, and removed on
@@ -82,7 +84,7 @@ final class DatabaseStore implements PrunableStore, AtomicStore
         $row = [
             'id' => self::id($key),
             'namespace' => self::namespaceOf($key),
-            'value' => self::encode($key, $value),
+            'value' => $this->encode($key, $value),
             'expires_at' => $ttl === null ? null : \time() + $ttl,
         ];
 
@@ -124,7 +126,7 @@ final class DatabaseStore implements PrunableStore, AtomicStore
             $this->entries()->insert([
                 'id' => self::id($key),
                 'namespace' => self::namespaceOf($key),
-                'value' => self::encode($key, $value),
+                'value' => $this->encode($key, $value),
                 'expires_at' => $ttl === null ? null : \time() + $ttl,
             ]);
         } catch (DatabaseException) {
@@ -138,7 +140,7 @@ final class DatabaseStore implements PrunableStore, AtomicStore
     public function forgetIf(string $key, mixed $value): bool
     {
         try {
-            return $this->entries()->where('id', self::id($key))->where('value', self::encode($key, $value))->delete() > 0;
+            return $this->entries()->where('id', self::id($key))->where('value', $this->encode($key, $value))->delete() > 0;
         } catch (DatabaseException) {
             return false;
         }
@@ -196,20 +198,22 @@ final class DatabaseStore implements PrunableStore, AtomicStore
      * serialize(), in base64: its output is bytes, not text, and a text column
      * on some databases refuses bytes that are not valid in its encoding.
      */
-    private static function encode(string $key, mixed $value): string
+    private function encode(string $key, mixed $value): string
     {
         try {
-            return \base64_encode(\serialize(['value' => $value]));
+            return \base64_encode($this->sealer->seal(\serialize(['value' => $value])));
         } catch (\Throwable) {
             throw CacheException::notStorable($key, \get_debug_type($value));
         }
     }
 
-    private static function decode(mixed $stored, ?int $expires): ?CacheEntry
+    /** Null -- a miss -- for a row this application did not write; see Sealer. */
+    private function decode(mixed $stored, ?int $expires): ?CacheEntry
     {
-        $bytes = \is_string($stored) ? \base64_decode($stored, true) : false;
+        $sealed = \is_string($stored) ? \base64_decode($stored, true) : false;
+        $bytes = $sealed === false ? null : $this->sealer->open($sealed);
 
-        if ($bytes === false) {
+        if ($bytes === null) {
             return null;
         }
 
