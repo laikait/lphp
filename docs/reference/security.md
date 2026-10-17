@@ -66,6 +66,16 @@ Two independent checks, either of which fails the request:
 2. **The `Origin` header**, which browsers send on unsafe cross-origin requests
    and script cannot forge.
 
+**Over HTTPS the cookie is `__Host-XSRF-TOKEN`.** A token is valid for whoever
+fetched it, so without that a sibling subdomain, or anyone able to set a cookie
+over plain HTTP, could plant a token they were issued themselves and post the
+matching field. A browser accepts a `__Host-` cookie only from a secure response
+of this exact host, with `Path=/` and no `Domain`, which neither of them can
+send, and over HTTPS only that name is read. Plain HTTP keeps `XSRF-TOKEN`. A
+script that echoes the cookie reads `__Host-XSRF-TOKEN` on HTTPS (for axios,
+`xsrfCookieName`); `security.csrf.host_prefix = false` keeps the old name
+everywhere and gives this protection up.
+
 Origin is checked only when present. Absent means "cannot tell", because proxies
 and privacy tools strip it, and treating that as an attack produces false
 rejections. `Referer` is not checked at all, for the same reason more so.
@@ -97,8 +107,9 @@ security error for it.
 APP_KEY=$(php laika security:key --bare)
 ```
 
-With a key, CSRF tokens are signed, so a sibling subdomain — or anyone able to
-set a cookie over plain HTTP — cannot plant a matching cookie and field.
+With a key, CSRF tokens are signed, so a cookie this application did not issue
+is refused. A signature says who issued a token, not to whom: what stops a
+planted cookie is the `__Host-` name above.
 
 Without one, plain double-submit still works and still refuses cross-site
 requests; what is lost is that one guarantee. **The framework says which mode it

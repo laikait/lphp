@@ -151,7 +151,7 @@ final class SessionManager
             $record->id ?? SessionId::generate(),
             $record->payload ?? [],
             $record !== null,
-            fn(bool $keepData): string => $this->regenerate($keepData),
+            fn(bool $keepData, bool $followable = true): string => $this->regenerate($keepData, $followable),
         );
 
         $this->hooks?->do('session.started', $this->session);
@@ -169,12 +169,15 @@ final class SessionManager
      * record is replaced by a pointer with no data in it, which a request
      * arriving inside the grace window follows exactly once.
      *
-     * The pointer holds no payload, so an attacker still holding the old id
-     * gains nothing beyond being redirected to a session whose contents they
-     * would then have to read -- which needs the new id, which they do not
-     * have.
+     * **A pointer is a way in.** Following it hands the request the new id,
+     * and a request holding the old id cannot be told apart from an attacker
+     * holding it -- which is exactly who session fixation is about. So
+     * $followable = false, for a change of privilege such as a login, leaves
+     * no pointer at all and the old id stops working at once; the cost is the
+     * in-flight request above starting an empty session. The grace window is
+     * for regenerations that do not change who the session belongs to.
      */
-    public function regenerate(bool $keepData = true): string
+    public function regenerate(bool $keepData = true, bool $followable = true): string
     {
         $previous = $this->session?->id();
         $next = SessionId::generate();
@@ -184,7 +187,7 @@ final class SessionManager
 
             $this->store->commit(
                 $previous,
-                static fn(?SessionRecord $current): ?SessionRecord => $keepData
+                static fn(?SessionRecord $current): ?SessionRecord => $keepData && $followable
                     ? ($current ?? SessionRecord::fresh($previous, [], $now))->replacedBy($next, $now)
                     : null,
             );
@@ -345,7 +348,8 @@ final class SessionManager
      */
     private function follow(SessionRecord $pointer): ?SessionRecord
     {
-        if ($this->grace > 0 && $pointer->touchedAt + $this->grace <= \time()) {
+        // No grace is no grace, not an unlimited one.
+        if ($this->grace <= 0 || $pointer->touchedAt + $this->grace <= \time()) {
             return null;
         }
 

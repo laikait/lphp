@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Engine\Auth;
 
 use App\Engine\Hook\HookEngine;
+use App\Engine\Security\RateLimiter;
 use App\Engine\Security\Secret;
 use App\Engine\Session\SessionManager;
 use App\Engine\Support\QrCode;
@@ -27,6 +28,17 @@ use App\Engine\Support\QrCode;
  * right code calls AuthManager::login() -- which is when the session id
  * changes. After five wrong codes the password has to be typed again.
  *
+ * **Codes are limited per account too**, not only per session: the session's
+ * five tries are reset by typing the password again, or sidestepped by opening
+ * several sessions at once, so with a RateLimiter an account takes ten codes in
+ * fifteen minutes however many sessions they arrive through. Somebody who has
+ * the password can lock the owner out of the code form for that long, which is
+ * the trade: they cannot try a million codes instead.
+ *
+ * **Every way in that is not the password goes through start()** -- a social
+ * sign-in, a magic link -- so that a second factor turned on for an account is
+ * asked for whichever first factor was used.
+ *
  * **Switching it on** is two steps, so a secret nobody scanned never locks
  * anybody out: begin() makes a secret and its QR code, kept in the session;
  * confirm() with a code from the app stores it and hands back ten recovery
@@ -48,6 +60,9 @@ final class TwoFactor
 
     public const RECOVERY_CODES = 10;
 
+    /** Codes one account may try, across every session, before it waits. */
+    public const LIMIT_PER_ACCOUNT = '10/15m';
+
     public function __construct(
         private readonly AuthManager $auth,
         private readonly UserProvider $provider,
@@ -56,6 +71,7 @@ final class TwoFactor
         private readonly string $issuer = 'LPHP',
         private readonly ?HookEngine $hooks = null,
         private readonly ?\Closure $clock = null,
+        private readonly ?RateLimiter $limiter = null,
     ) {}
 
     /** Check the password; log in, or wait for the code. */
@@ -64,6 +80,19 @@ final class TwoFactor
         $account = $this->auth->verify($login, $password);
 
         if ($account === null) {
+            return TwoFactorResult::Failed;
+        }
+
+        return $this->start($account);
+    }
+
+    /**
+     * An account whose first factor has already been checked: log it in, or,
+     * when it has two-factor turned on, wait for the code.
+     */
+    public function start(Account $account): TwoFactorResult
+    {
+        if (!$account->active) {
             return TwoFactorResult::Failed;
         }
 
@@ -102,6 +131,17 @@ final class TwoFactor
             return null;
         }
 
+        // Counted before the code is looked at, success included, so that
+        // requests sent at once cannot all slip in under the limit.
+        $throttle = 'two-factor:' . \hash('sha256', $account->identity->id);
+
+        if ($this->limiter !== null && !$this->limiter->attempt($throttle, self::LIMIT_PER_ACCOUNT)->allowed) {
+            $this->countFailure();
+            $this->hooks?->do('auth.two_factor_throttled', $account->identity);
+
+            return null;
+        }
+
         $secret = $accounts->twoFactorSecret($account);
         $step = $secret === null ? null : Totp::verify($secret, $code, $accounts->lastTwoFactorStep($account), $this->now());
         $recovered = $step === null && $this->useRecoveryCode($account, $code);
@@ -117,6 +157,7 @@ final class TwoFactor
             $accounts->recordTwoFactorStep($account, $step);
         }
 
+        $this->limiter?->clear($throttle);
         $this->sessions->session()->forgetReserved(self::PENDING);
         $this->auth->login($account->identity);
 

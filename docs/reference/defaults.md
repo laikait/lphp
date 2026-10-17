@@ -76,7 +76,7 @@ A real environment variable beats the same name in `.env`.
 | `SESSION_CONNECTION` | `session.connection` | empty (default connection) | Connection for the database session store. |
 | `SESSION_IDLE` | `session.idle` | 7200 | Seconds of inactivity before a session ends. |
 | `SESSION_ABSOLUTE` | `session.absolute` | 0 (none) | Hard maximum session length, in seconds. |
-| `SESSION_GRACE` | `session.grace` | 30 | Seconds an old session id keeps working after regeneration. |
+| `SESSION_GRACE` | `session.grace` | 30 | Seconds an old session id keeps working after regeneration; 0 for none. A login leaves none either way. |
 | `SESSION_COOKIE` | `session.cookie.name` | session | Session cookie name. |
 | `SESSION_COOKIE_LIFETIME` | `session.cookie.lifetime` | 0 (browser session) | Cookie lifetime in seconds. |
 | `SESSION_COOKIE_SECURE` | `session.cookie.secure` | unset (follow the request) | Require HTTPS for the session cookie. |
@@ -117,6 +117,7 @@ the defaults with no environment variable set.
 |---|---|---|
 | `http.base_path` | `null` | — |
 | `http.trusted_proxies` | `[]` | — |
+| `http.headers` | `[]` (X-Engine: LPHP; PHP's X-Powered-By is removed) | — |
 | `http.client.timeout` | `30` | — |
 | `http.client.user_agent` | `null` (LPHP/&lt;version&gt;) | — |
 
@@ -207,6 +208,7 @@ See [Storage](storage.md).
 | `security.csrf.enabled` | `true` | `CSRF_ENABLED` |
 | `security.csrf.check_origin` | `true` | — |
 | `security.csrf.lifetime` | `7200` | — |
+| `security.csrf.host_prefix` | `true` | — |
 | `security.counters` | `'file'` | — |
 | `security.max_request_bytes` | `8388608` | `MAX_REQUEST_BYTES` |
 | `security.headers.csp` | `''` | — |
@@ -227,6 +229,7 @@ See [Storage](storage.md).
 | `auth.social.register` | `false` | — |
 | `auth.social.providers` | `[]` | — |
 | `auth.two_factor.issuer` | `'LPHP'` | — |
+| `auth.two_factor.route` | `'two_factor.challenge'` | — |
 
 ### `session`
 

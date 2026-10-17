@@ -325,8 +325,12 @@ whose clock is a little out.
 - **A password alone logs nobody in** on an account with two-factor turned on.
   The account waits in the session for five minutes and five tries, and only a
   right code calls `AuthManager::login()`, which is when the session id changes.
-  After five wrong codes the password has to be typed again. Rate-limit the code
-  route as you do the login route.
+  After five wrong codes the password has to be typed again.
+- **And ten per account in fifteen minutes**, across every session, because
+  typing the password again resets the session's five. Past that even a right
+  code is refused until the window ends (`auth.two_factor_throttled` fires), and
+  a right code clears the count. Rate-limit the code route by IP as well, as you
+  do the login route.
 - **A code works once.** The step it matched is stored, and that code or an
   older one is refused afterwards.
 - **Turning it on takes two steps**, so a secret nobody scanned never locks
@@ -413,9 +417,21 @@ The `social.account` filter receives that answer (an `Account`, or `false`)
 and the `SocialUser`, and has the last word: for example, a company domain only,
 or always ask before linking.
 
+**Two-factor still applies.** The provider is a first factor, the way a password
+is: an account with two-factor turned on is left waiting for its code, exactly
+as after `TwoFactor::attempt()`. The shipped callback redirects it to the route
+named by `auth.two_factor.route` (`two_factor.challenge`), your code form, which
+finishes with `TwoFactor::challenge()`; without that route the sign-in is
+refused with 403. Otherwise turning two-factor on would protect nothing against
+anybody who can sign in to the provider, or open an account there under the
+same verified email.
+
 **In your own handler**, the pieces are `SocialLogin::redirect()`,
-`callback()` (returns a `SocialUser`), `login()` (or `account()` to decide
-yourself), `returnTo()` and `forgetCookie()`. A provider of your own implements
+`callback()` (returns a `SocialUser`), `attempt()` (a `TwoFactorResult`, as for
+a password) or `login()` (an `Identity`, or null, including for an account that
+needs its code), `account()` to decide yourself, `returnTo()` and
+`forgetCookie()`. Anything else that signs somebody in without their password
+goes through `TwoFactor::start($account)` for the same reason. A provider of your own implements
 `Auth\Social\Provider` and is added with `$social->extend('name', …)`.
 
 ## If it doesn't work

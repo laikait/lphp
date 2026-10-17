@@ -22,8 +22,17 @@ use App\Engine\Http\Request;
  * The first is the token: a value in a cookie that must be echoed back in a
  * form field or a header. Same-origin policy stops another site from reading
  * the cookie, so it cannot echo it. The token is signed with APP_KEY as well,
- * which is what stops a sibling subdomain -- or anyone able to inject a
- * Set-Cookie over plain HTTP -- from planting a cookie and a matching field.
+ * which proves this application issued it -- but not to whom: anybody can
+ * fetch a page and be issued a valid one.
+ *
+ * **What stops a planted cookie is its name.** A sibling subdomain, or anyone
+ * able to inject a Set-Cookie over plain HTTP, could otherwise set a token they
+ * were issued themselves in the victim's browser and post the matching field.
+ * Over HTTPS the cookie is called __Host-XSRF-TOKEN, and a browser accepts a
+ * __Host- cookie only from a secure response of this exact host, with Path=/
+ * and no Domain -- which neither of them can send. Only that name is read over
+ * HTTPS, so an XSRF-TOKEN planted beside it counts for nothing. Plain HTTP,
+ * where no prefix is possible, keeps the old name.
  *
  * The second is the Origin header, which browsers send on every unsafe
  * cross-origin request and which script cannot forge. It costs nothing, needs
@@ -60,6 +69,13 @@ final class Csrf
      */
     public const COOKIE = 'XSRF-TOKEN';
 
+    /**
+     * The same cookie over HTTPS, which no other host can set. See the class
+     * description. A script reading the cookie reads this name on HTTPS; see
+     * cookieName(). security.csrf.host_prefix = false keeps COOKIE everywhere.
+     */
+    public const SECURE_COOKIE = '__Host-' . self::COOKIE;
+
     /** What a form posts. */
     public const FIELD = '_token';
 
@@ -91,7 +107,14 @@ final class Csrf
         private readonly Signer $signer,
         private readonly bool $checkOrigin = true,
         private readonly int $lifetime = 7200,
+        private readonly bool $hostPrefix = true,
     ) {}
+
+    /** The cookie's name for this request: SECURE_COOKIE over HTTPS, COOKIE otherwise. */
+    public function cookieName(Request $request): string
+    {
+        return $this->nameFor($request->isSecure());
+    }
 
     /** A new request: nothing has been issued to it yet. */
     public function begin(): void
@@ -127,7 +150,7 @@ final class Csrf
             return $this->issued;
         }
 
-        $existing = $request->cookie(self::COOKIE);
+        $existing = $request->cookie($this->cookieName($request));
 
         if ($existing !== null && $this->signer->verify($existing, self::CONTEXT) !== null) {
             return $existing;
@@ -161,7 +184,7 @@ final class Csrf
     public function cookie(string $token, bool $secure): Cookie
     {
         return new Cookie(
-            name: self::COOKIE,
+            name: $this->nameFor($secure),
             value: $token,
             expires: \time() + $this->lifetime,
             secure: $secure,
@@ -195,10 +218,11 @@ final class Csrf
             }
         }
 
-        $cookie = $request->cookie(self::COOKIE);
+        $name = $this->cookieName($request);
+        $cookie = $request->cookie($name);
 
         if ($cookie === null) {
-            return 'This request carried no ' . self::COOKIE . ' cookie. Either cookies are being '
+            return 'This request carried no ' . $name . ' cookie. Either cookies are being '
                 . 'dropped, or the form was rendered before the cookie was issued.';
         }
 
@@ -213,7 +237,7 @@ final class Csrf
         }
 
         if ($this->signer->verify($cookie, self::CONTEXT) === null) {
-            return 'The ' . self::COOKIE . ' cookie is not signed by this application. It may have '
+            return 'The ' . $name . ' cookie is not signed by this application. It may have '
                 . 'been set by another site on this domain, or APP_KEY may have changed.';
         }
 
@@ -223,6 +247,11 @@ final class Csrf
         }
 
         return null;
+    }
+
+    private function nameFor(bool $secure): string
+    {
+        return $secure && $this->hostPrefix ? self::SECURE_COOKIE : self::COOKIE;
     }
 
     /** The token as the request supplied it, from a field or a header. */

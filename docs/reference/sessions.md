@@ -121,7 +121,15 @@ So `regenerate()` leaves the old record as a *pointer* with no payload in it,
 which a request inside `session.grace` seconds follows exactly **once**. Once,
 not until it stops pointing: a chain would let one stale id walk through every
 regeneration a session ever had. `invalidate()` leaves no pointer at all,
-because a logout should not be followable.
+because a logout should not be followable. `session.grace = 0` means no
+window, so nothing is followed.
+
+**A login leaves no pointer either.** Following one hands the request the new
+id, and a request holding the old id cannot be told from an attacker who
+planted it, so `AuthManager::login()` calls `regenerate(followable: false)` and
+the id from before the login stops working at once. The price is the one the
+pointer was for: a request already in flight with the old id starts an empty
+session. Pass `followable: false` yourself for any other change of privilege.
 
 Regenerating also **rotates the CSRF token**, through the `session.regenerated`
 hook rather than a dependency. The security layer still does not know that

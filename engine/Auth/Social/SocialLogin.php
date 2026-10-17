@@ -8,6 +8,9 @@ use App\Engine\Auth\Account;
 use App\Engine\Auth\AuthException;
 use App\Engine\Auth\AuthManager;
 use App\Engine\Auth\Identity;
+use App\Engine\Auth\TwoFactor;
+use App\Engine\Auth\TwoFactorAccounts;
+use App\Engine\Auth\TwoFactorResult;
 use App\Engine\Auth\UserProvider;
 use App\Engine\Filter\FilterEngine;
 use App\Engine\Hook\HookEngine;
@@ -27,7 +30,10 @@ use App\Engine\Security\Signer;
  *
  *     // GET|POST /auth/{provider}/callback   (named social.callback)
  *     $user = $social->callback($provider, $request);       // who the provider says it is
- *     $identity = $social->login($user);                    // null: no account for them
+ *     $result = $social->attempt($user);                    // a TwoFactorResult, as for a password
+ *
+ * An account with two-factor turned on is not logged in by the provider alone:
+ * attempt() answers ChallengeRequired and TwoFactor::challenge() finishes it.
  *
  * The Shared module declares both routes, so configuring a provider under
  * auth.social.providers is all a fresh application needs.
@@ -70,6 +76,7 @@ final class SocialLogin
         private readonly ?HookEngine $hooks = null,
         private readonly bool $register = false,
         private readonly string $callbackRoute = 'social.callback',
+        private readonly ?TwoFactor $twoFactor = null,
     ) {
         $this->providers = $providers;
     }
@@ -221,18 +228,48 @@ final class SocialLogin
         return $account;
     }
 
-    /** Log in as whoever $user is. Null when that is nobody, or a suspended account. */
-    public function login(SocialUser $user): ?Identity
+    /**
+     * Sign in as whoever $user is, the way TwoFactor::attempt() does for a
+     * password: logged in, waiting for a code, or refused.
+     *
+     * **The provider is a first factor, never both.** An account with
+     * two-factor turned on is left waiting for its code -- TwoFactor::pending()
+     * and challenge() finish it -- because otherwise turning two-factor on would
+     * protect nothing for anybody who can sign in to the provider, or create an
+     * account there with the same verified email.
+     */
+    public function attempt(SocialUser $user): TwoFactorResult
     {
         $account = $this->account($user);
 
         if ($account === null || !$account->active) {
-            return null;
+            return TwoFactorResult::Failed;
+        }
+
+        if ($this->twoFactor !== null) {
+            return $this->twoFactor->start($account);
+        }
+
+        // Built without a TwoFactor there is nowhere to wait for the code, so an
+        // account that needs one is refused rather than let in on the provider's
+        // word alone.
+        if ($this->accounts instanceof TwoFactorAccounts && $this->accounts->twoFactorSecret($account) !== null) {
+            return TwoFactorResult::Failed;
         }
 
         $this->auth->login($account->identity);
 
-        return $account->identity;
+        return TwoFactorResult::LoggedIn;
+    }
+
+    /**
+     * Log in as whoever $user is. Null when that is nobody, a suspended account,
+     * or an account with two-factor turned on -- which attempt() leaves waiting
+     * for its code instead.
+     */
+    public function login(SocialUser $user): ?Identity
+    {
+        return $this->attempt($user) === TwoFactorResult::LoggedIn ? $this->auth->identity() : null;
     }
 
     private function callbackUrl(string $name): string
