@@ -120,4 +120,3 @@ hidden behind an ORM.
 ## License
 
 MIT. See [LICENSE](LICENSE).
-
