@@ -138,6 +138,7 @@ they carry.
 | `auth.social_user` | `social.account` (an `Account`, or `false` for nobody) |
 | `auth.two_factor_enabled`, `auth.two_factor_disabled` |  |
 | `auth.two_factor_failed`, `auth.recovery_code_used` | `feature.active` |
+| `auth.two_factor_throttled` |  |
 | `system.audit` | `system.command.timeout` (narrow only) |
 | `mcp.request.received`, `mcp.request.failed` | `mcp.tool.input` (before validation) |
 | `mcp.response.created`, `mcp.access.denied` | `mcp.tool.output` |

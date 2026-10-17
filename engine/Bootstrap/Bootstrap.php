@@ -613,6 +613,7 @@ final class Bootstrap
             $signer,
             $settings->bool('security.csrf.check_origin', true),
             $settings->int('security.csrf.lifetime', 7200) ?? 7200,
+            $settings->bool('security.csrf.host_prefix', true),
         );
         $limiter = new RateLimiter(self::counters($settings, $basePath));
         $limits = new RequestLimits(
@@ -767,6 +768,7 @@ final class Bootstrap
             $sessions,
             $settings->string('auth.two_factor.issuer', 'LPHP') ?? 'LPHP',
             $hooks,
+            limiter: $container->get(RateLimiter::class),
         ));
         $container->singleton(SocialLogin::class, static fn(Container $container): SocialLogin => new SocialLogin(
             self::socialProviders($settings, $container),
@@ -777,6 +779,7 @@ final class Bootstrap
             $filters,
             $hooks,
             (bool) $settings->bool('auth.social.register', false),
+            twoFactor: $container->get(TwoFactor::class),
         ));
         $container->singleton(EmailVerification::class, static fn(Container $container): EmailVerification => new EmailVerification(
             $container->get(UserProvider::class),
@@ -856,6 +859,20 @@ final class Bootstrap
         // Last, so that it sees every header a module decided to set and does
         // not overwrite one. See SecurityHeaders.
         $filters->add('response.instance', $headers(...), 90, 'engine');
+
+        // Which engine answered, on every response. Like the security headers,
+        // a value a module already set is kept, and an empty one in
+        // http.headers removes the header.
+        $identity = self::engineHeaders($settings);
+        $filters->add('response.instance', static function (Response $response) use ($identity): Response {
+            foreach ($identity as $name => $value) {
+                if (!$response->hasHeader($name)) {
+                    $response = $response->withHeader($name, $value);
+                }
+            }
+
+            return $response;
+        }, 90, 'engine');
 
         // After the security headers, as the very last thing a response goes
         // through: X-Request-Id on every response, and -- when profiling -- the
@@ -1204,6 +1221,29 @@ final class Bootstrap
             ),
             default => new SessionFileStore(Path::join($basePath, 'system', 'Sessions')),
         };
+    }
+
+    /**
+     * X-Engine, with http.headers merged over it.
+     *
+     * No X-Powered-By, and no version anywhere: a version number on every
+     * response is a lookup key for whichever release has a known hole. PHP's
+     * own X-Powered-By is removed when a response is sent; see Response. An
+     * empty value drops a header.
+     *
+     * @return array<string, string>
+     */
+    private static function engineHeaders(Config $settings): array
+    {
+        $headers = ['X-Engine' => 'LPHP'];
+
+        foreach ($settings->array('http.headers') as $name => $value) {
+            if (\is_string($name) && \is_string($value)) {
+                $headers[$name] = $value;
+            }
+        }
+
+        return \array_filter($headers, static fn(string $value): bool => $value !== '');
     }
 
     /**
@@ -1832,6 +1872,9 @@ final class Bootstrap
                 // Apache in a subdirectory and the built-in server.
                 'base_path' => null,
                 'trusted_proxies' => [],
+                // Merged over X-Engine: LPHP, which every response carries; an
+                // empty value removes it. PHP's X-Powered-By is never sent.
+                'headers' => [],
                 // Outgoing requests, through Http\Client\Client.
                 'client' => [
                     'timeout' => Client::DEFAULT_TIMEOUT,
@@ -1980,6 +2023,11 @@ final class Bootstrap
                     // Two hours. Long enough that an ordinary form does not go
                     // stale while somebody writes; short enough to matter.
                     'lifetime' => 7200,
+                    // Over HTTPS the cookie is __Host-XSRF-TOKEN, which no
+                    // subdomain and no plain-HTTP response can set. Off keeps
+                    // XSRF-TOKEN everywhere, for a script that cannot be told
+                    // the other name -- and gives that protection up.
+                    'host_prefix' => true,
                 ],
                 // file or memory. Never the cache: a cache may forget, and a
                 // counter that forgets is not a limit. See CounterStore.
@@ -2040,6 +2088,10 @@ final class Bootstrap
                 // The name an authenticator app shows beside the six digits.
                 'two_factor' => [
                     'issuer' => 'LPHP',
+                    // The application's code form: where a social sign-in to
+                    // an account with two-factor turned on is sent to finish.
+                    // Without such a route that sign-in is refused with 403.
+                    'route' => 'two_factor.challenge',
                 ],
             ],
             'session' => [

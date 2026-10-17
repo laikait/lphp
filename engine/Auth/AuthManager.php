@@ -183,7 +183,9 @@ final class AuthManager
 
         if ($this->sessions !== null) {
             $session = $this->sessions->session();
-            $session->regenerate();
+            // Not followable: an id planted before the login must not lead to
+            // the session the login created, even for the grace window.
+            $session->regenerate(followable: false);
             SessionAuthenticator::remember($session, $identity);
         }
 

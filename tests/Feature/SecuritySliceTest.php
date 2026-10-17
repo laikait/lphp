@@ -89,6 +89,40 @@ final class SecuritySliceTest extends TestCase
         self::assertSame('nosniff', $response->header('X-Content-Type-Options'));
     }
 
+    /** The shipped application: the showcase fixtures set an X-Engine of their own. */
+    public function test_every_response_names_the_engine(): void
+    {
+        $app = $this->shippedApplication()->boot();
+
+        foreach (['/', '/no-such-page'] as $path) {
+            $response = $app->handle(Request::create('GET', $path));
+
+            self::assertSame('LPHP', $response->header('X-Engine'), $path);
+            self::assertFalse($response->hasHeader('X-Powered-By'), $path);
+        }
+    }
+
+    public function test_the_engine_header_can_be_changed_or_removed(): void
+    {
+        $changed = $this->shippedApplication(['http' => ['headers' => ['X-Engine' => 'Shop']]])
+            ->boot()
+            ->handle(Request::create('GET', '/'));
+        $removed = $this->shippedApplication(['http' => ['headers' => ['X-Engine' => '']]])
+            ->boot()
+            ->handle(Request::create('GET', '/'));
+
+        self::assertSame('Shop', $changed->header('X-Engine'));
+        self::assertFalse($removed->hasHeader('X-Engine'));
+    }
+
+    /** A module's own value is kept, as with the security headers. */
+    public function test_a_module_that_sets_x_engine_keeps_its_value(): void
+    {
+        $response = $this->app()->handle(Request::create('GET', '/customers.json'));
+
+        self::assertSame('app-framework', $response->header('X-Engine'));
+    }
+
     public function test_a_policy_reaches_real_responses_when_configured(): void
     {
         $response = $this->app(['security' => ['headers' => ['csp' => "default-src 'self'"]]])

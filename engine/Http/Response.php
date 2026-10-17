@@ -185,6 +185,11 @@ class Response
 
         \http_response_code($this->status);
 
+        // PHP adds X-Powered-By: PHP/<version> when expose_php is on, which
+        // tells a scanner exactly which interpreter bugs to try. Gone unless a
+        // response sets one itself, below.
+        \header_remove('X-Powered-By');
+
         foreach ($this->headers as $name => $value) {
             \header(Headers::canonical($name) . ': ' . $value, true);
         }

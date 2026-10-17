@@ -75,6 +75,50 @@ final class CsrfTest extends TestCase
         ])));
     }
 
+    // ---- the cookie's name ----------------------------------------------------
+
+    /**
+     * A token is valid for whoever fetched it, so a sibling subdomain or an
+     * HTTP man-in-the-middle could plant its own valid one as XSRF-TOKEN and post
+     * the matching field. Over HTTPS only __Host-XSRF-TOKEN is read, and that
+     * name is one neither of them can set.
+     */
+    public function test_over_https_a_planted_plain_cookie_counts_for_nothing(): void
+    {
+        $https = ['HTTPS' => 'on'];
+        $planted = $this->csrf->token(Request::create('GET', '/'));
+        $this->csrf->begin();
+
+        $reason = $this->csrf->check($this->post([
+            'server' => $https,
+            'cookies' => [Csrf::COOKIE => $planted],
+            'body' => [Csrf::FIELD => $planted],
+        ]));
+
+        self::assertNotNull($reason);
+        self::assertStringContainsString(Csrf::SECURE_COOKIE, $reason);
+
+        $token = $this->csrf->token(Request::create('GET', '/', ['server' => $https]));
+
+        self::assertSame(Csrf::SECURE_COOKIE, $this->csrf->cookie($token, true)->name);
+        self::assertNull($this->csrf->check($this->post([
+            'server' => $https,
+            'cookies' => [Csrf::SECURE_COOKIE => $token],
+            'body' => [Csrf::FIELD => $token],
+        ])));
+    }
+
+    public function test_plain_http_and_the_switch_keep_the_old_name(): void
+    {
+        self::assertSame(Csrf::COOKIE, $this->csrf->cookie('abc', false)->name);
+        self::assertSame(Csrf::COOKIE, $this->csrf->cookieName(Request::create('GET', '/')));
+
+        $unprefixed = new Csrf($this->signer, hostPrefix: false);
+
+        self::assertSame(Csrf::COOKIE, $unprefixed->cookie('abc', true)->name);
+        self::assertSame(Csrf::COOKIE, $unprefixed->cookieName(Request::create('GET', '/', ['server' => ['HTTPS' => 'on']])));
+    }
+
     // ---- one token per request ------------------------------------------------
 
     /**
@@ -269,7 +313,7 @@ final class CsrfTest extends TestCase
     {
         $cookie = $this->csrf->cookie('abc', secure: true);
 
-        self::assertSame(Csrf::COOKIE, $cookie->name);
+        self::assertSame(Csrf::SECURE_COOKIE, $cookie->name);
         // The one cookie in the framework that is not HttpOnly: it has to be
         // readable to be echoed, and the credential it protects stays HttpOnly.
         self::assertFalse($cookie->httpOnly);

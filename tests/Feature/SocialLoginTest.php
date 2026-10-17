@@ -11,6 +11,9 @@ use App\Engine\Auth\Social\OidcProvider;
 use App\Engine\Auth\Social\SocialException;
 use App\Engine\Auth\Social\SocialLogin;
 use App\Engine\Auth\Social\SocialUser;
+use App\Engine\Auth\Totp;
+use App\Engine\Auth\TwoFactor;
+use App\Engine\Auth\TwoFactorResult;
 use App\Engine\Auth\UserProvider;
 use App\Engine\Core\Application;
 use App\Engine\Filter\FilterEngine;
@@ -35,8 +38,11 @@ final class SocialLoginTest extends TestCase
     /** @var list<string> who auth.login saw */
     private array $logins = [];
 
-    /** @param array<string, mixed> $social */
-    private function boot(array $social = []): void
+    /**
+     * @param array<string, mixed> $social
+     * @param array<string, mixed> $twoFactor
+     */
+    private function boot(array $social = [], array $twoFactor = []): void
     {
         $this->app = $this->shippedApplication([
             'app' => ['url' => 'https://shop.example'],
@@ -45,7 +51,7 @@ final class SocialLoginTest extends TestCase
             'auth' => ['social' => [
                 'providers' => ['idp' => ['driver' => 'oidc', 'issuer' => FakeOidc::ISSUER, 'client_id' => 'client-1', 'client_secret' => 'secret-1']],
                 ...$social,
-            ]],
+            ], 'two_factor' => $twoFactor],
         ])->boot();
 
         $container = $this->app->container();
@@ -149,6 +155,53 @@ final class SocialLoginTest extends TestCase
         self::assertSame(302, $response->status());
         self::assertSame(['ada'], $this->logins);
         self::assertSame('ada', $this->accounts->links['idp:sub-2'] ?? null);
+    }
+
+    /**
+     * The provider is a first factor. Without this, turning two-factor on
+     * protected nothing against anybody who could sign in to the provider --
+     * or open an account there under the same verified email.
+     */
+    public function test_two_factor_is_still_asked_for_after_the_provider(): void
+    {
+        $this->accounts->links['idp:sub-1'] = 'ada';
+        $this->accounts->secrets['ada'] = Totp::secret();
+
+        // No code form in this application: refused, and nobody logged in.
+        [$refused] = $this->signIn(['sub' => 'sub-1']);
+
+        self::assertSame(403, $refused->status());
+        self::assertSame([], $this->logins);
+    }
+
+    public function test_two_factor_sends_a_social_sign_in_to_the_code_form(): void
+    {
+        $this->boot(twoFactor: ['route' => 'home']);
+        $this->accounts->links['idp:sub-1'] = 'ada';
+        $this->accounts->secrets['ada'] = $secret = Totp::secret();
+
+        [$response] = $this->signIn(['sub' => 'sub-1']);
+
+        self::assertSame(302, $response->status());
+        self::assertSame('/', $response->header('Location'));
+        self::assertSame([], $this->logins, 'the provider alone logged the account in');
+
+        $twoFactor = $this->app->container()->get(TwoFactor::class);
+
+        self::assertTrue($twoFactor->pending());
+        self::assertSame('ada', $twoFactor->challenge(Totp::code($secret))?->id);
+        self::assertSame(['ada'], $this->logins);
+    }
+
+    public function test_attempt_and_login_agree_on_two_factor(): void
+    {
+        $this->accounts->secrets['ada'] = Totp::secret();
+        $social = $this->app->container()->get(SocialLogin::class);
+        $user = new SocialUser('idp', 'sub-9', 'ada@example.test', true);
+
+        self::assertNull($social->login($user));
+        self::assertSame(TwoFactorResult::ChallengeRequired, $social->attempt($user));
+        self::assertSame([], $this->logins);
     }
 
     public function test_an_unverified_email_never_links(): void
