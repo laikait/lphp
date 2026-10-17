@@ -128,6 +128,31 @@ public, is in [`STABILITY.md`](STABILITY.md).
   `security:check` warns while the application is down. See
   [Running](docs/operations/running.md#maintenance-mode).
 
+### Security
+
+- **Social sign-in no longer skips two-factor.** `SocialLogin::login()` called
+  `AuthManager::login()` directly, so an account with two-factor turned on was
+  logged in by the provider alone — or by anybody who opened a provider account
+  under the same verified email. It now goes through the new
+  `TwoFactor::start()`; the new `SocialLogin::attempt()` answers a
+  `TwoFactorResult`, and the shipped callback sends such an account to the route
+  named by `auth.two_factor.route`. See
+  [Authentication](docs/reference/auth.md#signing-in-with-google-microsoft-apple-github-or-facebook).
+- **Logging in leaves no followable session pointer.** The id from before a
+  login used to lead, for `session.grace` seconds, to the session the login
+  made, handing it — and its new id — to whoever had planted that id.
+  `AuthManager::login()` now regenerates with `followable: false`, and
+  `Session::regenerate()` / `SessionManager::regenerate()` take that argument.
+  `session.grace = 0` used to skip the time check and follow a pointer
+  indefinitely; it now follows none.
+- **The CSRF cookie is `__Host-XSRF-TOKEN` over HTTPS.** A signed token proves
+  this application issued it, not to whom, so a sibling subdomain or a
+  plain-HTTP man-in-the-middle could plant a token they had been issued
+  themselves. `security.csrf.host_prefix = false` restores the old name.
+- **Two-factor codes are limited per account**, ten in fifteen minutes across
+  every session (`TwoFactor::LIMIT_PER_ACCOUNT`), because typing the password
+  again reset the session's five tries. `auth.two_factor_throttled` is new.
+
 ## [3.0.1] - 2026-10-01
 
 ### Changed

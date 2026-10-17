@@ -218,6 +218,32 @@ final class AuthManagerTest extends TestCase
         self::assertNotSame($before, $this->sessions->session()->id());
     }
 
+    /**
+     * The id from before the login leads nowhere -- not even for the grace
+     * window that other regenerations get. Otherwise an attacker who obtained
+     * a genuine id and planted it would be handed the logged-in session.
+     */
+    public function test_the_id_from_before_the_login_is_not_followed_to_it(): void
+    {
+        $this->withPassword('7', 'ada', 'x');
+
+        $this->manager();
+        $this->sessions->session()->set('cart', 3);
+        $this->sessions->save();
+        $planted = $this->sessions->session()->id();
+
+        $this->manager(Request::create('POST', '/login', [
+            'cookies' => [SessionManager::DEFAULT_COOKIE => $planted],
+        ]))->attempt('ada', new Secret('x'));
+        $this->sessions->save();
+
+        $attacker = $this->manager(Request::create('GET', '/', [
+            'cookies' => [SessionManager::DEFAULT_COOKIE => $planted],
+        ]));
+
+        self::assertTrue($attacker->guest());
+    }
+
     public function test_a_logged_in_session_is_recognised_on_the_next_request(): void
     {
         $this->withPassword('7', 'ada', 'x');

@@ -15,7 +15,11 @@ use App\Engine\Auth\TwoFactor;
 use App\Engine\Auth\TwoFactorResult;
 use App\Engine\Auth\UserProvider;
 use App\Engine\Core\Application;
+use App\Engine\Hook\HookEngine;
+use App\Engine\Http\Request;
+use App\Engine\Security\RateLimiter;
 use App\Engine\Security\Secret;
+use App\Engine\Session\SessionManager;
 use App\Tests\Fixtures\Auth\TwoFactorMemoryAccounts;
 use App\Tests\Support\TestCase;
 
@@ -103,6 +107,54 @@ final class TwoFactorTest extends TestCase
         self::assertNull($this->twoFactor()->challenge('000000'));
         self::assertFalse($this->twoFactor()->pending());
         self::assertNull($this->twoFactor()->challenge(Totp::code($this->secret)));
+    }
+
+    /**
+     * Typing the password again resets the session's five tries, so on their
+     * own they bound nothing for somebody who has the password. The account's
+     * own limit holds across every session.
+     */
+    public function test_the_account_runs_out_of_codes_however_many_sessions_ask(): void
+    {
+        $sessions = $this->app->container()->get(SessionManager::class);
+        $tried = 0;
+
+        while ($tried < 10) {
+            // A fresh session for each round, as a script would open.
+            $sessions->onRequest(Request::create('POST', '/login'));
+            $this->twoFactor()->attempt('ada@example.test', new Secret('pw'));
+
+            for ($i = 0; $i < TwoFactor::MAX_TRIES && $tried < 10; ++$i, ++$tried) {
+                self::assertNull($this->twoFactor()->challenge('000000'));
+            }
+        }
+
+        $throttled = [];
+        $this->app->container()->get(HookEngine::class)->add('auth.two_factor_throttled', static function (Identity $identity) use (&$throttled): void {
+            $throttled[] = $identity->id;
+        });
+
+        $sessions->onRequest(Request::create('POST', '/login'));
+        $this->twoFactor()->attempt('ada@example.test', new Secret('pw'));
+
+        self::assertNull($this->twoFactor()->challenge(Totp::code($this->secret)), 'the right code got through the limit');
+        self::assertTrue($this->auth()->guest());
+        self::assertSame(['ada'], $throttled);
+    }
+
+    public function test_a_right_code_clears_the_count(): void
+    {
+        $this->twoFactor()->attempt('ada@example.test', new Secret('pw'));
+
+        for ($i = 1; $i < TwoFactor::MAX_TRIES; ++$i) {
+            $this->twoFactor()->challenge('000000');
+        }
+
+        self::assertSame('ada', $this->twoFactor()->challenge(Totp::code($this->secret))?->id);
+
+        $limit = $this->app->container()->get(RateLimiter::class)->check('two-factor:' . \hash('sha256', 'ada'), TwoFactor::LIMIT_PER_ACCOUNT);
+
+        self::assertSame(10, $limit->remaining);
     }
 
     public function test_switching_it_on_and_a_recovery_code(): void
