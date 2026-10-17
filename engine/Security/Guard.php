@@ -126,7 +126,7 @@ final class Guard
         // the one any form on this page carries -- or else the browser's own.
         $token = $this->csrf->token($request);
 
-        if ($request->cookie(Csrf::COOKIE) === $token) {
+        if ($request->cookie($this->csrf->cookieName($request)) === $token) {
             return $response;
         }
 

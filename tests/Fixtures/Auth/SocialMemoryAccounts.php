@@ -8,16 +8,23 @@ use App\Engine\Auth\Account;
 use App\Engine\Auth\Identity;
 use App\Engine\Auth\Social\SocialAccounts;
 use App\Engine\Auth\Social\SocialUser;
+use App\Engine\Auth\TwoFactorAccounts;
 use App\Engine\Auth\UserProvider;
 
-/** Accounts and their links to outside providers, in arrays. */
-final class SocialMemoryAccounts implements UserProvider, SocialAccounts
+/** Accounts and their links to outside providers, in arrays; two-factor when a secret is set. */
+final class SocialMemoryAccounts implements UserProvider, SocialAccounts, TwoFactorAccounts
 {
     /** @var array<string, array{email: string, active: bool}> */
     private array $accounts = [];
 
     /** @var array<string, string> "provider:id" => account id */
     public array $links = [];
+
+    /** @var array<string, string> account id => TOTP secret, for those with two-factor on */
+    public array $secrets = [];
+
+    /** @var array<string, int> */
+    private array $steps = [];
 
     public function add(string $id, string $email, bool $active = true): void
     {
@@ -78,5 +85,37 @@ final class SocialMemoryAccounts implements UserProvider, SocialAccounts
         $this->linkSocial($account, $user);
 
         return $account;
+    }
+
+    public function twoFactorSecret(Account $account): ?string
+    {
+        return $this->secrets[$account->identity->id] ?? null;
+    }
+
+    public function lastTwoFactorStep(Account $account): ?int
+    {
+        return $this->steps[$account->identity->id] ?? null;
+    }
+
+    public function recordTwoFactorStep(Account $account, int $step): void
+    {
+        $this->steps[$account->identity->id] = $step;
+    }
+
+    public function recoveryCodes(Account $account): array
+    {
+        return [];
+    }
+
+    public function replaceRecoveryCodes(Account $account, array $hashes): void {}
+
+    public function enableTwoFactor(Account $account, string $secret, array $recoveryHashes): void
+    {
+        $this->secrets[$account->identity->id] = $secret;
+    }
+
+    public function disableTwoFactor(Account $account): void
+    {
+        unset($this->secrets[$account->identity->id]);
     }
 }

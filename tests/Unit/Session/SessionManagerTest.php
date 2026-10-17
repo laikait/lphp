@@ -347,6 +347,52 @@ final class SessionManagerTest extends TestCase
         self::assertFalse($manager->session()->existed());
     }
 
+    /** Zero seconds of grace is none: it used to skip the check and follow forever. */
+    public function test_no_grace_follows_nothing(): void
+    {
+        $id = $this->put(['user' => 7]);
+
+        $manager = $this->manager(grace: 0);
+        $manager->onRequest($this->request(['session' => $id]));
+        $manager->session()->regenerate();
+        $manager->save();
+
+        $late = $this->manager(grace: 0);
+        $late->onRequest($this->request(['session' => $id]));
+
+        self::assertFalse($late->session()->existed());
+        self::assertNull($late->session()->get('user'));
+    }
+
+    /**
+     * Session fixation. The attacker's own, genuine id is planted in the
+     * victim's browser; the victim logs in. A followable pointer would hand
+     * whoever still holds the old id the session the login made -- and its new
+     * id -- so a change of privilege leaves none.
+     */
+    public function test_an_unfollowable_regeneration_leaves_the_old_id_worthless(): void
+    {
+        $planted = $this->put(['cart' => 3]);
+
+        $victim = $this->manager();
+        $victim->onRequest($this->request(['session' => $planted]));
+        $session = $victim->session();
+        $next = $session->regenerate(followable: false);
+        $session->setReserved('_auth.id', 'victim');
+        $victim->save();
+
+        self::assertNull($this->store->read($planted), 'no pointer was left behind');
+        self::assertSame(['cart' => 3, '_auth.id' => 'victim'], $this->store->read($next)?->payload, 'the data moved with the login');
+
+        $attacker = $this->manager();
+        $attacker->onRequest($this->request(['session' => $planted]));
+        $theirs = $attacker->session();
+
+        self::assertFalse($theirs->existed());
+        self::assertNull($theirs->reserved('_auth.id'));
+        self::assertNotSame($next, $theirs->id());
+    }
+
     /**
      * One hop, not a chain.
      *

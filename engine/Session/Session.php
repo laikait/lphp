@@ -78,7 +78,7 @@ final class Session
 
     /**
      * @param array<string, mixed>            $payload
-     * @param \Closure(bool): string|null     $regenerator what the manager does
+     * @param \Closure(bool, bool): string|null $regenerator what the manager does
      *                                                     when asked for a new id
      */
     public function __construct(
@@ -261,18 +261,19 @@ final class Session
      * user's privileges changed. Phase 25 calls this on login; anything that
      * elevates what a session can do should call it too.
      *
-     * The old id is not destroyed outright. See SessionManager::regenerate()
-     * for the grace window, which is what stops a request already in flight
-     * from losing its session.
+     * The old id is not destroyed outright unless $followable is false. See
+     * SessionManager::regenerate() for the grace window, which is what stops a
+     * request already in flight from losing its session -- and why a change of
+     * privilege, a login above all, must pass $followable = false.
      */
-    public function regenerate(bool $keepData = true): string
+    public function regenerate(bool $keepData = true, bool $followable = true): string
     {
         if (!$keepData) {
             $this->clear();
         }
 
         if ($this->regenerator !== null) {
-            $this->id = ($this->regenerator)($keepData);
+            $this->id = ($this->regenerator)($keepData, $followable);
         }
 
         $this->regenerated = true;

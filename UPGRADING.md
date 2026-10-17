@@ -9,6 +9,48 @@ format — a queued job, a session record — which always gets one.
 Each entry says **what changed**, **who is affected** and **what to do**, in that
 order. An entry that cannot say who is affected is not finished.
 
+## To the next release, from 3.0.1
+
+### The CSRF cookie is __Host-XSRF-TOKEN over HTTPS
+
+- **Changed:** over HTTPS the CSRF cookie is set and read as
+  `__Host-XSRF-TOKEN`; plain HTTP keeps `XSRF-TOKEN`. A `XSRF-TOKEN` cookie
+  sent over HTTPS is ignored, which is the point: no subdomain can set the new
+  one.
+- **Affected:** a script that reads the cookie by name to echo it in
+  `X-XSRF-TOKEN` (axios's `xsrfCookieName`, Angular's `HttpClientXsrfModule`),
+  and a test that sends `Csrf::COOKIE` with an HTTPS request. Forms that post
+  `_token` are not affected. Each browser is issued the new cookie on its next
+  page, so a form rendered before the deployment fails once.
+- **Do:** read `Csrf::SECURE_COOKIE` on HTTPS, or the name
+  `Csrf::cookieName($request)` gives. Only if a client cannot be changed, set
+  `security.csrf.host_prefix` to `false`, which gives the protection up.
+
+### Social sign-in asks for the second factor
+
+- **Changed:** an account with two-factor turned on is no longer logged in by
+  a social sign-in. `SocialLogin::login()` returns null for it and leaves it
+  waiting for its code; `SocialLogin::attempt()` says `ChallengeRequired`. The
+  shipped callback redirects it to the route named by `auth.two_factor.route`
+  (default `two_factor.challenge`), and refuses it with 403 when there is none.
+- **Affected:** an application with both social sign-in and two-factor turned
+  on, and a handler of its own that calls `SocialLogin::login()`.
+- **Do:** name your code form's route `two_factor.challenge`, or set
+  `auth.two_factor.route` to its name. In your own handler, call `attempt()` and
+  treat `ChallengeRequired` as `TwoFactor::attempt()` does.
+
+### A login leaves no session pointer, and SESSION_GRACE=0 means none
+
+- **Changed:** `AuthManager::login()` regenerates the session id with
+  `followable: false`, so the id from before the login stops working at once,
+  instead of for `session.grace` seconds. `session.grace = 0` now means no
+  window at all; it used to mean an unlimited one.
+- **Affected:** a page that logs in while other requests are in flight with the
+  old id — each of them starts an empty session — and a deployment that set
+  `SESSION_GRACE=0`.
+- **Do:** nothing, usually. Wait for a login request to finish before sending
+  the next authenticated one.
+
 ## To 3.0.1, from 2.1.2
 
 ### Request::ip() reads X-Forwarded-For from the right
