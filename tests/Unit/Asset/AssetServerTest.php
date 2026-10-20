@@ -8,6 +8,8 @@ use App\Engine\Asset\AssetKind;
 use App\Engine\Asset\AssetRegistry;
 use App\Engine\Asset\AssetResolver;
 use App\Engine\Asset\AssetServer;
+use App\Engine\Asset\AssetSource;
+use App\Engine\Asset\MimeTypes;
 use App\Engine\Filter\FilterEngine;
 use App\Engine\Http\Request;
 use App\Engine\Http\Response;
@@ -28,7 +30,9 @@ final class AssetServerTest extends TestCase
         \mkdir($this->root . '/core/css', 0o777, true);
         \mkdir($this->root . '/core/img', 0o777, true);
         \mkdir($this->root . '/plugin/js', 0o777, true);
-        \mkdir($this->root . '/admin/css', 0o777, true);
+        \mkdir($this->root . '/templates/assets/css', 0o777, true);
+        \mkdir($this->root . '/templates/admin/panel/blue/css', 0o777, true);
+        \mkdir($this->root . '/templates/admin/x', 0o777, true);
 
         \file_put_contents($this->root . '/core/css/app.css', 'body{margin:0}');
         \file_put_contents($this->root . '/core/css/build.9c81f4a2.css', 'body{margin:1}');
@@ -36,12 +40,15 @@ final class AssetServerTest extends TestCase
         \file_put_contents($this->root . '/core/img/logo.svg', '<svg xmlns="http://www.w3.org/2000/svg"/>');
         \file_put_contents($this->root . '/core/secret.php', '<?php echo 1;');
         \file_put_contents($this->root . '/plugin/js/example.js', 'export const a = 1;');
-        \file_put_contents($this->root . '/admin/css/admin.css', 'nav{}');
+        \file_put_contents($this->root . '/templates/assets/css/app.css', 'main{}');
+        \file_put_contents($this->root . '/templates/admin/panel/blue/css/app.css', 'nav{}');
+        \file_put_contents($this->root . '/templates/admin/x/config.json', '{}');
+        \file_put_contents($this->root . '/templates/admin/x/page.twig', '{{ secret }}');
+        \file_put_contents($this->root . '/templates/admin/x/page.php', '<?php echo 1;');
 
         $this->registry = new AssetRegistry();
         $this->registry->publish(AssetKind::Core, null, $this->root . '/core');
-        $this->registry->publish(AssetKind::Template, null, $this->root . '/core');
-        $this->registry->publish(AssetKind::Template, 'admin', $this->root . '/admin');
+        $this->registry->register(new AssetSource(AssetKind::Template, null, $this->root . '/templates', MimeTypes::WEB_ASSETS));
         $this->registry->publish(AssetKind::Module, 'Example', $this->root . '/plugin');
 
         $this->filters = new FilterEngine();
@@ -49,13 +56,15 @@ final class AssetServerTest extends TestCase
 
     protected function tearDown(): void
     {
-        foreach (['core/css', 'core/img', 'module/js', 'admin/css', 'core'] as $directory) {
-            \array_map('unlink', \glob($this->root . '/' . $directory . '/*.*') ?: []);
-            @\rmdir($this->root . '/' . $directory);
-        }
+        $entries = new \RecursiveIteratorIterator(
+            new \RecursiveDirectoryIterator($this->root, \FilesystemIterator::SKIP_DOTS),
+            \RecursiveIteratorIterator::CHILD_FIRST,
+        );
 
-        foreach (['core', 'plugin', 'admin'] as $directory) {
-            @\rmdir($this->root . '/' . $directory);
+        foreach ($entries as $entry) {
+            if ($entry instanceof \SplFileInfo) {
+                $entry->isDir() ? @\rmdir($entry->getPathname()) : @\unlink($entry->getPathname());
+            }
         }
 
         @\rmdir($this->root);
@@ -105,6 +114,11 @@ final class AssetServerTest extends TestCase
 
         self::assertTrue($server->handles('/assets/core/css/app.css'));
         self::assertTrue($server->handles('/assets'));
+        self::assertTrue($server->handles('/template/assets/css/app.css'));
+        self::assertTrue($server->handles('/template/admin/css/app.css'));
+        self::assertTrue($server->handles('/template'));
+        self::assertFalse($server->handles('/templates/css/app.css'));
+        self::assertFalse($server->handles('/template-editor'));
         self::assertFalse($server->handles('/customers'));
         self::assertFalse($server->handles('/assetsomething'));
         self::assertFalse($server->handles('/'));
@@ -114,8 +128,8 @@ final class AssetServerTest extends TestCase
     {
         foreach ([
             '/assets/core/css/app.css' => 'body{margin:0}',
-            '/assets/template/css/app.css' => 'body{margin:0}',
-            '/assets/template/admin/css/admin.css' => 'nav{}',
+            '/template/assets/css/app.css' => 'main{}',
+            '/template/admin/panel/blue/css/app.css' => 'nav{}',
             '/assets/module/Example/js/example.js' => 'export const a = 1;',
         ] as $path => $expected) {
             $response = $this->get($path);
@@ -125,17 +139,28 @@ final class AssetServerTest extends TestCase
         }
     }
 
-    /**
-     * The one ambiguity in the URL scheme, and the rule that settles it: a
-     * second segment naming a registered template means the named form.
-     */
-    public function test_a_named_template_wins_over_a_directory_of_the_same_name(): void
+    /** The URL is /template/ plus the path under templates/, and only web assets answer. */
+    public function test_a_template_folder_serves_web_assets_only(): void
     {
-        self::assertSame(200, $this->get('/assets/template/admin/css/admin.css')->status());
+        $response = $this->get('/template/admin/panel/blue/css/app.css');
 
-        // "css" is not a registered template, so this stays the unnamed form
-        // and reads from the active template's own directory.
-        self::assertSame(200, $this->get('/assets/template/css/app.css')->status());
+        self::assertSame(200, $response->status());
+        self::assertStringStartsWith('text/css', (string) $response->header('Content-Type'));
+
+        // Beside the views: a theme's data, a view and a script are never files.
+        foreach (['config.json', 'page.twig', 'page.php'] as $file) {
+            self::assertSame(404, $this->get('/template/admin/x/' . $file)->status(), $file);
+        }
+    }
+
+    /** One URL form: the template is not an /assets/ namespace, and assets/ is not looked in. */
+    public function test_the_template_lives_only_under_its_own_prefix(): void
+    {
+        self::assertSame(404, $this->get('/assets/template/css/app.css')->status());
+        self::assertSame(404, $this->get('/template/css/app.css')->status());
+        self::assertSame(404, $this->get('/template/assets/admin/panel/blue/css/app.css')->status());
+        self::assertSame(404, $this->get('/template')->status());
+        self::assertSame(404, $this->get('/template/')->status());
     }
 
     public function test_an_unknown_namespace_is_a_404(): void

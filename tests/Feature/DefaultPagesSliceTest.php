@@ -78,7 +78,7 @@ final class DefaultPagesSliceTest extends TestCase
         self::assertStringContainsString('Your application is running', $body);
         self::assertStringContainsString('<header class="site-header">', $body, 'rendered through the layout');
         self::assertStringContainsString('href="/assets/core/css/app.css?v=', $body);
-        self::assertStringContainsString('href="/assets/template/css/theme.css?v=', $body);
+        self::assertMatchesRegularExpression('#href="/template/[A-Za-z0-9/._-]+\.css\?v=[0-9a-f]+"#', $body);
     }
 
     /**

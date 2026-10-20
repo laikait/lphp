@@ -6,6 +6,7 @@ namespace App\Tests\Feature;
 
 use App\Engine\Asset\AssetKind;
 use App\Engine\Asset\AssetRegistry;
+use App\Engine\Asset\MimeTypes;
 use App\Engine\Core\HttpKernel;
 use App\Engine\Http\Request;
 use App\Engine\Http\Response;
@@ -190,7 +191,8 @@ final class TemplateSliceTest extends TestCase
         }
 
         self::assertStringContainsString('/assets/core/css/app.css?v=', $body);
-        self::assertStringContainsString('/assets/template/css/theme.css?v=', $body);
+        // Whichever stylesheet the layout links, it comes through the template prefix.
+        self::assertMatchesRegularExpression('#"/template/[A-Za-z0-9/._-]+\.css\?v=[0-9a-f]+"#', $body);
     }
 
     /** The layout, the page and a module partial, composed without inheritance. */
@@ -224,8 +226,8 @@ final class TemplateSliceTest extends TestCase
 
     // ---- configuration ----------------------------------------------------
 
-    /** templates/ is the site's views, and its assets/ the site's static files. */
-    public function test_templates_holds_the_views_and_its_assets_folder_the_static_files(): void
+    /** templates/ holds the site's views, and its web assets wherever they sit in it. */
+    public function test_templates_holds_the_views_and_the_static_files(): void
     {
         $application = $this->booted();
 
@@ -235,6 +237,7 @@ final class TemplateSliceTest extends TestCase
         self::assertInstanceOf(AssetRegistry::class, $assets);
 
         self::assertStringEndsWith('/templates', $views->searchPath(null)[0]);
-        self::assertStringEndsWith('templates/assets', $assets->source(AssetKind::Template)->root);
+        self::assertStringEndsWith('/templates', $assets->source(AssetKind::Template)->root);
+        self::assertSame(MimeTypes::WEB_ASSETS, $assets->source(AssetKind::Template)->extensions);
     }
 }

@@ -8,6 +8,7 @@ use App\Engine\Asset\AssetException;
 use App\Engine\Asset\AssetKind;
 use App\Engine\Asset\AssetResolver;
 use App\Engine\Asset\AssetSource;
+use App\Engine\Asset\MimeTypes;
 use App\Tests\Support\TestCase;
 use PHPUnit\Framework\Attributes\DataProvider;
 
@@ -232,6 +233,63 @@ final class AssetResolverTest extends TestCase
         }
 
         self::assertTrue($this->resolver->exists($this->source, 'js/alias.js'));
+    }
+
+    // ---- a root narrowed to web assets ----------------------------------------
+
+    /** templates/ as the template source sees it: web assets only, views and data beside them. */
+    private function templateSource(): AssetSource
+    {
+        foreach (['templates/assets/css', 'templates/admin/blue/css', 'templates/admin/blue/assets/js'] as $directory) {
+            @\mkdir($this->root . '/' . $directory, 0o777, true);
+        }
+
+        \file_put_contents($this->root . '/templates/assets/css/app.css', 'primary');
+        \file_put_contents($this->root . '/templates/assets/data.json', '{}');
+        \file_put_contents($this->root . '/templates/admin/blue/css/app.css', 'blue');
+        \file_put_contents($this->root . '/templates/admin/blue/assets/js/app.js', 'blue js');
+        \file_put_contents($this->root . '/templates/admin/blue/theme.json', '{"secret": true}');
+        \file_put_contents($this->root . '/templates/admin/blue/README.txt', 'notes');
+        \file_put_contents($this->root . '/templates/admin/blue/page.twig', '{{ x }}');
+        \file_put_contents($this->root . '/templates/admin/blue/page.php', '<?php echo 1;');
+        \file_put_contents($this->root . '/templates/admin/blue/.env', 'X=1');
+
+        return new AssetSource(AssetKind::Template, null, $this->root . '/templates', MimeTypes::WEB_ASSETS);
+    }
+
+    public function test_a_file_is_found_by_its_path_under_the_root(): void
+    {
+        $source = $this->templateSource();
+
+        self::assertSame('primary', \file_get_contents($this->resolver->resolve($source, 'assets/css/app.css')->absolutePath));
+        self::assertSame('blue', \file_get_contents($this->resolver->resolve($source, 'admin/blue/css/app.css')->absolutePath));
+        self::assertSame('blue js', \file_get_contents($this->resolver->resolve($source, 'admin/blue/assets/js/app.js')->absolutePath));
+        self::assertNull($this->resolver->find($source, 'css/app.css'), 'assets/ is a folder like any other, not a place that is looked in');
+    }
+
+    /** The folder holds views and whatever a theme ships: only what a page links to is served from it. */
+    public function test_a_narrowed_root_serves_web_assets_only(): void
+    {
+        $source = $this->templateSource();
+
+        foreach (['admin/blue/theme.json', 'admin/blue/README.txt', 'admin/blue/page.twig', 'admin/blue/page.php', 'admin/blue/.env', 'assets/data.json'] as $path) {
+            self::assertNull($this->resolver->find($source, $path), $path);
+        }
+    }
+
+    public function test_a_symlink_out_of_a_template_folder_is_refused(): void
+    {
+        $source = $this->templateSource();
+        $link = $this->root . '/templates/admin/blue/css/link.css';
+
+        if (!@\symlink(\dirname($this->root) . '/framework-assets-outside.txt', $link)) {
+            self::markTestSkipped('this account cannot create symlinks');
+        }
+
+        $this->expectException(AssetException::class);
+        $this->expectExceptionMessage('outside');
+
+        $this->resolver->resolve($source, 'admin/blue/css/link.css');
     }
 
     // ---- the rest ---------------------------------------------------------

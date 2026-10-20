@@ -31,6 +31,21 @@ namespace App\Engine\Asset;
 final class MimeTypes
 {
     /**
+     * What a page links to: styles, scripts, images and fonts, and no data.
+     *
+     * The narrower list for a root that is not only static files -- templates/
+     * holds views, and may hold a theme's package.json, a README.txt or a data
+     * file beside them, none of which should become downloadable.
+     *
+     * @var list<string>
+     */
+    public const WEB_ASSETS = [
+        'css', 'js', 'mjs', 'map',
+        'png', 'jpg', 'jpeg', 'gif', 'webp', 'avif', 'bmp', 'ico', 'svg',
+        'woff', 'woff2', 'ttf', 'otf', 'eot',
+    ];
+
+    /**
      * The complete served set.
      *
      * @var array<string, string>

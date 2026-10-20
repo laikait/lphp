@@ -50,11 +50,16 @@ final class AssetServer
         $this->maxAge = $maxAge ?? self::IMMUTABLE_MAX_AGE;
     }
 
-    /** Whether this path belongs to the asset URL space at all. */
+    /** Whether this path belongs to the asset URL space at all: /assets/... or /template/... */
     public function handles(string $path): bool
     {
-        return $path === '/' . AssetManager::PREFIX
-            || \str_starts_with($path, '/' . AssetManager::PREFIX . '/');
+        foreach ([AssetManager::PREFIX, AssetManager::TEMPLATE_PREFIX] as $prefix) {
+            if ($path === '/' . $prefix || \str_starts_with($path, '/' . $prefix . '/')) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**
@@ -98,31 +103,33 @@ final class AssetServer
     // ---- the URL space ----------------------------------------------------
 
     /**
-     * Parse /assets/<kind>[/<name>]/<path> and resolve it.
+     * Parse /template/<path>, or /assets/<core|module>[/<name>]/<path>, and
+     * resolve it.
      *
-     * The one ambiguity in the scheme is the template kind, because the
-     * specification gives both /assets/template/css/app.css (the active
-     * template) and /assets/template/admin/css/admin.css (a named one), and
-     * nothing in the URL says which. It is resolved by asking the registry: a
-     * second segment that names a registered template means the named form.
-     * The consequence, which is worth knowing, is that registering a template
-     * called "css" would shadow templates/assets/css/. That is a strange thing
-     * to call a template and a loud thing to debug.
+     * Unambiguous by construction: a template source is never named, so
+     * everything after /template/ is a path under templates/, and
+     * /assets/ carries only core and module.
      *
      * @throws AssetException
      */
     public function locate(string $path): AssetReference
     {
-        $remainder = \substr($path, \strlen('/' . AssetManager::PREFIX . '/'));
+        $templatePrefix = '/' . AssetManager::TEMPLATE_PREFIX;
+        $isTemplate = $path === $templatePrefix || \str_starts_with($path, $templatePrefix . '/');
+        $remainder = \substr($path, \strlen(($isTemplate ? $templatePrefix : '/' . AssetManager::PREFIX) . '/'));
         $segments = \array_values(\array_filter(\explode('/', \trim($remainder, '/')), static fn(string $s): bool => $s !== ''));
 
-        $kind = AssetKind::tryFrom($segments[0] ?? '');
+        if ($isTemplate) {
+            $kind = AssetKind::Template;
+        } else {
+            $kind = AssetKind::tryFrom($segments[0] ?? '');
 
-        if ($kind === null) {
-            throw AssetException::unacceptablePath($path, 'it does not name one of the four asset namespaces');
+            if ($kind === null || $kind === AssetKind::Template) {
+                throw AssetException::unacceptablePath($path, 'it does not name an asset namespace: /assets/core/, /assets/module/<Name>/ or /template/');
+            }
+
+            \array_shift($segments);
         }
-
-        \array_shift($segments);
 
         $name = null;
 
@@ -132,10 +139,6 @@ final class AssetServer
             if ($name === null) {
                 throw AssetException::unacceptablePath($path, 'it names no ' . $kind->value);
             }
-        } elseif ($kind === AssetKind::Template
-            && \count($segments) > 1
-            && $this->registry->has($kind, $segments[0])) {
-            $name = \array_shift($segments);
         }
 
         if ($segments === []) {

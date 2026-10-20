@@ -11,6 +11,7 @@ use App\Engine\Asset\AssetResolver;
 use App\Engine\Asset\AssetServer;
 use App\Engine\Asset\AssetSource;
 use App\Engine\Asset\AssetVersioning;
+use App\Engine\Asset\MimeTypes;
 use App\Engine\Auth\AccessRegistry;
 use App\Engine\Auth\Authenticators\SessionAuthenticator;
 use App\Engine\Auth\Authenticators\TokenAuthenticator;
@@ -238,18 +239,18 @@ final class Bootstrap
 
         // The asset layer. The registry starts with the two sources that are
         // facts about the layout rather than declarations by anybody: the
-        // application's own public/assets/ and templates/assets/. Module
-        // sources are published during module registration, because that is
-        // when the set of modules is known.
+        // application's own public/assets/ and the templates. Module sources
+        // are published during module registration, because that is when the
+        // set of modules is known.
         //
-        // asset()->template('css/app.css') is templates/assets/css/app.css.
+        // asset()->template('admin/panel/blue/css/app.css') is
+        // templates/admin/panel/blue/css/app.css, served at
+        // /template/admin/panel/blue/css/app.css -- so a template's stylesheet
+        // can sit beside its views. templates/ holds views and whatever a theme
+        // ships, so it serves web assets only: never a .json, .txt, .twig or .php.
         $assets = new AssetRegistry();
         $assets->register(new AssetSource(AssetKind::Core, null, Path::join($basePath, 'public', 'assets')));
-        $assets->register(new AssetSource(
-            AssetKind::Template,
-            null,
-            Path::join($basePath, 'templates', 'assets'),
-        ));
+        $assets->register(new AssetSource(AssetKind::Template, null, Path::join($basePath, 'templates'), MimeTypes::WEB_ASSETS));
 
         $manager = new AssetManager(
             $assets,

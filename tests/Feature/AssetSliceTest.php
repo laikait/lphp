@@ -255,6 +255,37 @@ final class AssetSliceTest extends TestCase
         self::assertSame(200, $response->status());
     }
 
+    /** The template's stylesheet, linked and served at /template/<its path>, under a subdirectory too. */
+    public function test_a_template_asset_is_linked_and_served_under_its_own_prefix(): void
+    {
+        foreach (['' => '', '/framework' => '/framework'] as $base => $prefix) {
+            $application = $this->application($base === '' ? [] : ['http' => ['base_path' => $base]]);
+            $application->boot();
+
+            $url = $application->container()->get(AssetManager::class)->template('assets/css/theme.css');
+            self::assertMatchesRegularExpression('#^' . \preg_quote($prefix, '#') . '/template/assets/css/theme\.css\?v=[0-9a-f]+$#', $url);
+
+            $response = $application->container()->get(HttpKernel::class)->handle(Request::create('GET', $url, [
+                'server' => $base === '' ? [] : ['SCRIPT_NAME' => $base . '/index.php'],
+            ]));
+
+            self::assertSame(200, $response->status(), $url);
+            self::assertStringStartsWith('text/css', (string) $response->header('Content-Type'));
+        }
+    }
+
+    /** templates/ holds views as well: reaching them through the template prefix is a 404. */
+    public function test_a_view_is_never_an_asset(): void
+    {
+        $kernel = $this->kernel();
+
+        foreach (['/template/home.twig', '/template/layout.twig', '/template/emails/verify-email.twig', '/template/emails/verify-email.text.twig', '/template/errors/404.twig'] as $path) {
+            self::assertSame(404, $this->handle($kernel, $path)->status(), $path);
+        }
+
+        self::assertSame(404, $this->handle($kernel, '/assets/template/css/theme.css')->status(), 'the old prefix serves nothing');
+    }
+
     public function test_a_cached_client_gets_a_304(): void
     {
         $kernel = $this->kernel();

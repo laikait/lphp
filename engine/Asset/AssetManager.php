@@ -10,10 +10,10 @@ use App\Engine\Cache\Stores\NullStore;
 /**
  * The asset API application code actually uses.
  *
- *     asset()->core('js/app.js');                 ->  /assets/core/js/app.js?v=9c81f4a2
- *     asset()->template('css/app.css');           ->  /assets/template/css/app.css?v=...
- *     asset()->template('admin', 'css/admin.css');->  /assets/template/admin/css/admin.css?v=...
- *     asset()->module('Billing', 'js/billing.js');->  /assets/module/Billing/js/billing.js?v=...
+ *     asset()->core('js/app.js');                         ->  /assets/core/js/app.js?v=9c81f4a2
+ *     asset()->template('assets/css/app.css');            ->  /template/assets/css/app.css?v=...
+ *     asset()->template('admin/panel/blue/css/app.css');  ->  /template/admin/panel/blue/css/app.css?v=...
+ *     asset()->module('Billing', 'js/billing.js');        ->  /assets/module/Billing/js/billing.js?v=...
  *
  * **This class resolves; it never delivers.** It has no idea what a Request or
  * a Response is, and an architecture test keeps it that way. Delivery is
@@ -28,12 +28,16 @@ use App\Engine\Cache\Stores\NullStore;
 final class AssetManager
 {
     /**
-     * The one public URL prefix the asset layer owns.
+     * The public URL prefixes the asset layer owns: /assets/core/ and
+     * /assets/module/<Name>/ under PREFIX, the template under TEMPLATE_PREFIX.
      *
-     * Delivery reads it from here rather than declaring its own, so the scheme
+     * Delivery reads them from here rather than declaring its own, so the scheme
      * that generates a URL and the scheme that parses one cannot drift apart.
+     * See AssetKind::urlPrefix().
      */
     public const PREFIX = 'assets';
+
+    public const TEMPLATE_PREFIX = 'template';
 
     /** @var array<string, Manifest> one per source, built on first use */
     private array $manifests = [];
@@ -69,20 +73,20 @@ final class AssetManager
     }
 
     /**
-     * The active template's assets, or a named template's.
+     * A file under templates/, by its path there.
      *
-     * Two shapes in one method because the specification's API has both, and
-     * because the one-argument form is overwhelmingly the common case: a view
-     * belonging to the active template should not have to know its own name.
+     *     template('assets/css/app.css')                 templates/assets/css/app.css
+     *     template('admin/panel/blue/css/app.css')       templates/admin/panel/blue/css/app.css
+     *     template('admin/panel/blue/assets/css/x.css')  templates/admin/panel/blue/assets/css/x.css
      *
-     *     template('css/app.css')             the active template
-     *     template('admin', 'css/admin.css')  the "admin" template
+     * The path is written out in full -- a template chosen at runtime is
+     * 'admin/panel/' . $name . '/css/app.css' -- so a link says exactly which
+     * file it means, and the URL is /template/ followed by the same path. Only
+     * web assets are served; see MimeTypes::WEB_ASSETS.
      */
-    public function template(string $nameOrPath, ?string $path = null): string
+    public function template(string $path): string
     {
-        return $path === null
-            ? $this->url(AssetKind::Template, null, $nameOrPath)
-            : $this->url(AssetKind::Template, $nameOrPath, $path);
+        return $this->url(AssetKind::Template, null, $path);
     }
 
     /** A file in a module's assets/ directory: module('Billing', 'js/billing.js'). */
@@ -113,7 +117,7 @@ final class AssetManager
                 throw AssetException::unknownSource($kind, $name);
             }
 
-            return $this->compose($kind->value . ($name === null ? '' : '/' . $name), $path, null);
+            return $this->compose($kind->urlPrefix() . ($name === null ? '' : '/' . $name), $path, null);
         }
 
         $built = $this->useManifests ? $this->manifest($source)->lookup($path) : null;
@@ -125,7 +129,7 @@ final class AssetManager
                 throw $e;
             }
 
-            return $this->compose($source->key(), $built ?? $path, null);
+            return $this->compose($source->urlPrefix(), $built ?? $path, null);
         }
 
         // A manifested file already carries its hash in its name, so adding
@@ -133,7 +137,7 @@ final class AssetManager
         // reader's confidence.
         $token = $built !== null ? null : $this->versionToken($source, $reference);
 
-        return $this->compose($source->key(), $reference->path, $token);
+        return $this->compose($source->urlPrefix(), $reference->path, $token);
     }
 
     /**
@@ -231,15 +235,14 @@ final class AssetManager
      * filename survives, while the slashes that structure the path do not get
      * encoded into uselessness.
      */
-    private function compose(string $sourceKey, string $path, ?string $token): string
+    private function compose(string $prefix, string $path, ?string $token): string
     {
         $segments = \array_map(
             static fn(string $segment): string => \rawurlencode($segment),
             \explode('/', \trim($path, '/')),
         );
 
-        $url = \rtrim($this->baseUrl, '/') . '/' . self::PREFIX . '/'
-            . $sourceKey . '/' . \implode('/', $segments);
+        $url = \rtrim($this->baseUrl, '/') . '/' . $prefix . '/' . \implode('/', $segments);
 
         return $token === null || $token === '' ? $url : $url . '?v=' . \rawurlencode($token);
     }

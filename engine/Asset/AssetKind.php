@@ -16,22 +16,21 @@ namespace App\Engine\Asset;
  */
 enum AssetKind: string
 {
-    /** The application's own assets: /assets/ on disk, /assets/core/... in a URL. */
+    /** The application's own assets: public/assets/ on disk, /assets/core/... in a URL. */
     case Core = 'core';
 
-    /** The active template, or a named one: /templates/assets/, /templates/admin/assets/. */
+    /**
+     * The site's look: any web asset under templates/, at /template/ plus the
+     * same path in a URL. Never named: a template folder is part of the path
+     * -- template('admin/panel/x/css/app.css') -- so one URL always means one
+     * file.
+     */
     case Template = 'template';
 
     /** A module's assets/ directory: /assets/module/Billing/... */
     case Module = 'module';
 
-    /**
-     * Whether a source of this kind is meaningless without a name.
-     *
-     * Template is the interesting one: it is legal both ways, because the
-     * specification's API has template('css/app.css') for the active template
-     * and template('admin', 'css/admin.css') for a named one.
-     */
+    /** Whether a source of this kind is meaningless without a name. */
     public function requiresName(): bool
     {
         return $this === self::Module;
@@ -39,7 +38,16 @@ enum AssetKind: string
 
     public function allowsName(): bool
     {
-        return $this !== self::Core;
+        return $this === self::Module;
+    }
+
+    /**
+     * Where this namespace starts in a URL, without slashes: "assets/core",
+     * "assets/module", and "template" for the template.
+     */
+    public function urlPrefix(): string
+    {
+        return $this === self::Template ? 'template' : 'assets/' . $this->value;
     }
 
     /** A human label for error messages: "module 'Billing'", "core". */

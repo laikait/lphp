@@ -4,9 +4,7 @@ declare(strict_types=1);
 
 namespace App\Engine\Cli\Commands;
 
-use App\Engine\Asset\AssetManager;
 use App\Engine\Asset\AssetRegistry;
-use App\Engine\Asset\AssetSource;
 use App\Engine\Cli\Output;
 use App\Engine\Core\Application;
 use App\Engine\Support\Path;
@@ -37,19 +35,20 @@ final class AssetListCommand
             return 0;
         }
 
-        $output->table(
-            ['URL PREFIX', 'KIND', 'NAME', 'DIRECTORY', 'PRESENT'],
-            \array_map(
-                fn(AssetSource $source): array => [
-                    '/' . AssetManager::PREFIX . '/' . $source->key(),
-                    $source->kind->value,
-                    $source->name ?? '-',
-                    Path::relativeTo($this->application->basePath(), $source->root),
-                    $source->exists() ? 'yes' : 'no',
-                ],
-                $sources,
-            ),
-        );
+        $rows = [];
+
+        foreach ($sources as $source) {
+            $rows[] = [
+                '/' . $source->urlPrefix() . '/',
+                $source->kind->value,
+                $source->name ?? '-',
+                Path::relativeTo($this->application->basePath(), $source->root)
+                    . ($source->extensions === null ? '' : ' (' . \implode(', ', $source->extensions) . ')'),
+                $source->exists() ? 'yes' : 'no',
+            ];
+        }
+
+        $output->table(['URL PREFIX', 'KIND', 'NAME', 'DIRECTORY', 'PRESENT'], $rows);
 
         return 0;
     }

@@ -44,7 +44,8 @@ templates/             the site's views: render('customer/profile') is customer/
   layout.twig          the layout every default page extends
   home.twig            the front page until a module claims /
   errors/              the 404 and generic error pages
-  assets/              the site's static files, /assets/template/... (never a view)
+  assets/              the site's static files, /template/assets/... (never a view)
+                       any CSS, JS, image or font in templates/ is /template/<its path>
 lang/                  translations: en.php, bn.php, ... and countries.php (see localization.md)
 modules/
   Shared/              cross-module capability, registers first; owns /

@@ -215,7 +215,7 @@ templates/layout.twig        shared by every page below
 templates/home.twig          GET /, declared by modules/Shared
 templates/errors/404.twig    any path nothing answers
 templates/errors/error.twig  every other error status
-templates/assets/css/theme.css   their stylesheet, /assets/template/css/theme.css
+templates/assets/css/theme.css   their stylesheet, template('assets/css/theme.css')
 ```
 
 The front page is an ordinary route in the shared module — there is no global
@@ -241,8 +241,10 @@ diagnostic page, so a trace is never hidden behind a pretty one.
 for exactly the same reason: a PHP view the web server can reach is a PHP file
 it will execute, and a Twig view it can reach is source it will hand out.
 
-`templates/assets/` stays reachable as `/assets/template/…` through the asset
-manager, which is the only way in — and it is never a view. `render('assets/…')`
+Static files under `templates/` are reachable as `/template/` plus their path
+there, through the asset manager, which is the only way in. Only web assets are
+served (CSS, JS, images, fonts), never a view, a `.json` or a `.txt`.
+`templates/assets/` is never a view either. `render('assets/…')`
 is refused, so a `.php` file among the static files cannot run as a template.
 
 A request for `/templates`, or anything under it, reaches the application like

@@ -153,9 +153,9 @@ final class ConsoleTest extends TestCase
         self::assertSame(0, $status);
         self::assertStringContainsString('/assets/core', $output);
 
-        // templates/assets/, which is what asset()->template('...') reaches.
-        self::assertStringContainsString('/assets/template', $output);
-        self::assertStringContainsString('templates/assets', $output);
+        // templates/, web assets only, which is what asset()->template('...') reaches.
+        self::assertStringContainsString('/template/', $output);
+        self::assertMatchesRegularExpression('#templates \(css, js#', $output);
     }
 
     public function test_template_list_reports_the_search_path_in_order(): void

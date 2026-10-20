@@ -13,10 +13,14 @@ use App\Engine\Support\Path;
  * is deliberately a value rather than a service: registering one publishes a
  * directory, and that is an act somebody should be able to read in a diff.
  *
- *     core                 ->  <base>/assets
- *     template             ->  <base>/templates/assets
- *     template + "admin"   ->  <base>/templates/admin/assets
+ *     core                 ->  <base>/public/assets
+ *     template             ->  <base>/templates (web assets only)
  *     module  + "Billing"  ->  <base>/modules/Billing/assets
+ *
+ * A source may narrow which extensions it serves ($extensions, a subset of
+ * MimeTypes). The template source does, so that a stylesheet can sit beside
+ * the views that use it while templates/ never serves a view, a theme's
+ * package.json, a README.txt or a data file.
  *
  * The root is stored normalised but NOT resolved: a source may legitimately be
  * registered for a directory that does not exist yet (a template that ships no
@@ -30,10 +34,14 @@ final class AssetSource
 
     public readonly string $root;
 
+    /**
+     * @param ?list<string> $extensions what may be served from this root; null for every MimeTypes extension
+     */
     public function __construct(
         public readonly AssetKind $kind,
         public readonly ?string $name,
         string $root,
+        public readonly ?array $extensions = null,
     ) {
         if ($name !== null) {
             if (!$kind->allowsName()) {
@@ -50,16 +58,29 @@ final class AssetSource
         $this->root = Path::normalize($root);
     }
 
-    /**
-     * The registry key: "core", "template", "template/admin", "module/Billing".
-     *
-     * This is also exactly the URL prefix after /assets/, which is not a
-     * coincidence -- one string means the URL scheme and the lookup key can
-     * never drift apart.
-     */
+    /** The registry key: "core", "template", "module/Billing". */
     public function key(): string
     {
         return $this->name === null ? $this->kind->value : $this->kind->value . '/' . $this->name;
+    }
+
+    /**
+     * The URL prefix, without slashes: "assets/core", "template",
+     * "assets/module/Billing". AssetManager builds URLs with it and AssetServer
+     * reads them back with it, so the two can never drift apart.
+     */
+    public function urlPrefix(): string
+    {
+        return $this->kind->urlPrefix() . ($this->name === null ? '' : '/' . $this->name);
+    }
+
+    /** Whether a file with this extension may be served from this root. */
+    public function allows(string $extension): bool
+    {
+        $extension = \strtolower($extension);
+
+        return MimeTypes::isServable($extension)
+            && ($this->extensions === null || \in_array($extension, $this->extensions, true));
     }
 
     /** Whether the published directory is actually there. */

@@ -17,9 +17,23 @@ final class AssetRegistryTest extends TestCase
     {
         self::assertSame('core', (new AssetSource(AssetKind::Core, null, '/x'))->key());
         self::assertSame('template', (new AssetSource(AssetKind::Template, null, '/x'))->key());
-        self::assertSame('template/admin', (new AssetSource(AssetKind::Template, 'admin', '/x'))->key());
         self::assertSame('module/Example', (new AssetSource(AssetKind::Module, 'Example', '/x'))->key());
         self::assertSame('module/Stripe', (new AssetSource(AssetKind::Module, 'Stripe', '/x'))->key());
+    }
+
+    public function test_a_source_knows_its_url_prefix(): void
+    {
+        self::assertSame('assets/core', (new AssetSource(AssetKind::Core, null, '/x'))->urlPrefix());
+        self::assertSame('template', (new AssetSource(AssetKind::Template, null, '/x'))->urlPrefix());
+        self::assertSame('assets/module/Stripe', (new AssetSource(AssetKind::Module, 'Stripe', '/x'))->urlPrefix());
+    }
+
+    /** A template folder is part of the path, so a named template source would only make URLs ambiguous. */
+    public function test_a_template_source_cannot_be_named(): void
+    {
+        $this->expectException(AssetException::class);
+
+        new AssetSource(AssetKind::Template, 'admin', '/x');
     }
 
     public function test_an_unpublished_namespace_cannot_be_reached(): void
@@ -96,10 +110,10 @@ final class AssetRegistryTest extends TestCase
      */
     public function test_a_source_may_point_at_a_directory_that_does_not_exist(): void
     {
-        $source = new AssetSource(AssetKind::Template, 'ghost', '/nowhere/at/all');
+        $source = new AssetSource(AssetKind::Module, 'Ghost', '/nowhere/at/all');
 
         self::assertFalse($source->exists());
-        self::assertSame('template/ghost', $source->key());
+        self::assertSame('module/Ghost', $source->key());
     }
 
     // ---- manifests --------------------------------------------------------

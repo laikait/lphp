@@ -11,6 +11,21 @@ public, is in [`STABILITY.md`](STABILITY.md).
 
 ## [Unreleased]
 
+### Changed
+
+- **Template assets are served from anywhere under `templates/`, at
+  `/template/<path>`.** `asset()->template('admin/panel/blue/css/app.css')`
+  links a template's own stylesheet beside its views, with or without an
+  `assets/` folder, and is served at `/template/admin/panel/blue/css/app.css`:
+  the URL mirrors the folder. Only web assets are served
+  (`MimeTypes::WEB_ASSETS`: styles, scripts, images, fonts), so no view,
+  `.json` or `.txt` in `templates/` is ever public. Breaking:
+  `/assets/template/…` no longer serves, `template('css/theme.css')` becomes
+  `template('assets/css/theme.css')`, and `template($name, $path)` and named
+  template sources are gone. See
+  [`UPGRADING.md`](UPGRADING.md#template-assets-moved-to-template) and
+  [Assets](docs/reference/assets.md#template-folders).
+
 ### Added
 
 - **Signed links.** `Routing\UrlSigner::signed('route.name', $parameters,

@@ -11,6 +11,8 @@ use App\Engine\Asset\AssetRegistry;
 use App\Engine\Asset\AssetResolver;
 use App\Engine\Asset\AssetSource;
 use App\Engine\Asset\AssetVersioning;
+use App\Engine\Asset\MimeTypes;
+use App\Engine\Support\Path;
 use App\Tests\Support\TestCase;
 
 final class AssetManagerTest extends TestCase
@@ -23,33 +25,44 @@ final class AssetManagerTest extends TestCase
     {
         $this->root = \sys_get_temp_dir() . '/framework-assets-' . \bin2hex(\random_bytes(6));
 
-        foreach (['core', 'template', 'template-admin', 'plugin', 'gateway'] as $directory) {
-            \mkdir($this->root . '/' . $directory . '/css', 0o777, true);
-        }
+        // templates/ as the application lays it out: templates/assets/ first,
+        // then templates/ itself, with templates in folders of their own.
+        $files = [
+            'core/css/app.css' => 'body{}',
+            'templates/assets/css/app.css' => 'main{}',
+            'templates/css/plain.css' => 'aside{}',
+            'templates/admin/css/admin.css' => 'nav{}',
+            'templates/admin/panel/blue/css/app.css' => 'header{}',
+            'templates/admin/panel/blue/assets/css/extra.css' => 'footer{}',
+            'plugin/css/example.css' => 'p{}',
+            'gateway/css/gateway.css' => 'a{}',
+        ];
 
-        \file_put_contents($this->root . '/core/css/app.css', 'body{}');
-        \file_put_contents($this->root . '/template/css/app.css', 'main{}');
-        \file_put_contents($this->root . '/template-admin/css/admin.css', 'nav{}');
-        \file_put_contents($this->root . '/plugin/css/example.css', 'p{}');
-        \file_put_contents($this->root . '/gateway/css/gateway.css', 'a{}');
+        foreach ($files as $path => $contents) {
+            @\mkdir(\dirname($this->root . '/' . $path), 0o777, true);
+            \file_put_contents($this->root . '/' . $path, $contents);
+        }
 
         $this->registry = new AssetRegistry();
         $this->registry->publish(AssetKind::Core, null, $this->root . '/core');
-        $this->registry->publish(AssetKind::Template, null, $this->root . '/template');
-        $this->registry->publish(AssetKind::Template, 'admin', $this->root . '/template-admin');
+        $this->registry->register(new AssetSource(AssetKind::Template, null, $this->root . '/templates', MimeTypes::WEB_ASSETS));
         $this->registry->publish(AssetKind::Module, 'Example', $this->root . '/plugin');
         $this->registry->publish(AssetKind::Module, 'ExampleGateway', $this->root . '/gateway');
     }
 
     protected function tearDown(): void
     {
-        foreach (['core', 'template', 'template-admin', 'plugin', 'gateway'] as $directory) {
-            \array_map('unlink', \glob($this->root . '/' . $directory . '/css/*') ?: []);
-            @\rmdir($this->root . '/' . $directory . '/css');
-            @\rmdir($this->root . '/' . $directory);
+        $entries = new \RecursiveIteratorIterator(
+            new \RecursiveDirectoryIterator($this->root, \FilesystemIterator::SKIP_DOTS),
+            \RecursiveIteratorIterator::CHILD_FIRST,
+        );
+
+        foreach ($entries as $entry) {
+            if ($entry instanceof \SplFileInfo) {
+                $entry->isDir() ? @\rmdir($entry->getPathname()) : @\unlink($entry->getPathname());
+            }
         }
 
-        @\unlink($this->root . '/core/manifest.json');
         @\rmdir($this->root);
 
         parent::tearDown();
@@ -71,10 +84,58 @@ final class AssetManagerTest extends TestCase
         $assets = $this->manager(versioning: AssetVersioning::None);
 
         self::assertSame('/assets/core/css/app.css', $assets->core('css/app.css'));
-        self::assertSame('/assets/template/css/app.css', $assets->template('css/app.css'));
-        self::assertSame('/assets/template/admin/css/admin.css', $assets->template('admin', 'css/admin.css'));
+        self::assertSame('/template/assets/css/app.css', $assets->template('assets/css/app.css'));
+        self::assertSame('/template/admin/css/admin.css', $assets->template('admin/css/admin.css'));
         self::assertSame('/assets/module/Example/css/example.css', $assets->module('Example', 'css/example.css'));
         self::assertSame('/assets/module/ExampleGateway/css/gateway.css', $assets->module('ExampleGateway', 'css/gateway.css'));
+    }
+
+    // ---- template folders -------------------------------------------------
+
+    /**
+     * Every layout a template can use, linked by its full path, with a
+     * runtime template name spliced in like any other string.
+     */
+    public function test_a_template_file_is_found_wherever_the_template_keeps_it(): void
+    {
+        $assets = $this->manager(strict: true);
+        $name = 'blue';
+
+        foreach ([
+            'assets/css/app.css' => 'templates/assets/css/app.css',
+            'css/plain.css' => 'templates/css/plain.css',
+            'admin/css/admin.css' => 'templates/admin/css/admin.css',
+            'admin/panel/' . $name . '/css/app.css' => 'templates/admin/panel/blue/css/app.css',
+            'admin/panel/' . $name . '/assets/css/extra.css' => 'templates/admin/panel/blue/assets/css/extra.css',
+        ] as $path => $file) {
+            self::assertMatchesRegularExpression('#^/template/' . \preg_quote($path, '#') . '\?v=[0-9a-f]+$#', $assets->template($path));
+            self::assertSame(Path::normalize($this->root . '/' . $file), $assets->locate(AssetKind::Template, null, $path)->absolutePath);
+        }
+    }
+
+    /** Nothing is guessed: css/app.css is templates/css/app.css, never templates/assets/css/app.css. */
+    public function test_the_path_is_the_path_under_templates(): void
+    {
+        self::assertFalse($this->manager()->exists(AssetKind::Template, null, 'css/app.css'));
+        self::assertFalse($this->manager()->exists(AssetKind::Template, null, 'admin/panel/blue/css/extra.css'));
+    }
+
+    /** A template folder serves what a page links to, and no data -- in assets/ or not. */
+    public function test_only_web_assets_come_from_templates(): void
+    {
+        \file_put_contents($this->root . '/templates/admin/config.json', '{}');
+        \file_put_contents($this->root . '/templates/assets/data.json', '{}');
+
+        self::assertFalse($this->manager()->exists(AssetKind::Template, null, 'admin/config.json'));
+        self::assertFalse($this->manager()->exists(AssetKind::Template, null, 'assets/data.json'));
+    }
+
+    /** Nothing can be named but a module, so a template URL can only ever mean one file. */
+    public function test_a_template_source_cannot_be_named(): void
+    {
+        $this->expectException(AssetException::class);
+
+        new AssetSource(AssetKind::Template, 'admin', $this->root . '/templates/admin');
     }
 
     /**

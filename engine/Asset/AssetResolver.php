@@ -68,7 +68,7 @@ final class AssetResolver
 
         $extension = \strtolower(\pathinfo($logical, \PATHINFO_EXTENSION));
 
-        if (!MimeTypes::isServable($extension)) {
+        if (!$source->allows($extension)) {
             // Not cached: this never depends on the filesystem, so re-deciding
             // it costs nothing and caching a refusal that cannot change is
             // just a way to grow an array.

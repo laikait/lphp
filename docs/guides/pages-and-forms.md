@@ -152,8 +152,11 @@ Link to a file with `asset()`, never with a hand-written URL. In Twig:
   the URL changes, so browsers can cache it for a long time and still get every
   new version.
 - **Files for the whole site** go in `templates/assets/` and are linked with
-  `asset()->template('css/theme.css')`. Files that are not about the look, such
-  as a favicon, go in `public/assets/`, linked with `asset()->core(...)`.
+  `asset()->template('assets/css/theme.css')`. A template's own files can sit beside its
+  views instead, linked by their path: `asset()->template('admin/panel/blue/css/app.css')`
+  (see [Template folders](../reference/assets.md#template-folders)). Files that
+  are not about the look, such as a favicon, go in `public/assets/`, linked with
+  `asset()->core(...)`.
 
 `modules/` is not reachable from the web. The URL works because the framework
 serves those files itself, after checking the path is safe. See

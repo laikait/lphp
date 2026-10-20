@@ -11,6 +11,30 @@ order. An entry that cannot say who is affected is not finished.
 
 ## To the next release, from 3.0.1
 
+### Template assets moved to /template/
+
+- **Changed:** a template file is linked by its full path under `templates/`
+  and served at `/template/` plus that path:
+  `template('admin/panel/blue/css/app.css')` is
+  `templates/admin/panel/blue/css/app.css` at
+  `/template/admin/panel/blue/css/app.css?v=…`. `templates/assets/` is no longer
+  implied, so `template('css/theme.css')` is now `template('assets/css/theme.css')`,
+  still at `/template/assets/css/theme.css`. Only web assets are served from
+  `templates/`. `/assets/template/…` answers 404, and `template($name, $path)`
+  and named template sources (`new AssetSource(AssetKind::Template, 'admin', …)`)
+  are removed.
+- **Affected:** every `asset()->template('…')` call for a file in
+  `templates/assets/`; anything that wrote an `/assets/template/…` URL by hand —
+  a stylesheet's `url()`, a CDN rule, a test; a route under `/template/`; a
+  `.json`, `.txt` or `.pdf` served from `templates/assets/`; and code that
+  called `template()` with two arguments or registered a named template source.
+- **Do:** prefix `assets/` in `template('…')` calls for files in
+  `templates/assets/` (`template('css/theme.css')` →
+  `template('assets/css/theme.css')`); replace `/assets/template/` with
+  `/template/assets/` in hand-written URLs; move non-web files to
+  `public/assets/`; and replace `template('admin', 'css/x.css')` with
+  `template('admin/assets/css/x.css')`.
+
 ### The CSRF cookie is __Host-XSRF-TOKEN over HTTPS
 
 - **Changed:** over HTTPS the CSRF cookie is set and read as

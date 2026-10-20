@@ -22,7 +22,8 @@ or in PHP:
 
 ```php
 asset()->core('js/app.js');                    // /assets/core/js/app.js?v=9c81f4a2
-asset()->template('css/app.css');              // /assets/template/css/app.css?v=3f1c8d70
+asset()->template('assets/css/app.css');       // /template/assets/css/app.css?v=3f1c8d70
+asset()->template('admin/panel/blue/css/app.css'); // /template/admin/panel/blue/css/app.css?v=...
 asset()->module('Example', 'js/example.js');   // /assets/module/Example/js/example.js?v=...
 asset()->module('Stripe', 'js/stripe.js');
 ```
@@ -33,18 +34,57 @@ one. The `?v=` is how the browser finds out.
 
 ## Where the files go
 
-There are four places, and no fifth. Each has its own URL prefix:
+There are three kinds of place, and no fourth. Each has its own URL prefix:
 
 | Write the file here | It is served at | Link to it with |
 |---|---|---|
 | `public/assets/` | `/assets/core/` | `asset()->core('css/app.css')` |
-| `templates/assets/` | `/assets/template/` | `asset()->template('css/app.css')` |
+| anywhere in `templates/` | `/template/` | `asset()->template('assets/css/app.css')` |
 | `modules/Example/assets/` | `/assets/module/Example/` | `asset()->module('Example', 'js/x.js')` |
 | `modules/Stripe/assets/` | `/assets/module/Stripe/` | `asset()->module('Stripe', 'js/x.js')` |
 
-Use `public/assets/` for the application's own files and `templates/assets/` for
+Use `public/assets/` for the application's own files and `templates/` for
 files belonging to the look of the site. A module's files go in its own
 `assets/` folder, so that installing the module brings them with it.
+
+### Template folders
+
+A template's stylesheets and scripts can sit beside its views, in an `assets/`
+folder or not. Link to a file by its **full path under `templates/`**; nothing is
+guessed:
+
+```
+templates/assets/css/theme.css              template('assets/css/theme.css')
+templates/css/theme.css                     template('css/theme.css')
+templates/admin/css/admin.css               template('admin/css/admin.css')
+templates/admin/assets/css/admin.css        template('admin/assets/css/admin.css')
+templates/admin/panel/blue/css/app.css      template('admin/panel/blue/css/app.css')
+templates/admin/panel/blue/assets/js/app.js template('admin/panel/blue/assets/js/app.js')
+```
+
+Each is served at `/template/` followed by the same path, so the URL mirrors the
+folder: `templates/admin/panel/blue/css/app.css` is
+`/template/admin/panel/blue/css/app.css?v=…`. A template chosen at run time is
+just part of the string:
+
+<!-- {% raw %} -->
+
+```twig
+<link rel="stylesheet" href="{{ view.asset().template('admin/panel/' ~ theme ~ '/css/app.css') }}">
+```
+
+<!-- {% endraw %} -->
+
+- **Nothing is looked for elsewhere.** `assets/` is a folder like any other:
+  `template('css/theme.css')` is `templates/css/theme.css`, never
+  `templates/assets/css/theme.css`.
+- **Only web assets are served**: `css`, `js`, `mjs`, `map`, images (`png`,
+  `jpg`, `jpeg`, `gif`, `webp`, `avif`, `bmp`, `ico`, `svg`) and fonts (`woff`,
+  `woff2`, `ttf`, `otf`, `eot`). A view, a theme's `package.json`, a
+  `README.txt` or a data file beside them is a 404. Put a `.json` or `.pdf`
+  that is meant to be downloaded in `public/assets/`.
+- **`/template/` belongs to the asset layer**, so no route can start with it.
+  `/templates/…` and `/template-editor` are untouched.
 
 **A module is published because it has an `assets/` folder** — there is nothing
 to declare in `module.php`. Create the folder, put a file in it, and it is
