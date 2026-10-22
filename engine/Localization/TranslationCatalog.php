@@ -29,7 +29,7 @@ final class TranslationCatalog
     /** @var array<string, string> namespace => directory */
     private array $directories = [];
 
-    /** @var array<string, list<string>> namespace => locales, filled on first use */
+    /** @var array<string, list<string>> "namespace|subdirectory" => locales, filled on first use */
     private array $locales = [];
 
     public function __construct(?string $root = null)
@@ -47,7 +47,11 @@ final class TranslationCatalog
         }
 
         $this->directories[$namespace] = Path::normalize($directory);
-        unset($this->locales[$namespace]);
+        $this->locales = \array_filter(
+            $this->locales,
+            static fn(string $key): bool => !\str_starts_with($key, $namespace . '|'),
+            \ARRAY_FILTER_USE_KEY,
+        );
     }
 
     public function has(string $namespace): bool
@@ -72,32 +76,76 @@ final class TranslationCatalog
         return $this->directories[$namespace] ?? null;
     }
 
-    /** @return list<string> */
-    public function locales(string $namespace = self::ROOT): array
+    /**
+     * The locales of $namespace, or of its sub-directory $subdirectory
+     * ('admin' for lang/admin/<locale>.php).
+     *
+     * @return list<string>
+     */
+    public function locales(string $namespace = self::ROOT, string $subdirectory = ''): array
     {
-        return $this->locales[$namespace] ??= $this->scan($this->directories[$namespace] ?? null);
+        $key = $namespace . '|' . $subdirectory;
+
+        if (isset($this->locales[$key])) {
+            return $this->locales[$key];
+        }
+
+        $directory = $this->path($namespace, $subdirectory);
+
+        return $this->locales[$key] = $this->scan($directory);
     }
 
-    public function hasLocale(string $locale, string $namespace = self::ROOT): bool
+    public function hasLocale(string $locale, string $namespace = self::ROOT, string $subdirectory = ''): bool
     {
-        return \in_array($locale, $this->locales($namespace), true);
+        return \in_array($locale, $this->locales($namespace, $subdirectory), true);
+    }
+
+    /** Whether $subdirectory is a well-formed relative path to a directory inside $namespace's. */
+    public function hasDirectory(string $subdirectory, string $namespace = self::ROOT): bool
+    {
+        return $subdirectory !== '' && $this->path($namespace, $subdirectory) !== null;
     }
 
     /**
      * The file for $locale in $namespace, or null when there is none.
      *
-     * The name is built only from a locale this catalog found on disk, never
-     * from the argument, so no input can make it point anywhere else.
+     * The name is built only from a locale this catalog found on disk and a
+     * sub-directory that passed the pattern in path(), never from the argument
+     * as given, so no input can make it point anywhere else.
      */
-    public function file(string $namespace, string $locale): ?string
+    public function file(string $namespace, string $locale, string $subdirectory = ''): ?string
     {
-        $directory = $this->directories[$namespace] ?? null;
+        $directory = $this->path($namespace, $subdirectory);
 
-        if ($directory === null || !$this->hasLocale($locale, $namespace)) {
+        if ($directory === null || !$this->hasLocale($locale, $namespace, $subdirectory)) {
             return null;
         }
 
         return Path::join($directory, $locale . '.php');
+    }
+
+    /** The directory of $namespace plus $subdirectory, or null when unknown, malformed or missing. */
+    private function path(string $namespace, string $subdirectory): ?string
+    {
+        $directory = $this->directories[$namespace] ?? null;
+
+        if ($directory === null) {
+            return null;
+        }
+
+        if ($subdirectory === '') {
+            return $directory;
+        }
+
+        // Plain names joined by single slashes: no "..", no ".", no empty
+        // segment, no backslash, no NUL, nothing a path could climb with.
+        if (\preg_match('#^[A-Za-z0-9_-]+(?:/[A-Za-z0-9_-]+)*$#D', $subdirectory) !== 1) {
+            return null;
+        }
+
+        $path = Path::join($directory, $subdirectory);
+
+        return \is_dir($path) ? $path : null;
     }
 
     /**

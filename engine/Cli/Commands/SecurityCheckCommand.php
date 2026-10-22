@@ -279,6 +279,15 @@ final class SecurityCheckCommand
 
         $findings[] = [self::OK, 'Request bodies are capped at ' . $this->limits->describe() . '.', ''];
 
+        $findings[] = $this->limits->trustedHosts() === []
+            ? [
+                self::WARN,
+                'security.trusted_hosts is empty, so any Host header is accepted.',
+                'A client can then choose the host in every link or email built from the request. '
+                . 'List the names this application serves: [\'example.com\', \'*.example.com\'].',
+            ]
+            : [self::OK, 'Only these hosts are served: ' . \implode(', ', $this->limits->trustedHosts()) . '.', ''];
+
         return $findings;
     }
 

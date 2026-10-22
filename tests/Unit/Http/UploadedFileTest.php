@@ -20,6 +20,19 @@ final class UploadedFileTest extends TestCase
         self::assertSame('/tmp/php123', $file->temporaryPath());
     }
 
+    public function test_a_display_name_has_no_control_or_bidi_override_characters(): void
+    {
+        $file = new UploadedFile('/tmp/x', "photo\u{202E}gpj.exe\x07", null, 1);
+
+        self::assertSame('photogpj.exe', $file->displayName());
+    }
+
+    public function test_a_display_name_is_valid_utf8_and_capped(): void
+    {
+        self::assertSame('abc', (new UploadedFile('/tmp/x', "abc\xFF", null, 1))->displayName());
+        self::assertSame(5, \mb_strlen((new UploadedFile('/tmp/x', \str_repeat('ক', 50) . '.png', null, 1))->displayName(5)));
+    }
+
     public function test_an_upload_with_an_error_is_not_valid(): void
     {
         $file = new UploadedFile('', 'photo.png', null, 0, \UPLOAD_ERR_INI_SIZE);

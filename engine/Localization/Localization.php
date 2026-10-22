@@ -31,6 +31,8 @@ final class Localization
 {
     private ?string $locale = null;
 
+    private ?string $directory = null;
+
     private bool $resolvedFromRequest = false;
 
     /** @var list<string>|null */
@@ -60,6 +62,7 @@ final class Localization
     {
         $this->request = null;
         $this->locale = null;
+        $this->directory = null;
         $this->resolvedFromRequest = false;
         $this->chain = null;
         $this->reported = [];
@@ -83,19 +86,54 @@ final class Localization
      * writes no cookie: remembering a visitor's choice is the handler's job,
      * with a `language` cookie on its response.
      *
+     * $locale may name a sub-directory of lang/: 'admin/bn' reads
+     * lang/admin/bn.php first, then lang/admin/en.php, then the files of lang/
+     * itself. locale() is still 'bn'. Only a caller can choose a directory --
+     * a cookie or a header never can.
+     *
      * @throws LocalizationException when there is no lang/ file for $locale
      */
     public function setLocale(string $locale): void
     {
-        $matched = $this->resolver->match($locale);
+        $directory = '';
+        $slash = \strrpos($locale, '/');
+
+        if ($slash !== false) {
+            $directory = \substr($locale, 0, $slash);
+            $locale = \substr($locale, $slash + 1);
+
+            if (!$this->catalog->hasDirectory($directory)) {
+                throw LocalizationException::unavailable($directory . '/' . $locale, $this->available());
+            }
+        }
+
+        $matched = null;
+
+        if ($directory !== '') {
+            foreach (Locale::candidates($locale) as $candidate) {
+                if ($this->catalog->hasLocale($candidate, TranslationCatalog::ROOT, $directory)) {
+                    $matched = $candidate;
+                    break;
+                }
+            }
+        }
+
+        $matched ??= $this->resolver->match($locale);
 
         if ($matched === null) {
-            throw LocalizationException::unavailable($locale, $this->available());
+            throw LocalizationException::unavailable($directory === '' ? $locale : $directory . '/' . $locale, $this->available());
         }
 
         $this->locale = $matched;
+        $this->directory = $directory === '' ? null : $directory;
         $this->resolvedFromRequest = false;
         $this->chain = null;
+    }
+
+    /** The sub-directory of lang/ chosen with setLocale('<directory>/<locale>'), or null. */
+    public function directory(): ?string
+    {
+        return $this->directory;
     }
 
     /** @return list<string> the application's locales: one per lang/<locale>.php */
@@ -187,17 +225,22 @@ final class Localization
     {
         [$namespace, $name] = $this->catalog->split($key);
 
-        foreach ($this->chain() as $locale) {
-            $file = $this->catalog->file($namespace, $locale);
+        // The chosen sub-directory first, then lang/ itself.
+        $directories = $this->directory === null ? [''] : [$this->directory, ''];
 
-            if ($file === null) {
-                continue;
-            }
+        foreach ($directories as $directory) {
+            foreach ($this->chain() as $locale) {
+                $file = $this->catalog->file($namespace, $locale, $directory);
 
-            $message = $this->loader->load($file)[$name] ?? null;
+                if ($file === null) {
+                    continue;
+                }
 
-            if ($message !== null) {
-                return [$message, $locale];
+                $message = $this->loader->load($file)[$name] ?? null;
+
+                if ($message !== null) {
+                    return [$message, $locale];
+                }
             }
         }
 

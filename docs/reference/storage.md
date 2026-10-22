@@ -128,7 +128,8 @@ $path = UploadPolicy::images()->storeOn($request->file('avatar'), $this->storage
 // "avatars/3f9c0a…e1.jpg", on the disk
 ```
 
-The same checks and the same generated name as `store()` (see
+The same checks (it throws `SecurityException` if the file fails them) and the
+same generated name as `store()` (see
 [Uploads](security.md#uploads)), streamed from PHP's temporary file to any disk.
 
 ## FTP and SFTP

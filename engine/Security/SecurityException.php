@@ -62,6 +62,12 @@ final class SecurityException extends FrameworkException
         ));
     }
 
+    /** @param list<string> $problems */
+    public static function rejectedUpload(array $problems): self
+    {
+        return new self('The upload was refused: ' . \implode(' ', $problems));
+    }
+
     public static function unwritableDestination(string $path): self
     {
         return new self(\sprintf(

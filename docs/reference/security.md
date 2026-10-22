@@ -325,7 +325,14 @@ them or not a policy.
 fixes the size and is then told about the type has uploaded twice for one answer
 the server already had.
 
-Four rules the policy enforces:
+`store()` and `storeOn()` run `check()` themselves and throw
+`SecurityException` when it finds anything, so skipping the check cannot put an
+unchecked file on disk. `checkAll($request->files()['photos'], maxFiles: 10)`
+checks a multi-file field and names the file behind each problem. Show a
+client's name with `UploadedFile::displayName()`, which drops control and
+right-to-left override characters; never store anything under it.
+
+Five rules the policy enforces:
 
 - **An allowlist, never a blocklist.** A blocklist has to enumerate `.php`,
   `.phtml`, `.phar`, `.htaccess` and whatever the next server module adds.
@@ -333,6 +340,9 @@ Four rules the policy enforces:
   extension check and a script to an Apache with an old `AddHandler` line.
 - **Contents checked against the name**, with `finfo`, since the client's
   `Content-Type` is whatever the client said.
+- **Images must decode** (`getimagesize`) and stay under 25 megapixels
+  (`maxPixels`), so a tiny PNG that inflates to gigabytes is refused. Where
+  `fileinfo` is missing, the content check fails instead of passing.
 - **The stored name is generated**, never the client's. Every rule for making an
   attacker-controlled name safe is a rule that can be got subtly wrong.
 
@@ -355,6 +365,21 @@ the cause is an ini setting nobody has looked at.
 The symptom is indistinguishable from an application bug, so the framework
 detects the shape — a form body, a length over the ini limit, and no fields at
 all — and says what really happened.
+
+## What a request may contain
+
+Input is **validated where it is used** (a `Schema`) and **escaped where it is
+shown** (the template engine); nothing strips tags from it on the way in, because
+what is dangerous depends on where a value ends up. Before a handler runs:
+
+- text that is not valid UTF-8, or that contains a NUL byte, in the query, body
+  or cookies is refused with 400;
+- strings are normalised to NFC, so the same word typed on two keyboards is the
+  same bytes;
+- a JSON body nested deeper than 32 levels reads as malformed;
+- with `security.trusted_hosts` set (`['example.com', '*.example.com']`), any
+  other `Host` header is refused with 400. It is empty by default, which
+  `security:check` warns about.
 
 ## Headers, and the two that are off on purpose
 

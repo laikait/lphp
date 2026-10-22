@@ -73,6 +73,25 @@ final class UploadedFile
         return $name === '.' || $name === '..' ? '' : $name;
     }
 
+    /**
+     * clientName() made fit to show: valid UTF-8, no control or bidirectional
+     * override characters, at most $maxLength characters.
+     *
+     * "photo\u{202E}gpj.exe" is displayed as "photoexe.jpg" by a browser that
+     * honours the override, so a name shown to a person or put in a
+     * Content-Disposition header goes through here first. It is still only for
+     * display: nothing is ever stored under it.
+     */
+    public function displayName(int $maxLength = 120): string
+    {
+        // The /u flag makes preg_replace() return null on invalid UTF-8, so
+        // the bytes that are not UTF-8 are dropped first.
+        $name = (string) \iconv('UTF-8', 'UTF-8//IGNORE', $this->clientName());
+        $name = (string) \preg_replace('/[\p{Cc}\x{202A}-\x{202E}\x{2066}-\x{2069}]+/u', '', $name);
+
+        return \mb_substr($name, 0, \max(1, $maxLength));
+    }
+
     public function clientExtension(): string
     {
         return \strtolower(\pathinfo($this->clientName(), \PATHINFO_EXTENSION));

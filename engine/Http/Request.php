@@ -19,6 +19,9 @@ use App\Engine\Support\Unicode;
  */
 final class Request
 {
+    /** How deeply a JSON body may nest before it is treated as malformed. */
+    public const JSON_DEPTH = 32;
+
     private bool $jsonParsed = false;
 
     private mixed $json = null;
@@ -174,15 +177,71 @@ final class Request
             uri: $uri,
             basePath: $resolvedBase,
             path: self::derivePath($uri, $resolvedBase),
-            query: $query,
-            parsedBody: $parsedBody,
+            query: self::nfcAll($query),
+            parsedBody: self::nfcAll($parsedBody),
             body: $body,
             headers: $headers,
-            cookies: $cookies,
+            cookies: self::nfcAll($cookies),
             files: $files,
             server: $server,
             trustedProxies: $trustedProxies,
         );
+    }
+
+    /**
+     * Every string in $values in NFC, so the same word typed on two keyboards
+     * is the same bytes to a comparison, a unique index and a rate-limit key.
+     * Text that is not valid UTF-8 is left as it is; RequestLimits refuses it.
+     *
+     * @param array<array-key, mixed> $values
+     *
+     * @return array<array-key, mixed>
+     */
+    private static function nfcAll(array $values): array
+    {
+        foreach ($values as $key => $value) {
+            if (\is_string($value)) {
+                $values[$key] = Unicode::nfc($value);
+            } elseif (\is_array($value)) {
+                $values[$key] = self::nfcAll($value);
+            }
+        }
+
+        return $values;
+    }
+
+    /**
+     * Whether any name or value in the query, the body or the cookies is not
+     * valid UTF-8 or contains a NUL byte -- which no form field has a use for,
+     * and which truncates a string inside the C functions behind file and
+     * database calls.
+     */
+    public function hasMalformedInput(): bool
+    {
+        return self::malformed($this->query)
+            || self::malformed($this->input())
+            || self::malformed($this->cookies);
+    }
+
+    /** @param array<array-key, mixed> $values */
+    private static function malformed(array $values): bool
+    {
+        foreach ($values as $key => $value) {
+            if (\is_string($key) && !self::clean($key)) {
+                return true;
+            }
+
+            if (\is_string($value) ? !self::clean($value) : (\is_array($value) && self::malformed($value))) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private static function clean(string $text): bool
+    {
+        return !\str_contains($text, "\0") && \mb_check_encoding($text, 'UTF-8');
     }
 
     /**
@@ -421,7 +480,9 @@ final class Request
     {
         if (!$this->jsonParsed) {
             $this->jsonParsed = true;
-            $this->json = $this->body === '' ? null : \json_decode($this->body, true);
+            // Nested no deeper than any real payload is; json_decode() returns
+            // null past it, which is "malformed" to every caller.
+            $this->json = $this->body === '' ? null : \json_decode($this->body, true, self::JSON_DEPTH);
 
             if (\json_last_error() !== \JSON_ERROR_NONE) {
                 $this->json = null;
