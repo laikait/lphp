@@ -193,11 +193,9 @@ final class Request
      * is the same bytes to a comparison, a unique index and a rate-limit key.
      * Text that is not valid UTF-8 is left as it is; RequestLimits refuses it.
      *
-     * @template T of array
+     * @param array<array-key, mixed> $values
      *
-     * @param T $values
-     *
-     * @return T
+     * @return array<array-key, mixed>
      */
     private static function nfcAll(array $values): array
     {

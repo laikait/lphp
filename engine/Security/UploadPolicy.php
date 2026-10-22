@@ -65,16 +65,14 @@ final class UploadPolicy
         'htaccess', 'htpasswd',
     ];
 
-    /**
-     * @param list<string>              $extensions allowed, lowercase, without dots
-     * @param array<string, list<string>> $types     extension => media types its bytes may be
-     */
     /** 25 megapixels: a 5000x5000 photo passes, a 30000x30000 PNG that inflates to gigabytes does not. */
     public const DEFAULT_PIXELS = 25000000;
 
     /**
-     * @param int $maxPixels when above 0, a file whose type is image/* must also
-     *                       decode as an image no larger than this many pixels
+     * @param list<string>               $extensions allowed, lowercase, without dots
+     * @param array<string, list<string>> $types     extension => media types its bytes may be
+     * @param int                        $maxPixels  when above 0, a file whose type is image/* must also
+     *                                               decode as an image no larger than this many pixels
      */
     public function __construct(
         private readonly array $extensions,
