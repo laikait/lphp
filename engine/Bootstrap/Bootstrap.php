@@ -623,6 +623,8 @@ final class Bootstrap
         $limits = new RequestLimits(
             $settings->int('security.max_request_bytes', RequestLimits::DEFAULT_BYTES)
                 ?? RequestLimits::DEFAULT_BYTES,
+            true,
+            self::stringList($settings->get('security.trusted_hosts')),
         );
         $signedUrls = new SignedUrl($signer);
         $guard = new Guard($csrf, $limiter, $limits, $settings->bool('security.csrf.enabled', true), $signedUrls);
@@ -2080,6 +2082,11 @@ final class Bootstrap
                 'counters' => 'file',
                 // Refused with 413 before anything reads the body.
                 'max_request_bytes' => Env::int('MAX_REQUEST_BYTES', RequestLimits::DEFAULT_BYTES),
+                // Host names this application answers to: ['example.com',
+                // '*.example.com']. A request with any other Host header is
+                // refused with 400. Empty accepts any, which lets a client
+                // choose the host in every link and email built from the request.
+                'trusted_hosts' => [],
                 // Webhooks received, by name: ['format' => 'stripe', 'secret' =>
                 // …]. See Security\Webhooks for the formats and their options.
                 'webhooks' => [],

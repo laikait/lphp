@@ -63,10 +63,19 @@ final class InvoiceMailer
 | `has($key)` | whether a translation exists (in the active locale or a fallback) |
 | `locale()` | the active locale, decided on first use |
 | `setLocale('bn')` | use `bn` from now on; throws `LocalizationException` if `lang/bn.php` is missing |
+| `setLocale('admin/bn')` | use `bn`, reading `lang/admin/bn.php` first, then `lang/admin/en.php`, then the files of `lang/` itself |
+| `directory()` | the sub-directory chosen that way (`admin`), or `null` |
 | `available()` | every locale in `lang/` |
 
 `setLocale()` is for a command, a job, an email in the recipient's language or
 a test. It does not write a cookie.
+
+A sub-directory keeps one part of an application's strings together, such as an
+admin panel's in `lang/admin/`. `locale()` is still `bn`, so `<html lang>` and
+plural rules are unchanged. Only code can choose a directory -- a cookie, a
+header or the country map never can -- and it must be a plain name that exists
+under `lang/` (`admin`, `admin/reports`); anything else throws
+`LocalizationException`.
 
 ## Translation files
 

@@ -20,6 +20,52 @@ final class RequestLimitsTest extends TestCase
         ]);
     }
 
+    public function test_text_that_is_not_utf8_is_refused_with_400(): void
+    {
+        $request = Request::create('GET', '/search', ['query' => ['q' => "bad\xFF"]]);
+
+        try {
+            (new RequestLimits())($request);
+            self::fail('invalid UTF-8 was accepted');
+        } catch (HttpException $e) {
+            self::assertSame(400, $e->status());
+        }
+    }
+
+    public function test_a_nul_byte_in_a_cookie_is_refused(): void
+    {
+        $this->expectException(HttpException::class);
+
+        (new RequestLimits())(Request::create('GET', '/', ['cookies' => ["a\0b" => 'x']]));
+    }
+
+    public function test_values_are_normalised_to_nfc(): void
+    {
+        $request = Request::create('GET', '/', ['query' => ['q' => "e\u{301}"]]);
+
+        self::assertSame("\u{E9}", $request->query('q'));
+    }
+
+    public function test_a_host_outside_the_allowlist_is_refused(): void
+    {
+        $limits = new RequestLimits(trustedHosts: ['example.com', '*.example.org']);
+
+        $limits(Request::create('GET', '/', ['headers' => ['Host' => 'example.com:8080']]));
+        $limits(Request::create('GET', '/', ['headers' => ['Host' => 'app.example.org']]));
+
+        $this->expectException(HttpException::class);
+
+        $limits(Request::create('GET', '/', ['headers' => ['Host' => 'evil.test']]));
+    }
+
+    public function test_a_json_body_nested_too_deeply_reads_as_malformed(): void
+    {
+        $body = \str_repeat('[', 100) . \str_repeat(']', 100);
+        $request = Request::create('POST', '/', ['headers' => ['Content-Type' => 'application/json'], 'body' => $body]);
+
+        self::assertNull($request->json());
+    }
+
     public function test_a_body_within_the_limit_passes(): void
     {
         (new RequestLimits(1000))($this->post(999));

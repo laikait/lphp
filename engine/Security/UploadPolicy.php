@@ -69,14 +69,22 @@ final class UploadPolicy
      * @param list<string>              $extensions allowed, lowercase, without dots
      * @param array<string, list<string>> $types     extension => media types its bytes may be
      */
+    /** 25 megapixels: a 5000x5000 photo passes, a 30000x30000 PNG that inflates to gigabytes does not. */
+    public const DEFAULT_PIXELS = 25000000;
+
+    /**
+     * @param int $maxPixels when above 0, a file whose type is image/* must also
+     *                       decode as an image no larger than this many pixels
+     */
     public function __construct(
         private readonly array $extensions,
         private readonly int $maxBytes = self::DEFAULT_BYTES,
         private readonly array $types = [],
+        private readonly int $maxPixels = 0,
     ) {}
 
     /** The common case, with the type mapping already right. */
-    public static function images(int $maxBytes = self::DEFAULT_BYTES): self
+    public static function images(int $maxBytes = self::DEFAULT_BYTES, int $maxPixels = self::DEFAULT_PIXELS): self
     {
         return new self(['jpg', 'jpeg', 'png', 'gif', 'webp'], $maxBytes, [
             'jpg' => ['image/jpeg'],
@@ -84,7 +92,7 @@ final class UploadPolicy
             'png' => ['image/png'],
             'gif' => ['image/gif'],
             'webp' => ['image/webp'],
-        ]);
+        ], $maxPixels);
     }
 
     public static function documents(int $maxBytes = self::DEFAULT_BYTES): self
@@ -166,9 +174,66 @@ final class UploadPolicy
 
         if ($mismatch !== null) {
             $problems[] = $mismatch;
+        } elseif ($this->maxPixels > 0 && $problems === []) {
+            $problem = $this->imageProblem($file, $extension);
+
+            if ($problem !== null) {
+                $problems[] = $problem;
+            }
         }
 
         return $problems;
+    }
+
+    /**
+     * check() for every file of a multi-file field, and a limit on how many.
+     *
+     * @param list<UploadedFile> $files
+     *
+     * @return list<string> empty means every file is acceptable
+     */
+    public function checkAll(array $files, int $maxFiles = 10): array
+    {
+        if (\count($files) > $maxFiles) {
+            return [\sprintf('%d files were uploaded; the limit is %d.', \count($files), $maxFiles)];
+        }
+
+        $problems = [];
+
+        foreach ($files as $file) {
+            foreach ($this->check($file) as $problem) {
+                $problems[] = \sprintf('%s: %s', $file->displayName(), $problem);
+            }
+        }
+
+        return $problems;
+    }
+
+    /** A type that says image/* must decode as one, and not be larger than maxPixels. */
+    private function imageProblem(UploadedFile $file, string $extension): ?string
+    {
+        $expected = $this->types[$extension] ?? [];
+
+        if ($expected === [] || !\str_starts_with($expected[0], 'image/')) {
+            return null;
+        }
+
+        $size = @\getimagesize($file->temporaryPath());
+
+        if ($size === false) {
+            return \sprintf('The file is named .%s but is not an image that can be read.', $extension);
+        }
+
+        if ($size[0] * $size[1] > $this->maxPixels) {
+            return \sprintf(
+                'The image is %dx%d pixels; the limit is %s pixels.',
+                $size[0],
+                $size[1],
+                \number_format($this->maxPixels),
+            );
+        }
+
+        return null;
     }
 
     /**
@@ -187,6 +252,8 @@ final class UploadPolicy
         if (!\is_dir($directory) && !@\mkdir($directory, 0o775, true) && !\is_dir($directory)) {
             throw SecurityException::unwritableDestination($directory);
         }
+
+        $this->require($file);
 
         $stored = $this->storedName($file, $name);
 
@@ -216,6 +283,8 @@ final class UploadPolicy
      */
     public function storeOn(UploadedFile $file, Disk $disk, string $directory = '', ?string $name = null): string
     {
+        $this->require($file);
+
         $stored = $this->storedName($file, $name);
         $path = \trim($directory, '/') === '' ? $stored : \trim($directory, '/') . '/' . $stored;
 
@@ -232,6 +301,21 @@ final class UploadPolicy
         }
 
         return $path;
+    }
+
+    /**
+     * store() and storeOn() check the file themselves, so that skipping
+     * check() cannot put an unchecked file on disk.
+     *
+     * @throws SecurityException
+     */
+    private function require(UploadedFile $file): void
+    {
+        $problems = $this->check($file);
+
+        if ($problems !== []) {
+            throw SecurityException::rejectedUpload($problems);
+        }
     }
 
     private function storedName(UploadedFile $file, ?string $name): string
@@ -277,14 +361,16 @@ final class UploadPolicy
     {
         $expected = $this->types[$extension] ?? null;
 
-        if ($expected === null || !\function_exists('finfo_open')) {
+        if ($expected === null) {
             return null;
         }
 
-        $finfo = @\finfo_open(\FILEINFO_MIME_TYPE);
+        // A type is declared for this extension, so the content has to be
+        // read: without fileinfo the answer is no, not "nothing to say".
+        $finfo = \function_exists('finfo_open') ? @\finfo_open(\FILEINFO_MIME_TYPE) : false;
 
         if ($finfo === false) {
-            return null;
+            return \sprintf('The contents of a .%s file cannot be checked: PHP\'s fileinfo extension is not available.', $extension);
         }
 
         $detected = @\finfo_file($finfo, $file->temporaryPath());

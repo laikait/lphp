@@ -13,6 +13,17 @@ public, is in [`STABILITY.md`](STABILITY.md).
 
 ### Added
 
+- **Sub-directory translations.** `setLocale('admin/bn')` reads
+  `lang/admin/bn.php`, then `lang/admin/en.php`, then the files of `lang/`;
+  `Localization::directory()` returns the directory. Only a caller can choose
+  one, never a cookie or header.
+- **Stricter requests and uploads.** Invalid UTF-8 or NUL bytes in the query,
+  body or cookies are refused with 400, strings are normalised to NFC, JSON
+  nesting is capped at 32, and `security.trusted_hosts` restricts the `Host`
+  header. `UploadPolicy` now checks inside `store()`/`storeOn()`, decodes images
+  and limits their pixels, fails when `fileinfo` is missing, and gains
+  `checkAll()`; `UploadedFile::displayName()` gives a display-safe name.
+
 - **Signed links.** `Routing\UrlSigner::signed('route.name', $parameters,
   '+7 days')` makes a URL whose path and query are signed by `Signer`; a route
   with `meta(['signed' => true])` refuses a missing or changed signature with 403

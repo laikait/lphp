@@ -35,10 +35,42 @@ final class RequestLimits
     /** 8 MiB. Large enough for a form with a document, small enough to notice. */
     public const DEFAULT_BYTES = 8388608;
 
+    /**
+     * @param list<string> $trustedHosts host names this application answers to
+     *                                   ("example.com", "*.example.com"); empty accepts any
+     */
     public function __construct(
         private readonly int $maxBytes = self::DEFAULT_BYTES,
         private readonly bool $detectDiscardedBodies = true,
+        private readonly array $trustedHosts = [],
     ) {}
+
+    /** Whether $host is one this application answers to. */
+    public function trustsHost(string $host): bool
+    {
+        if ($this->trustedHosts === []) {
+            return true;
+        }
+
+        $host = \strtolower(\rtrim($host, '.'));
+
+        foreach ($this->trustedHosts as $trusted) {
+            $trusted = \strtolower($trusted);
+
+            if ($host === $trusted
+                || (\str_starts_with($trusted, '*.') && \str_ends_with($host, \substr($trusted, 1)))) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /** @return list<string> the host names this application answers to; empty means any */
+    public function trustedHosts(): array
+    {
+        return $this->trustedHosts;
+    }
 
     public function maxBytes(): int
     {
@@ -56,6 +88,14 @@ final class RequestLimits
 
     public function __invoke(Request $request): void
     {
+        if (!$this->trustsHost($request->host())) {
+            throw HttpException::badRequest('The Host header is not one this application serves.');
+        }
+
+        if ($request->hasMalformedInput()) {
+            throw HttpException::badRequest('The request contains text that is not valid UTF-8, or a NUL byte.');
+        }
+
         $length = $this->contentLength($request);
 
         if ($length === null) {

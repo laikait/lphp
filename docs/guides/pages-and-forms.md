@@ -346,14 +346,18 @@ if ($problems === []) {
 }
 ```
 
-- **`UploadPolicy::images()`** accepts images only, up to a size limit.
+- **`UploadPolicy::images()`** accepts images only, up to a size limit and 25
+  megapixels, and the file must really decode as an image.
 - **`check()`** returns a list of every problem, or an empty list when the file
-  is fine.
-- **`store()`** saves the file under a new, safe name that it generates, and
-  returns the path.
+  is fine. For several files use `checkAll()`.
+- **`store()`** checks the file again, refuses it with a `SecurityException` if
+  it fails, saves it under a new, safe name that it generates, and returns the
+  path.
 
-Nothing is checked unless you call `check()`, because only your code knows what a
-form should accept. It needs PHP's `fileinfo` extension. Store uploads outside
+Nothing is checked until you call `check()` or `store()`, because only your code
+knows what a form should accept. It needs PHP's `fileinfo` extension; without
+it the content check fails rather than passes. To show the client's file name,
+use `displayName()`. Store uploads outside
 `public/`, for example under `system/`, so nobody can open them by URL. See
 [Uploads](../reference/security.md#uploads).
 

@@ -54,6 +54,56 @@ final class UploadPolicyTest extends TestCase
 
     // ---- the allowlist ---------------------------------------------------------
 
+    public function test_store_refuses_a_file_that_fails_the_check(): void
+    {
+        $this->expectException(\App\Engine\Security\SecurityException::class);
+
+        (new UploadPolicy(['txt']))->store($this->upload('shell.php'), $this->directory());
+    }
+
+    public function test_an_image_that_does_not_decode_is_refused(): void
+    {
+        // Right magic bytes for finfo, nothing getimagesize() can read.
+        $problems = UploadPolicy::images()->check($this->upload('a.gif', 'GIF89a' . \str_repeat("\0", 4)));
+
+        self::assertNotSame([], $problems);
+    }
+
+    public function test_an_image_over_the_pixel_limit_is_refused(): void
+    {
+        $gif = (string) \base64_decode('R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7', true);
+
+        self::assertSame([], UploadPolicy::images()->check($this->upload('p.gif', $gif)));
+
+        $problems = (new UploadPolicy(['gif'], types: ['gif' => ['image/gif']], maxPixels: 1))->check($this->upload('p.gif', $gif));
+        self::assertSame([], $problems);
+
+        // 1x1 = 1 pixel is within 1; a stricter policy cannot be below 1, so use a 2x1 image via GD if present.
+        if (\function_exists('imagecreatetruecolor')) {
+            $image = \imagecreatetruecolor(4, 4);
+            \ob_start();
+            \imagegif($image);
+            $big = (string) \ob_get_clean();
+
+            $problems = (new UploadPolicy(['gif'], types: ['gif' => ['image/gif']], maxPixels: 10))->check($this->upload('big.gif', $big));
+            self::assertStringContainsString('4x4 pixels', $problems[0] ?? '');
+        }
+    }
+
+    public function test_check_all_limits_the_count_and_names_the_file(): void
+    {
+        $policy = new UploadPolicy(['txt']);
+
+        self::assertSame(['3 files were uploaded; the limit is 2.'], $policy->checkAll([
+            $this->upload('a.txt'),
+            $this->upload('b.txt'),
+            $this->upload('c.txt'),
+        ], 2));
+
+        $problems = $policy->checkAll([$this->upload('a.txt'), $this->upload('b.php')]);
+        self::assertStringStartsWith('b.php: ', $problems[0]);
+    }
+
     public function test_an_allowed_extension_passes(): void
     {
         self::assertSame([], (new UploadPolicy(['txt']))->check($this->upload('notes.txt')));
