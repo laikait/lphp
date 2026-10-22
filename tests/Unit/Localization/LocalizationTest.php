@@ -38,6 +38,8 @@ final class LocalizationTest extends LocalizationTestCase
             'bn-BD.php' => [
                 'save' => 'সেভ',
             ],
+            'admin/en.php' => ['dashboard' => 'Dashboard', 'save' => 'Save changes'],
+            'admin/bn.php' => ['dashboard' => 'ড্যাশবোর্ড'],
         ]));
 
         $this->catalog->add('Billing', $this->directory([
@@ -213,6 +215,37 @@ final class LocalizationTest extends LocalizationTestCase
         $this->expectExceptionMessage('"de" is not available. Available: bn, bn-BD, en.');
 
         $this->localization()->setLocale('de');
+    }
+
+    public function test_set_locale_can_name_a_sub_directory(): void
+    {
+        $localization = $this->localization();
+        $localization->setLocale('admin/bn');
+
+        self::assertSame('bn', $localization->locale());
+        self::assertSame('admin', $localization->directory());
+        self::assertSame('ড্যাশবোর্ড', $localization->get('dashboard'));
+        // Missing from admin/bn.php: admin/en.php wins over the root's bn.php.
+        self::assertSame('Save changes', $localization->get('save'));
+        // Only in the root files.
+        self::assertSame('আপডেট করা হয়েছে', $localization->get('updated'));
+    }
+
+    public function test_a_sub_directory_is_forgotten_by_reset_and_set_locale(): void
+    {
+        $localization = $this->localization();
+        $localization->setLocale('admin/en');
+        $localization->setLocale('en');
+
+        self::assertNull($localization->directory());
+        self::assertSame('dashboard', $localization->get('dashboard'));
+    }
+
+    public function test_set_locale_refuses_a_missing_sub_directory(): void
+    {
+        $this->expectException(LocalizationException::class);
+
+        $this->localization()->setLocale('shop/bn');
     }
 
     public function test_set_locale_refuses_a_path(): void
