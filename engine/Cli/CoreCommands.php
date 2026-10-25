@@ -26,6 +26,9 @@ use App\Engine\Cli\Commands\MigrateRollbackCommand;
 use App\Engine\Cli\Commands\MigrateStatusCommand;
 use App\Engine\Cli\Commands\ModuleListCommand;
 use App\Engine\Cli\Commands\NginxMakeCommand;
+use App\Engine\Cli\Commands\OpenApiAuthCommand;
+use App\Engine\Cli\Commands\OpenApiDocsCommand;
+use App\Engine\Cli\Commands\OpenApiExportCommand;
 use App\Engine\Cli\Commands\QueueFailedCommand;
 use App\Engine\Cli\Commands\QueueStatusCommand;
 use App\Engine\Cli\Commands\QueueWorkCommand;
@@ -97,6 +100,27 @@ final class CoreCommands
             ->describe('List every registered route and its owning module.')
             ->option('module', 'Only routes belonging to this module, e.g. Billing.', shortcut: 'm')
             ->flag('names', 'Only routes that have a name.', shortcut: 'n');
+
+        $commands->add('openapi:export', OpenApiExportCommand::class)
+            ->describe('Print the OpenAPI description of the routes marked with openapi meta.')
+            ->option('file', 'Write it to this file instead of stdout.', shortcut: 'f')
+            ->flag('compact', 'One line, no indentation.', shortcut: 'c')
+            ->note('Only routes with the openapi meta appear. A meta mistake exits 1 with the reason on stderr.');
+
+        $commands->add('openapi:docs', OpenApiDocsCommand::class)
+            ->describe('Switch the API docs page (/docs) and its description (/openapi.json) on or off.')
+            ->flag('enable', 'Turn both on.')
+            ->flag('disable', 'Turn both off.')
+            ->option('path', 'Where the page is, e.g. /api-docs. Default /docs.')
+            ->option('spec', 'Where the description is. Default /openapi.json.')
+            ->note('With neither flag, shows what is on. One machine at a time; it wins over config/openapi.php.');
+
+        $commands->add('openapi:auth', OpenApiAuthCommand::class)
+            ->describe('Require a login, or a capability, for the API docs and description.')
+            ->flag('enable', 'Require a login.')
+            ->flag('disable', 'Let anyone read them.')
+            ->option('can', 'With --enable: require this capability instead of any login.')
+            ->note('With neither flag, shows what is set. One machine at a time; it wins over config/openapi.php.');
 
         $commands->add('asset:list', AssetListCommand::class)
             ->describe('List every published asset directory and the URL prefix it answers on.');

@@ -17,6 +17,7 @@ use App\Engine\Security\Csrf;
 use App\Engine\Security\RateLimiter;
 use App\Engine\Security\SecurityHeaders;
 use App\Engine\Security\Signer;
+use App\Engine\Security\Webhooks;
 use App\Tests\Support\TestCase;
 
 /**
@@ -231,6 +232,48 @@ final class SecuritySliceTest extends TestCase
         ]));
 
         self::assertSame(201, $response->status());
+    }
+
+    /**
+     * A payment provider's delivery with the default, forgetful cache: taken,
+     * and its replay -- in another application, as the next request would be --
+     * is a duplicate rather than refused or new.
+     */
+    public function test_a_webhook_is_received_and_its_replay_caught_with_the_default_cache(): void
+    {
+        $config = [
+            'cache' => ['store' => 'array'],
+            // One key for both, as two requests to one deployment share it.
+            'security' => ['key' => Signer::generate(), 'webhooks' => ['gateway' => ['format' => 'hmac', 'secret' => 'whsec-slice', 'id_header' => 'X-Event-Id']]],
+        ];
+        $body = '{"event":"payment.succeeded"}';
+        $delivery = static fn(): Request => Request::create('POST', '/webhooks/gateway', [
+            'headers' => [
+                'Content-Type' => 'application/json',
+                'X-Signature' => Signer::hmac('sha256', $body, 'whsec-slice'),
+                'X-Event-Id' => 'evt-slice-' . \hash('crc32b', __FILE__),
+            ],
+            'body' => $body,
+        ]);
+
+        $first = $this->app($config)->container()->get(Webhooks::class);
+        self::assertTrue($first->remembersAcrossRequests());
+        $event = $first->receive('gateway', $delivery());
+
+        try {
+            self::assertFalse($event->duplicate);
+            self::assertSame(['event' => 'payment.succeeded'], $event->payload);
+            self::assertTrue($this->app($config)->container()->get(Webhooks::class)->receive('gateway', $delivery())->duplicate);
+        } finally {
+            $first->release($event);
+
+            // The store's lock files outlive their entries; leave none behind.
+            foreach (\glob($this->basePath('system/Cache/webhooks/*/*.lock')) ?: [] as $lock) {
+                if (!\is_file(\substr($lock, 0, -5))) {
+                    @\unlink($lock);
+                }
+            }
+        }
     }
 
     public function test_a_post_with_a_matching_token_is_allowed(): void

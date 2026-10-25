@@ -155,6 +155,9 @@ uses, under the module name `engine`. The kernel has no idea they exist: delete
 | `help` | List the available commands, or explain one of them. |
 | `module:list` | Discovered modules, in the order they load. |
 | `route:list` | Every registered route and its owning module. |
+| `openapi:export` | The OpenAPI description of the routes marked with `openapi` meta, to stdout or `--file`; see [OpenAPI](openapi.md). |
+| `openapi:docs` | `--enable` or `--disable` the docs page and its description on this machine; no flag shows what is on. |
+| `openapi:auth` | `--enable` (optionally `--can=…`) or `--disable` the login the docs page and description need. |
 | `asset:list` | Every published asset folder and the URL prefix it answers on. |
 | `template:list` | The template search path, highest precedence first. |
 | `config:list` | The configuration this process actually resolved to. |

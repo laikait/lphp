@@ -289,20 +289,12 @@ final class AssetServer
     /** Whether the client already has this exact file. */
     private function isFresh(Request $request, string $etag, int $modifiedAt): bool
     {
-        $noneMatch = $request->header('If-None-Match');
+        $matches = $request->matchesEtag($etag);
 
-        if ($noneMatch !== null && $noneMatch !== '') {
-            foreach (\explode(',', $noneMatch) as $candidate) {
-                $candidate = \trim($candidate);
-
-                if ($candidate === '*' || $candidate === $etag || $candidate === 'W/' . $etag) {
-                    return true;
-                }
-            }
-
-            // An If-None-Match that did not match is a definite answer, and
-            // RFC 9110 says to ignore If-Modified-Since when it is present.
-            return false;
+        // An If-None-Match that did not match is a definite answer, and
+        // RFC 9110 says to ignore If-Modified-Since when it is present.
+        if ($matches !== null) {
+            return $matches;
         }
 
         $since = $request->header('If-Modified-Since');

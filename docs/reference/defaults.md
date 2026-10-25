@@ -295,6 +295,18 @@ See [Storage](storage.md).
 | `mcp.allow_guests` | `false` | — |
 | `mcp.log.enabled` | `true` | — |
 
+### `openapi`
+
+| Key | Default | Environment variable |
+|---|---|---|
+| `openapi.title` | `null` (`app.name`, else `API`) | — |
+| `openapi.version` | `'1.0.0'` | — |
+| `openapi.description` | `''` | — |
+| `openapi.route` | `null` (not served) | — |
+| `openapi.docs` | `null` (no page) | — |
+| `openapi.runtime` | `true` (read what `openapi:docs` and `openapi:auth` switched) | — |
+| `openapi.meta` | `[]` | — |
+
 ### `logging`
 
 | Key | Default | Environment variable |

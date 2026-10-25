@@ -232,6 +232,12 @@ final class BootstrapTest extends TestCase
             'mcp.http.path',
             'mcp.allow_guests',
             'mcp.log.enabled',
+            'openapi.title',
+            'openapi.version',
+            'openapi.route',
+            'openapi.docs',
+            'openapi.meta',
+            'openapi.runtime',
             'localization.country_header',
             'app.editor',
             'app.memory_limit',
@@ -255,7 +261,7 @@ final class BootstrapTest extends TestCase
         self::assertSame(
             [
                 'app', 'http', 'mail', 'database', 'assets', 'storage', 'cache', 'queue', 'security', 'auth', 'session',
-                'scheduler', 'system', 'mcp', 'logging', 'observability', 'localization', 'templates', 'modules', 'features',
+                'scheduler', 'system', 'mcp', 'openapi', 'logging', 'observability', 'localization', 'templates', 'modules', 'features',
             ],
             \array_keys($config->all()),
         );

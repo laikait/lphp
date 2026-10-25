@@ -173,6 +173,11 @@ the same machine, and every session on a machine is lost when it restarts.
 With `session.store`, `cache.store` or `queue.store` set to `database`,
 `php laika migrate` creates the tables those stores need.
 
+Two console switches are per machine too, because each writes a file under
+`system/Runtime/`: `php laika down` and `php laika openapi:docs` / `openapi:auth`.
+Run them on every web server, or set the API docs in `config/openapi.php`
+instead, which every machine reads.
+
 The scheduler is the opposite case. Its lock is a file on one machine, so
 **`schedule:run` must run on exactly one host**. On three hosts, every scheduled
 task runs three times.

@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Engine\Core;
 
 use App\Engine\Asset\AssetServer;
+use App\Engine\Auth\AccessRegistry;
 use App\Engine\Cli\ConsoleKernel;
 use App\Engine\Config\Config;
 use App\Engine\Container\Container;
@@ -15,6 +16,7 @@ use App\Engine\Http\Response;
 use App\Engine\Module\ModuleManager;
 use App\Engine\Observability\TraceKind;
 use App\Engine\Observability\Tracer;
+use App\Engine\OpenApi\OpenApiRoutes;
 use App\Engine\Routing\Router;
 use App\Engine\Security\RequestLimits;
 use App\Engine\Support\Path;
@@ -81,6 +83,10 @@ final class Application
         // After the modules, whose ids a theme may not take, and before
         // app.booted, so a listener there already sees every theme.
         $this->container->get(ThemeRegistry::class)->load();
+
+        // openapi.route and openapi.docs, after the modules too, so the
+        // collision check sees every route. See OpenApiRoutes.
+        OpenApiRoutes::register($this->container->get(Router::class), $this->config(), $this->container->get(AccessRegistry::class));
 
         $hooks = $this->container->get(HookEngine::class);
         $hooks->do('app.booted', $this);

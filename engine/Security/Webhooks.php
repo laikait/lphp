@@ -5,8 +5,8 @@ declare(strict_types=1);
 namespace App\Engine\Security;
 
 use App\Engine\Cache\AtomicStore;
-use App\Engine\Cache\Stores\ArrayStore;
 use App\Engine\Cache\Cache;
+use App\Engine\Cache\Stores\ArrayStore;
 use App\Engine\Http\HttpException;
 use App\Engine\Http\Request;
 
@@ -50,7 +50,9 @@ use App\Engine\Http\Request;
  * the default, or none at all -- silently turned de-duplication off, and for
  * github, shopify and hmac, which sign no timestamp, nothing else stopped a
  * captured delivery being sent again a year later. Bootstrap asks for the
- * refusal; a test that builds this directly with an in-process store does not.
+ * refusal and never meets it: when the application's cache forgets, it hands
+ * this a file store of its own, so a real delivery is never refused for how
+ * the cache is configured. A test that builds this directly decides for itself.
  */
 final class Webhooks
 {

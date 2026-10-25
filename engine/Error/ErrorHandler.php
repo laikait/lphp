@@ -481,7 +481,7 @@ final class ErrorHandler
 
         if ($debug) {
             echo '<p>The error page itself failed while rendering this error:</p>', $describe($original),
-                '<p>because of:</p>', $describe($failure);
+            '<p>because of:</p>', $describe($failure);
         }
 
         echo '</body></html>';

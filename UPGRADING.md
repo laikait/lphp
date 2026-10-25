@@ -48,12 +48,13 @@ order. An entry that cannot say who is affected is not finished.
   sessions keep working.
 - **Do:** nothing; `php laika session:gc` removes the old rows as they expire.
 
-### Webhooks need a cache that outlives the request
+### Webhook ids are remembered in a file when the cache cannot
 
-- **Changed:** `Webhooks::receive()` throws a `SecurityException` when the cache
-  cannot remember a delivery between requests (the `array` store, or none).
+- **Changed:** with a cache that forgets between requests (the default `array`
+  store, or none), webhook delivery ids are kept in `system/Cache/webhooks/`,
+  so a replay is reported as a duplicate. Deliveries are never refused for it.
 - **Affected:** applications receiving webhooks with the default cache.
-- **Do:** set `CACHE_STORE=file` (or `database`). `security:check` reports it.
+- **Do:** make `system/Cache/` writable, as it already is for `CACHE_STORE=file`.
 
 ### Other refusals
 

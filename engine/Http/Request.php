@@ -579,6 +579,33 @@ final class Request
         return isset($this->headers[Headers::normalize($name)]);
     }
 
+    /**
+     * Whether If-None-Match names this entity tag: the tag itself, its weak
+     * form (W/"…", which is what a compressing proxy turns a strong tag
+     * into), or "*". Null when the header is absent, so a caller can fall
+     * back to If-Modified-Since; RFC 9110 says to ignore that one otherwise.
+     *
+     * @param string $etag quoted, as sent: "\"abc\""
+     */
+    public function matchesEtag(string $etag): ?bool
+    {
+        $noneMatch = $this->header('If-None-Match');
+
+        if ($noneMatch === null || $noneMatch === '') {
+            return null;
+        }
+
+        foreach (\explode(',', $noneMatch) as $candidate) {
+            $candidate = \trim($candidate);
+
+            if ($candidate === '*' || $candidate === $etag || $candidate === 'W/' . $etag) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
     /** @return array<string, string> keyed by the canonical header name */
     public function headers(): array
     {

@@ -55,7 +55,7 @@ change, so that the Experimental surface can stay still.
 | The ten global helpers (`add_hook` … `template`) | Experimental | 1.0 candidate; the set is closed |
 | Hook and filter **names** ([Lifecycle extension points](docs/reference/hooks-and-filters.md#lifecycle-extension-points)) | Experimental | 1.0 candidate; a test compares that table with what the engine fires |
 | Arguments each hook and filter passes | Experimental | adding a trailing argument is not a break; reordering or removing one is |
-| Route metadata keys: `auth`, `can`, `csrf`, `rate_limit`, `signed`, `api`, `version`, `deprecated`, `sunset` | Experimental | |
+| Route metadata keys: `auth`, `can`, `csrf`, `rate_limit`, `signed`, `api`, `version`, `deprecated`, `sunset`, `openapi` | Experimental | `openapi` and the keys inside it are the newest |
 | Configuration keys and their defaults (`Bootstrap::defaults()`) | Experimental | pinned by `BootstrapTest` |
 | Environment variables (`.env.example`) | Experimental | a test fails if one is undocumented |
 | Console command names, options and exit codes (0, 1, 2, 127) | Experimental | scripts and cron lines depend on these |
@@ -190,6 +190,12 @@ namespace beats a shorter one.
 | `App\Engine\Network\Bytes` | Internal | byte arithmetic behind `IpAddress` and `Cidr` |
 | `App\Engine\Observability\*` | Experimental | newest; the most likely to change |
 | `App\Engine\Observability\Report` | Internal | |
+| `App\Engine\OpenApi\*` | Experimental | `OpenApiGenerator::generate()` and `json()`, and what a meta mistake throws; see [OpenAPI](docs/reference/openapi.md) |
+| `App\Engine\OpenApi\OpenApiDocs` | Internal | registered by `openapi.docs`; the bundled Swagger UI version may change in any release |
+| `App\Engine\OpenApi\OpenApiEndpoint` | Internal | registered by `openapi.route` |
+| `App\Engine\OpenApi\OpenApiRoutes` | Internal | |
+| `App\Engine\OpenApi\OpenApiState` | Internal | written by `openapi:docs` and `openapi:auth`; the file's layout is theirs |
+| `App\Engine\OpenApi\SchemaConverter` | Internal | the mapping is documented; the class is not |
 | `App\Engine\Queue\*` | Internal | |
 | `App\Engine\Queue\Job` | Experimental | |
 | `App\Engine\Queue\Queue` | Experimental | |

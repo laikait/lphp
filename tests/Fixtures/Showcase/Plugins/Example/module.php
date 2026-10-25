@@ -14,6 +14,7 @@ use App\Engine\Module\ModuleContext;
 use App\Engine\Routing\RouteCollector;
 use App\Engine\Routing\Router;
 use App\Engine\Scheduler\ScheduleCollector;
+use App\Engine\Schema\Field;
 use App\Engine\Session\Session;
 use App\Tests\Fixtures\Showcase\Plugins\Example\Api\CustomerApi;
 use App\Tests\Fixtures\Showcase\Plugins\Example\Api\CustomerPage;
@@ -26,7 +27,9 @@ use App\Tests\Fixtures\Showcase\Plugins\Example\Filters\CustomerFilters;
 use App\Tests\Fixtures\Showcase\Plugins\Example\Hooks\CustomerHooks;
 use App\Tests\Fixtures\Showcase\Plugins\Example\Jobs\ReviewCustomers;
 use App\Tests\Fixtures\Showcase\Plugins\Example\Model\Customer;
+use App\Tests\Fixtures\Showcase\Plugins\Example\Schema\CustomerSchema;
 use App\Tests\Fixtures\Showcase\Shared\Model\User;
+use App\Tests\Fixtures\Showcase\Shared\Schema\PaginationSchema;
 
 /**
  * A plugin module.
@@ -102,15 +105,33 @@ return static function (ModuleContext $module): void {
         $routes->get('/customers.json', ListCustomers::class)->name('customers.json');
 
         $routes->group('/api/v1', static function (RouteCollector $routes): void {
-            $routes->get('/customers', ListCustomers::class)->name('customers.index');
+            // The description is the same declarations the handlers enforce:
+            // the pagination schema is what ListCustomers validates the query
+            // with, and CustomerSchema what store() and show() use.
+            $routes->get('/customers', ListCustomers::class)
+                ->name('customers.index')
+                ->meta(['openapi' => [
+                    'summary' => 'A page of customers',
+                    'query' => PaginationSchema::schema(),
+                    'responses' => [200 => ['data' => [CustomerSchema::resource()]]],
+                ]]);
 
             $routes->get('/customers/{id}', [CustomerApi::class, 'show'])
                 ->where('id', '\d+')
-                ->name('customers.show');
+                ->name('customers.show')
+                ->meta(['openapi' => [
+                    'summary' => 'One customer',
+                    'path' => ['id' => Field::int('id')->describedAs('The customer id.')],
+                    'responses' => [200 => ['data' => CustomerSchema::resource()], 404 => 'No such customer'],
+                ]]);
 
             $routes->post('/customers', [CustomerApi::class, 'store'])
                 ->name('customers.store')
-                ->meta(['auth' => false]);
+                ->meta(['auth' => false, 'openapi' => [
+                    'summary' => 'Register a customer',
+                    'body' => CustomerSchema::input(),
+                    'responses' => [201 => ['data' => CustomerSchema::resource()]],
+                ]]);
             // Versioning is a route prefix plus route metadata. There is no
             // version negotiator and no version resolver, because a URL prefix
             // already answers "which version" unambiguously and a second

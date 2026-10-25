@@ -1576,6 +1576,9 @@ final class ArchitectureTest extends TestCase
             'engine/Cli/Commands/MigrateStatusCommand.php',
             'engine/Cli/Commands/ModuleListCommand.php',
             'engine/Cli/Commands/NginxMakeCommand.php',
+            'engine/Cli/Commands/OpenApiAuthCommand.php',
+            'engine/Cli/Commands/OpenApiDocsCommand.php',
+            'engine/Cli/Commands/OpenApiExportCommand.php',
             'engine/Cli/Commands/QueueFailedCommand.php',
             'engine/Cli/Commands/QueueStatusCommand.php',
             'engine/Cli/Commands/QueueWorkCommand.php',
@@ -1717,6 +1720,11 @@ final class ArchitectureTest extends TestCase
             'queue:status',
             'queue:work',
             'route:list',
+            // Writes a JSON description of the routes, never code.
+            'openapi:export',
+            // Write the docs switches to system/Runtime, never code.
+            'openapi:docs',
+            'openapi:auth',
             'schedule:list',
             'schedule:run',
             'schedule:unlock',

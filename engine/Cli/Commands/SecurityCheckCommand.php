@@ -12,6 +12,7 @@ use App\Engine\Config\Config;
 use App\Engine\Core\Application;
 use App\Engine\Core\Maintenance;
 use App\Engine\Network\Cidr;
+use App\Engine\OpenApi\OpenApiRoutes;
 use App\Engine\Routing\Router;
 use App\Engine\Security\Counters\MemoryStore;
 use App\Engine\Security\Csrf;
@@ -90,6 +91,7 @@ final class SecurityCheckCommand
             ...$this->checkMail($production),
             ...$this->checkCommands($production),
             ...$this->checkMcp(),
+            ...$this->checkOpenApi($production),
             ...$this->checkWebhooks(),
             ...$this->checkWebServer(),
             ...$this->checkExtensions(),
@@ -339,9 +341,43 @@ final class SecurityCheckCommand
     }
 
     /**
-     * Webhooks need a cache that remembers a delivery past its request;
-     * without one Webhooks::receive() refuses, so this says so before the
-     * first delivery does.
+     * The API description over HTTP.
+     *
+     * It is a map of every documented endpoint, its parameters and what it
+     * accepts -- useful to a client, and as useful to somebody looking for the
+     * one endpoint with a weak check. Serving it is a decision about who may
+     * read it, so in production it has to say: openapi.meta with auth or can.
+     *
+     * @return list<array{string, string, string}>
+     */
+    private function checkOpenApi(bool $production): array
+    {
+        $path = OpenApiRoutes::path($this->config->string('openapi.route'));
+
+        if ($path === null) {
+            return [[self::OK, 'The API description is not served over HTTP.', '']];
+        }
+
+        $docs = OpenApiRoutes::path($this->config->string('openapi.docs'));
+        $where = $path . ($docs !== null ? ' (and its page at ' . $docs . ')' : '');
+
+        if (OpenApiRoutes::isGuarded($this->config->array('openapi.meta'))) {
+            return [[self::OK, \sprintf('The API description at %s requires a login.', $where), '']];
+        }
+
+        return [[
+            $production ? self::FAIL : self::WARN,
+            \sprintf('openapi.route serves the API description at %s to anyone.', $where),
+            'Run `php laika openapi:auth --enable` (or set openapi.meta to ["auth" => true]), or turn it off with '
+            . '`php laika openapi:docs --disable` and use `php laika openapi:export` instead.',
+        ]];
+    }
+
+    /**
+     * Webhooks need a cache that remembers a delivery past its request.
+     * Bootstrap gives them a file store of their own when the application's
+     * cache cannot, so this fails only for a Webhooks wired some other way --
+     * where receive() would refuse every delivery.
      *
      * @return list<array{string, string, string}>
      */

@@ -13,6 +13,25 @@ public, is in [`STABILITY.md`](STABILITY.md).
 
 ### Added
 
+- **OpenAPI descriptions.** Routes with `'openapi' => true` or an array of
+  details (summary, tags, path/query/header parameters, a `Schema` body,
+  responses) are described as an OpenAPI 3.1 document, with the schemas their
+  handlers validate with and the 401/403/429 answers the framework's guards give
+  on their behalf. `php laika openapi:export` prints it, and `openapi.route`
+  serves it as an ordinary, guardable route; `security:check` fails when that
+  route is open in production. Unmarked routes never appear. See
+  [OpenAPI](docs/reference/openapi.md).
+- **An API docs page.** `openapi.docs` (e.g. `/docs`) serves Swagger UI over that
+  description, behind the same `openapi.meta` access rule. Swagger UI 5.33.1
+  (Apache-2.0) is bundled with its `LICENSE` and `NOTICE` and served by the
+  framework itself, so the page works offline and under the default CSP, and
+  calls no third party.
+- **Console switches for the API docs.** `php laika openapi:docs --enable|--disable`
+  turns the page and its description on or off, and `php laika openapi:auth
+  --enable [--can=…]|--disable` decides whether they need a login, without
+  editing config. Written to `system/Runtime/openapi.json` like `down`, per
+  machine, and winning over `config/openapi.php`; `openapi.runtime => false`
+  ignores them.
 - **Template themes.** `templates/<theme>/` and `templates/<area>/<theme>/`, each
   with views and an `assets/` folder, registered in `templates.themes` or by a
   `templates.theme_provider` class (which may read the database) and never
@@ -189,8 +208,10 @@ public, is in [`STABILITY.md`](STABILITY.md).
   store's names and every stored record hold the id's SHA-256.
 - **Two-factor codes and recovery codes are claimed atomically**, so one code
   sent by two requests at once logs in once.
-- **Webhooks refuse to receive on a cache that forgets between requests**
-  (the default `array` store), rather than accepting every replay as new.
+- **Webhook replays are caught with the default cache.** When the cache
+  forgets between requests (the `array` store), delivery ids are remembered
+  in `system/Cache/webhooks/` instead, so a replay is a duplicate rather than
+  new. Before, de-duplication was silently off.
 - **The HTTP MCP endpoint checks `Origin` against `APP_URL`** when it is set,
   which DNS rebinding cannot satisfy; `security:check` fails when the endpoint
   is on with neither `APP_URL` nor `trusted_hosts`.

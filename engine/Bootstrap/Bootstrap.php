@@ -120,6 +120,10 @@ use App\Engine\Module\ModuleRegistry;
 use App\Engine\Observability\Profiler;
 use App\Engine\Observability\Report;
 use App\Engine\Observability\Tracer;
+use App\Engine\OpenApi\OpenApiDocs;
+use App\Engine\OpenApi\OpenApiGenerator;
+use App\Engine\OpenApi\OpenApiRoutes;
+use App\Engine\OpenApi\OpenApiState;
 use App\Engine\Queue\Backoff;
 use App\Engine\Queue\JobRunner;
 use App\Engine\Queue\Queue;
@@ -180,10 +184,10 @@ use App\Engine\System\Systemd\SystemdManager;
 use App\Engine\System\SystemDisabledException;
 use App\Engine\Template\Escaper;
 use App\Engine\Template\PhpTemplateEngine;
+use App\Engine\Template\TemplateException;
 use App\Engine\Template\TemplateHelpers;
 use App\Engine\Template\TemplateManager;
 use App\Engine\Template\TemplateRegistry;
-use App\Engine\Template\TemplateException;
 use App\Engine\Template\TemplateSource;
 use App\Engine\Template\ThemeProvider;
 use App\Engine\Template\ThemeRegistry;
@@ -701,15 +705,40 @@ final class Bootstrap
         $container->instance(RequestLimits::class, $limits);
         $container->instance(Guard::class, $guard);
         $container->instance(SignedUrl::class, $signedUrls);
-        $container->singleton(Webhooks::class, static function (Container $container) use ($settings): Webhooks {
+        $container->singleton(Webhooks::class, static function (Container $container) use ($settings, $basePath): Webhooks {
             /** @var mixed $sources */
             $sources = $settings->get('security.webhooks');
+            $sources = \is_array($sources) ? $sources : [];
+            $webhooks = new Webhooks($sources, $container->get(Cache::class), requireSharedCache: true);
 
-            // Refuses to receive on a cache that forgets between requests: see
-            // Webhooks. A test building one directly decides for itself.
-            return new Webhooks(\is_array($sources) ? $sources : [], $container->get(Cache::class), requireSharedCache: true);
+            if ($webhooks->remembersAcrossRequests()) {
+                return $webhooks;
+            }
+
+            // The application's cache forgets when the request ends (array, the
+            // default, or none), so the delivery ids get a file store of their
+            // own: a payment provider's delivery must never fail on how the
+            // cache happens to be configured, and a replay must still be seen.
+            $ids = new Cache(new FileStore(Path::join($basePath, 'system', 'Cache', 'webhooks'), sealer: self::sealer($settings, 'webhooks')));
+
+            return new Webhooks($sources, $ids, requireSharedCache: true);
         });
         $container->singleton(UrlSigner::class, static fn(Container $container): UrlSigner => new UrlSigner($container->get(Router::class), $signedUrls));
+        $container->singleton(OpenApiGenerator::class, static fn(Container $container): OpenApiGenerator => new OpenApiGenerator(
+            $container->get(Router::class),
+            $settings->string('openapi.title') ?: ($settings->string('app.name') ?: 'API'),
+            $settings->string('openapi.version') ?: '1.0.0',
+            $settings->string('openapi.description') ?? '',
+            $settings->string('app.url') ?: null,
+        ));
+        $container->singleton(OpenApiState::class, static fn(): OpenApiState => new OpenApiState($basePath));
+        $container->singleton(OpenApiDocs::class, static fn(Container $container): OpenApiDocs => new OpenApiDocs(
+            $container->get(Router::class),
+            OpenApiRoutes::path($settings->string('openapi.docs')) ?? '/docs',
+            OpenApiRoutes::path($settings->string('openapi.route')) ?? '/openapi.json',
+            ($settings->string('openapi.title') ?: ($settings->string('app.name') ?: 'API')) . ' - API reference',
+            OpenApiRoutes::isGuarded($settings->array('openapi.meta')),
+        ));
 
         $headers = self::securityHeaders($settings);
         $container->instance(SecurityHeaders::class, $headers);
@@ -1076,6 +1105,16 @@ final class Bootstrap
 
         $items = ($cached ? ConfigCache::read(ConfigCache::file($basePath)) : null)
             ?? self::merge(self::defaults(), (new ConfigLoader(Path::join($basePath, ConfigLoader::DIRECTORY)))->load());
+
+        // What `openapi:docs` and `openapi:auth` switched on this machine, over
+        // the files and under the caller's overrides. Not while building the
+        // cache ($cached false): a cache holds files, and a switch flipped on
+        // one machine must not travel to another inside it. See OpenApiState.
+        $runtime = $overrides['openapi']['runtime'] ?? $items['openapi']['runtime'] ?? true;
+
+        if ($cached && $runtime !== false) {
+            $items = OpenApiState::overlay($items, OpenApiState::at($basePath));
+        }
 
         return self::merge($items, $overrides);
     }
@@ -2412,6 +2451,26 @@ final class Bootstrap
                 'allow_guests' => false,
                 // The mcp log channel: see Logging\McpLog.
                 'log' => ['enabled' => true],
+            ],
+            'openapi' => [
+                // See OpenApi\OpenApiGenerator. Only routes with the openapi
+                // meta are described; `php laika openapi:export` prints it.
+                // null means app.name when the application sets one, else "API".
+                'title' => null,
+                'version' => '1.0.0',
+                'description' => '',
+                // A path such as '/openapi.json' serves the description over
+                // HTTP too. Off by default: it lists the API, so decide who
+                // may read it, with route meta such as ['auth' => true].
+                'route' => null,
+                // A path such as '/docs' adds Swagger UI over that description
+                // (needs route). Same meta, so the page and the file it reads
+                // share one access rule.
+                'docs' => null,
+                'meta' => [],
+                // Read system/Runtime/openapi.json, which `php laika openapi:docs`
+                // and `openapi:auth` write. false leaves config as the only source.
+                'runtime' => true,
             ],
             'logging' => [
                 // Nothing by default. A framework that starts writing files to

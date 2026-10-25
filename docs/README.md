@@ -48,7 +48,7 @@ a guide links to it, or when you need the details.
 | Area | Pages |
 |---|---|
 | Structure | [Modules](reference/modules.md) · [Hooks and filters](reference/hooks-and-filters.md) · [Project layout](reference/project-layout.md) |
-| HTTP | [Routing](reference/routing.md) · [REST](reference/rest.md) · [Errors](reference/errors.md) · [HTTP client](reference/http-client.md) |
+| HTTP | [Routing](reference/routing.md) · [REST](reference/rest.md) · [OpenAPI](reference/openapi.md) · [Errors](reference/errors.md) · [HTTP client](reference/http-client.md) |
 | Output | [Templates](reference/templates.md) · [Assets](reference/assets.md) · [Localization](reference/localization.md) |
 | Data | [Models](reference/models.md) · [Schemas](reference/schemas.md) · [Repositories and queries](reference/data.md) · [The database](reference/database.md) · [Storage](reference/storage.md) |
 | Runtime | [Configuration](reference/configuration.md) · [Default settings](reference/defaults.md) · [Cache](reference/cache.md) · [Feature flags](reference/features.md) · [Logging](reference/logging.md) · [CLI](reference/console.md) |

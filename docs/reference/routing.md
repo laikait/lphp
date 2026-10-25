@@ -20,7 +20,7 @@ $module->routes(static function (RouteCollector $routes): void {
 | `group($prefix, $routes, $name, $meta)` | a prefix, a name prefix and shared meta |
 | `->name(…)` | the name `url()` uses. Names must be unique |
 | `->where($param, $regex)` · `->whereMany([...])` | what a parameter may contain |
-| `->meta([...])` | `auth`, `can`, `csrf`, `rate_limit`, `signed`, `theme`, and anything of your own |
+| `->meta([...])` | `auth`, `can`, `csrf`, `rate_limit`, `signed`, `theme`, [`openapi`](openapi.md), and anything of your own |
 
 `php laika route:list` prints every route, its module and its access.
 

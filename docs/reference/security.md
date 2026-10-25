@@ -235,8 +235,9 @@ again.
   than `tolerance` seconds old or early (default 300) is a 400. Every id is also
   remembered for `remember` seconds (default a day) through the cache's atomic
   `add()`, and a second delivery of it comes back with `duplicate` true. Answer
-  it 200 and do nothing. That needs a cache every process shares, `file` or
-  `database`: the default `array` store forgets everything when the request ends.
+  it 200 and do nothing. That needs a store every process shares: the `file` or
+  `database` cache, or, with the default `array` cache (which forgets when the
+  request ends), a file store of its own in `system/Cache/webhooks/`.
 - **If queuing fails after `receive()`**, call `$webhooks->release($event)` and
   answer 500. The sender's retry is then processed instead of being treated as
   a duplicate.
@@ -455,7 +456,7 @@ other project on that hostname.
 | "field is required" for a field you filled in | The upload exceeded `post_max_size` | Raise `post_max_size` and `upload_max_filesize` |
 | 429 while developing | Rate-limit counters are files that outlive the process | Delete `system/Security` |
 | A webhook is refused with 400 | The wrong secret, a body changed by a proxy, or a clock more than five minutes out | Check the secret and the clock |
-| Every webhook comes back as a duplicate, or none ever does | Ids are remembered in the cache; the `array` store remembers nothing between requests | Use the `file` or `database` cache store |
+| Every webhook comes back as a duplicate, or none ever does | Ids are remembered for `remember` seconds, in the cache or, with the `array` cache, in `system/Cache/webhooks/` | Check that directory is writable, and that the sender sends a fresh id per event |
 | `security:check` exits 1 | Debug is on in production, or counters are in memory | It names the failure |
 | An upload is refused with several messages | `check()` returns every problem at once | Fix them together |
 
