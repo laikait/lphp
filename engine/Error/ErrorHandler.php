@@ -83,12 +83,19 @@ final class ErrorHandler
      *                         stray echo, half a page -- comes out in front of
      *                         it. A test passes ob_get_level(), so the test
      *                         runner's own buffer survives.
+     * @param ?\Closure(): bool $headersSent whether the response has already
+     *                         begun; null asks headers_sent(). A test answers
+     *                         for itself, because in the CLI headers_sent() is
+     *                         true as soon as anything -- PHPUnit's progress
+     *                         dots -- reached stdout, which made the browser
+     *                         path depend on what ran before the test.
      */
     public function __construct(
         private Config $config,
         private HookEngine $hooks = new HookEngine(),
         private ErrorPage $page = new ErrorPage(),
         private readonly int $outputFloor = 0,
+        private readonly ?\Closure $headersSent = null,
     ) {}
 
     /**
@@ -409,7 +416,7 @@ final class ErrorHandler
      */
     public function renderForBrowser(\Throwable $e): void
     {
-        if (\headers_sent()) {
+        if ($this->headersSent()) {
             $this->report($e, ErrorContext::Browser);
 
             return;
@@ -424,6 +431,12 @@ final class ErrorHandler
         }
     }
 
+    /** See the constructor: headers_sent(), unless a test answers for it. */
+    private function headersSent(): bool
+    {
+        return $this->headersSent !== null ? ($this->headersSent)() : \headers_sent();
+    }
+
     /**
      * Throw away buffered output down to the floor, unless it already went out.
      *
@@ -432,7 +445,7 @@ final class ErrorHandler
      */
     private function discardOutput(): void
     {
-        if (\headers_sent()) {
+        if ($this->headersSent()) {
             return;
         }
 
@@ -454,7 +467,7 @@ final class ErrorHandler
         // Whatever the failed page managed to write goes too.
         $this->discardOutput();
 
-        if (!\headers_sent()) {
+        if (!$this->headersSent()) {
             \http_response_code(500);
             \header('Content-Type: text/html; charset=UTF-8');
         }

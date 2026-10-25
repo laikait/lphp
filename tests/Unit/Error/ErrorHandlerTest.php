@@ -397,6 +397,10 @@ final class ErrorHandlerTest extends TestCase
             new Config(['app' => ['debug' => $debug]]),
             $hooks ?? $this->hooks,
             outputFloor: \ob_get_level(),
+            // As in a web request, where nothing has gone out yet. The real
+            // headers_sent() is true here once PHPUnit has printed anything,
+            // which made these tests pass or fail by what ran before them.
+            headersSent: static fn(): bool => false,
         );
 
         \ob_start();
