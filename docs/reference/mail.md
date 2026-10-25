@@ -43,6 +43,13 @@ of its own — the classic mail header injection.
 
 Bcc recipients receive the message but are never written into it.
 
+**An email never uses a [theme](templates.md#themes).** `view('emails/…')`
+always renders from `templates/emails/` (or a module's templates), even when the
+page sending it has a theme active. A queued message is rendered by a worker,
+which has no request and so no theme; if the sending page's theme applied, the
+same email would look different on the `sync` queue than on a real one. The
+page's theme is given back as soon as the email is rendered.
+
 ## Sending later
 
 ```php

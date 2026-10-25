@@ -80,6 +80,12 @@ final class HttpTransport
         private readonly \Closure $tokens,
         private readonly bool $allowGuests = false,
         private readonly ?\Closure $diagnose = null,
+        /**
+         * The application's own origin, from APP_URL: what Origin is compared
+         * with when it is known. Null falls back to the request's own scheme,
+         * Host and port. See sameOrigin().
+         */
+        private readonly ?string $publicOrigin = null,
     ) {}
 
     public function handles(string $path): bool
@@ -89,7 +95,7 @@ final class HttpTransport
 
     public function handle(Request $request): Response
     {
-        if (!self::sameOrigin($request)) {
+        if (!$this->sameOrigin($request)) {
             return self::refuse(403, 'Forbidden: the Origin is not this server.');
         }
 
@@ -169,13 +175,21 @@ final class HttpTransport
     }
 
     /**
-     * No Origin (a non-browser client) or one naming this host and port.
+     * No Origin (a non-browser client) or one naming this application.
      *
      * A browser always sends Origin on a cross-site POST. Without this check a
      * page on the internet could reach an MCP server on localhost by rebinding
      * its own DNS name to 127.0.0.1.
+     *
+     * **What it is compared with matters.** Against the request's own Host
+     * header the check proves nothing under rebinding: the attacker's page is
+     * served from evil.example, the browser sends Origin evil.example *and*
+     * Host evil.example, and the two agree. With APP_URL set the comparison is
+     * with the application's real origin, which the attacker cannot make the
+     * browser send. Without it, security.trusted_hosts is what refuses the
+     * attacker's Host -- security:check says so.
      */
-    private static function sameOrigin(Request $request): bool
+    private function sameOrigin(Request $request): bool
     {
         $origin = $request->header('Origin');
 
@@ -183,18 +197,35 @@ final class HttpTransport
             return true;
         }
 
-        $parts = \parse_url($origin);
+        $sent = self::originOf($origin);
 
-        if (!\is_array($parts) || !isset($parts['scheme'], $parts['host'])) {
+        if ($sent === null) {
             return false;
         }
 
-        $scheme = \strtolower($parts['scheme']);
-        $port = $parts['port'] ?? ($scheme === 'https' ? 443 : 80);
+        $expected = $this->publicOrigin !== null
+            ? self::originOf($this->publicOrigin)
+            : [$request->scheme(), \strtolower(\trim($request->host(), '[]')), $request->port()];
 
-        return $scheme === $request->scheme()
-            && \strcasecmp($parts['host'], $request->host()) === 0
-            && $port === $request->port();
+        return $expected !== null && $sent === $expected;
+    }
+
+    /**
+     * An origin as [scheme, lower-cased host, port], with the default port filled in.
+     *
+     * @return array{string, string, int}|null
+     */
+    public static function originOf(string $url): ?array
+    {
+        $parts = \parse_url($url);
+
+        if (!\is_array($parts) || !isset($parts['scheme'], $parts['host'])) {
+            return null;
+        }
+
+        $scheme = \strtolower($parts['scheme']);
+
+        return [$scheme, \strtolower(\trim($parts['host'], '[]')), $parts['port'] ?? ($scheme === 'https' ? 443 : 80)];
     }
 
     private static function acceptsJson(Request $request): bool

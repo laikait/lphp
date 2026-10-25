@@ -100,14 +100,22 @@ final class AssetServer
     /**
      * Parse /assets/<kind>[/<name>]/<path> and resolve it.
      *
-     * The one ambiguity in the scheme is the template kind, because the
-     * specification gives both /assets/template/css/app.css (the active
-     * template) and /assets/template/admin/css/admin.css (a named one), and
-     * nothing in the URL says which. It is resolved by asking the registry: a
-     * second segment that names a registered template means the named form.
-     * The consequence, which is worth knowing, is that registering a template
-     * called "css" would shadow templates/assets/css/. That is a strange thing
-     * to call a template and a loud thing to debug.
+     * The one ambiguity in the scheme is the template kind, because three
+     * shapes share it, and nothing in the URL says which:
+     *
+     *     /assets/template/css/app.css             templates/assets/
+     *     /assets/template/dark/css/app.css        templates/dark/assets/
+     *     /assets/template/admin/dark/css/app.css  templates/admin/dark/assets/
+     *
+     * It is resolved by asking the registry, longest name first: two leading
+     * segments that name a registered theme win over one, and one wins over
+     * none. Registering both "admin" and "admin/dark" therefore makes
+     * templates/admin/assets/dark/ unreachable, and registering a theme
+     * called "css" would shadow templates/assets/css/. Both are strange
+     * things to name a theme and loud things to debug.
+     *
+     * There is no fallback between them. A file missing from a theme is a
+     * 404, not a quiet copy from templates/assets/.
      *
      * @throws AssetException
      */
@@ -119,7 +127,7 @@ final class AssetServer
         $kind = AssetKind::tryFrom($segments[0] ?? '');
 
         if ($kind === null) {
-            throw AssetException::unacceptablePath($path, 'it does not name one of the four asset namespaces');
+            throw AssetException::unacceptablePath($path, 'it does not name one of the three asset namespaces');
         }
 
         \array_shift($segments);
@@ -132,10 +140,8 @@ final class AssetServer
             if ($name === null) {
                 throw AssetException::unacceptablePath($path, 'it names no ' . $kind->value);
             }
-        } elseif ($kind === AssetKind::Template
-            && \count($segments) > 1
-            && $this->registry->has($kind, $segments[0])) {
-            $name = \array_shift($segments);
+        } elseif ($kind === AssetKind::Template) {
+            $name = $this->themeIn($segments);
         }
 
         if ($segments === []) {
@@ -143,6 +149,31 @@ final class AssetServer
         }
 
         return $this->resolver->resolve($this->registry->source($kind, $name), \implode('/', $segments));
+    }
+
+    /**
+     * Take the theme off the front of a template path, if one is named there.
+     *
+     * At least one segment is always left for the file, so "dark/app.css" with
+     * a theme called "dark" is that theme's app.css rather than a theme called
+     * "dark/app.css".
+     *
+     * @param list<string> $segments shortened in place by the segments used
+     */
+    private function themeIn(array &$segments): ?string
+    {
+        if (\count($segments) > 2 && $this->registry->has(AssetKind::Template, $segments[0] . '/' . $segments[1])) {
+            $name = $segments[0] . '/' . $segments[1];
+            $segments = \array_slice($segments, 2);
+
+            return $name;
+        }
+
+        if (\count($segments) > 1 && $this->registry->has(AssetKind::Template, $segments[0])) {
+            return \array_shift($segments);
+        }
+
+        return null;
     }
 
     // ---- delivery ---------------------------------------------------------

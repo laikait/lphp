@@ -22,9 +22,8 @@ use MaxMind\Db\Reader;
  * MaxMind knows where an address is, not what its user reads: which language
  * a country gets is still lang/countries.php.
  *
- * Needs maxmind-db/reader (composer require maxmind-db/reader), which is
- * optional: nothing loads this class unless localization.maxmind_database is
- * set.
+ * Uses maxmind-db/reader, a regular dependency; still, nothing loads this
+ * class unless localization.maxmind_database is set.
  */
 final class MaxMindCountryResolver implements CountryResolver
 {

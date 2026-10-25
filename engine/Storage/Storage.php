@@ -28,6 +28,19 @@ final class Storage
     /** The named route a local disk's temporary URL points at; the Shared module declares it. */
     public const ROUTE = 'storage.file';
 
+    /**
+     * What a stored file may be shown as rather than downloaded.
+     *
+     * Never HTML, SVG, XML or JavaScript: opened in a browser they run script,
+     * on whichever origin serves them -- this application's for a signed link
+     * through FileDownload, the bucket's for an S3 URL. Anything else is
+     * served as application/octet-stream and downloads.
+     */
+    public const INLINE_TYPES = [
+        'image/png', 'image/jpeg', 'image/gif', 'image/webp',
+        'application/pdf', 'text/plain', 'audio/mpeg', 'video/mp4',
+    ];
+
     /** @var array<string, Disk> */
     private array $built = [];
 

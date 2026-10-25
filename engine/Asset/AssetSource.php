@@ -15,8 +15,12 @@ use App\Engine\Support\Path;
  *
  *     core                 ->  <base>/assets
  *     template             ->  <base>/templates/assets
- *     template + "admin"   ->  <base>/templates/admin/assets
- *     module  + "Billing"  ->  <base>/modules/Billing/assets
+ *     template + "dark"        ->  <base>/templates/dark/assets
+ *     template + "admin/dark"  ->  <base>/templates/admin/dark/assets
+ *     module  + "Billing"      ->  <base>/modules/Billing/assets
+ *
+ * A template name may have two segments, an area and a theme; nothing else
+ * may. ThemeRegistry is what publishes named templates.
  *
  * The root is stored normalised but NOT resolved: a source may legitimately be
  * registered for a directory that does not exist yet (a template that ships no
@@ -27,6 +31,9 @@ final class AssetSource
 {
     /** Names appear in URLs and in paths, so they are checked, not trusted. */
     private const NAME_PATTERN = '/^[A-Za-z0-9][A-Za-z0-9_-]*$/';
+
+    /** A template's "theme" or "area/theme": one slash at most, never at an end. */
+    private const TEMPLATE_NAME_PATTERN = '#^[A-Za-z0-9][A-Za-z0-9_-]*(/[A-Za-z0-9][A-Za-z0-9_-]*)?$#';
 
     public readonly string $root;
 
@@ -40,7 +47,9 @@ final class AssetSource
                 throw AssetException::sourceCannotBeNamed($kind);
             }
 
-            if (\preg_match(self::NAME_PATTERN, $name) !== 1) {
+            $pattern = $kind === AssetKind::Template ? self::TEMPLATE_NAME_PATTERN : self::NAME_PATTERN;
+
+            if (\preg_match($pattern, $name) !== 1) {
                 throw AssetException::invalidSourceName($name);
             }
         } elseif ($kind->requiresName()) {

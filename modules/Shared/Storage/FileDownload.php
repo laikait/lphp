@@ -22,8 +22,8 @@ use App\Engine\Storage\StorageException;
  */
 final class FileDownload
 {
-    /** What a browser may display rather than download. Never HTML or SVG: they run script. */
-    private const INLINE = ['image/png', 'image/jpeg', 'image/gif', 'image/webp', 'application/pdf', 'text/plain', 'audio/mpeg', 'video/mp4'];
+    /** What a browser may display rather than download; see Storage::INLINE_TYPES. */
+    private const INLINE = Storage::INLINE_TYPES;
 
     public function __invoke(Request $request, Storage $storage, string $disk): StreamResponse
     {

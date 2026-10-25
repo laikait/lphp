@@ -51,6 +51,30 @@ If routes give 404s, check that rewriting is on and overrides are allowed:
 grep -E 'rewrite_module|AllowOverride' /path/to/httpd.conf
 ```
 
+### Three settings only the server configuration can make
+
+The application cannot change these, not even from `.htaccess`, and each one
+is a gift to whoever is scanning:
+
+```apache
+ServerTokens Prod     # "Server: Apache", not the exact Apache, OpenSSL and PHP versions
+ServerSignature Off   # no version footer on Apache's own error pages
+TraceEnable Off       # TRACE echoes the request back, cookies and Authorization included
+```
+
+XAMPP ships `ServerTokens Full` and `ServerSignature On` in
+`apache/conf/extra/httpd-default.conf`, and `TraceEnable` is on unless it is
+turned off; Apache answers TRACE itself, before any `.htaccess` is read. Check:
+
+```bash
+curl -sI http://<host>/ | grep -i '^server:'                      # Apache, nothing more
+curl -s -o /dev/null -w '%{http_code}\n' -X TRACE http://<host>/   # 405
+```
+
+`public/.htaccess` adds `X-Content-Type-Options: nosniff` to the files Apache
+serves directly (they never reach PHP, so they would otherwise go without it);
+that needs `mod_headers`, which is on in almost every build.
+
 ### When you cannot change the document root
 
 On XAMPP (`http://localhost/framework/`) or on shared hosting, the web server
@@ -84,8 +108,11 @@ The file is written to the application folder, outside `public/`, and an
 existing one is never replaced without `--force`, because you may have edited it.
 
 The generated block serves `public/`, refuses dotfiles, runs no PHP file except
-`index.php`, and serves `/assets/core/` straight from disk. `nginx -t` only
-checks the syntax, so run the checks below as well.
+`index.php`, and serves `/assets/core/` straight from disk, with dotfiles
+refused and `nosniff` added there too. nginx answers TRACE with 405 by itself.
+Add `server_tokens off;` to the `http` block, so `Server:` does not carry the
+nginx version. `nginx -t` only checks the syntax, so run the checks below as
+well.
 
 ## Check it, after every deployment
 

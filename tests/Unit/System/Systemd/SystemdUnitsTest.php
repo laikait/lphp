@@ -75,6 +75,23 @@ final class SystemdUnitsTest extends TestCase
         self::assertStringContainsString('ExecStart="/opt/php 8/bin/php" "/srv/my shop 100%%/laika" queue:work --queue=%i', $worker->contents);
     }
 
+    /**
+     * A line break inside a quoted value still ends the setting, and what
+     * follows is the next directive: ExecStartPre=/bin/sh in a unit that runs
+     * as a service. Quoting cannot fix that, so it is refused.
+     */
+    public function test_a_line_break_in_a_path_is_refused_not_quoted(): void
+    {
+        foreach ([["/srv/shop\nExecStartPre=/bin/sh", '/usr/bin/php'], ['/srv/shop', "/opt/php\rExecStartPre=/bin/sh"]] as [$base, $php]) {
+            try {
+                $this->units(base: $base, php: $php)->files();
+                self::fail('a line break reached a unit file');
+            } catch (SystemdException $e) {
+                self::assertStringContainsString('line break', $e->getMessage());
+            }
+        }
+    }
+
     public function test_unit_names(): void
     {
         $units = $this->units();

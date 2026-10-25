@@ -33,6 +33,14 @@ or `.` segment, `a//b`, a backslash or a control character is refused with a
 `StorageException` on every disk, so a path that works on one works on all
 of them, and none reaches outside its disk.
 
+**The local disk also refuses what Windows reads as something else**, on every
+operating system, so a path that works on a laptop cannot misbehave on a
+Windows server: a `:` anywhere (`report.txt:hidden` is a hidden data stream), a
+segment ending in `.` or a space (`report.php.` is `report.php`), and the
+device names `CON`, `PRN`, `AUX`, `NUL`, `COM1`–`COM9` and `LPT1`–`LPT9`, with
+or without an extension. S3 and memory keys are not files and keep the shorter
+rule, where `:` is an ordinary character.
+
 **Directories are not things.** A path implies them: `put()` creates what it
 needs, and `files('a')` lists `a/b.txt` but never `ab.txt`. That is what object
 storage offers, and a local disk behaves the same.
@@ -107,6 +115,12 @@ Spaces, Backblaze B2, MinIO, Wasabi.
   so the bucket is not left holding parts.
 - **`temporaryUrl()`** is a presigned GET, good for at most seven days (S3's
   own limit).
+- **An object is stored with its real type only when that type cannot run
+  script** (`Storage::INLINE_TYPES`: images, PDF, plain text, MP3, MP4), and as
+  `application/octet-stream` otherwise. The bucket serves an object with the
+  type it was stored under to anyone holding its URL, so an uploaded `.html`
+  or `.svg` stored as itself would be a page running script on the bucket's
+  origin; as `octet-stream` it downloads.
 - **`delete()` costs a HEAD first**, because S3 answers the same to deleting a
   file and to deleting nothing.
 - **`readStream()` buffers** the object (in memory up to 2 MB, a temporary file

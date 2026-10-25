@@ -75,14 +75,22 @@ final class AssetManager
      * because the one-argument form is overwhelmingly the common case: a view
      * belonging to the active template should not have to know its own name.
      *
-     *     template('css/app.css')             the active template
-     *     template('admin', 'css/admin.css')  the "admin" template
+     *     template('css/app.css')                  templates/assets/
+     *     template('admin/dark', 'css/admin.css')  the "admin/dark" theme
+     *
+     * A theme name is trimmed of slashes at either end, as ThemeRegistry
+     * trims it, so '/admin/dark/' is the same theme; '/' alone is
+     * templates/assets/.
      */
     public function template(string $nameOrPath, ?string $path = null): string
     {
-        return $path === null
-            ? $this->url(AssetKind::Template, null, $nameOrPath)
-            : $this->url(AssetKind::Template, $nameOrPath, $path);
+        if ($path === null) {
+            return $this->url(AssetKind::Template, null, $nameOrPath);
+        }
+
+        $name = \trim($nameOrPath, '/');
+
+        return $this->url(AssetKind::Template, $name === '' ? null : $name, $path);
     }
 
     /** A file in a module's assets/ directory: module('Billing', 'js/billing.js'). */
@@ -150,9 +158,13 @@ final class AssetManager
      * cannot happen. The same flag that makes a missing asset loud turns this
      * off, because both are the same question -- is somebody editing this?
      *
-     * In production the file only changes when a deployment changes it, and a
-     * deployment runs cache:clear. That is the same bargain the module and
-     * configuration caches make.
+     * The key carries the file's size and modification time, so a deployment
+     * that forgets cache:clear still gets a fresh token for every file it
+     * changed. Both are one stat, memoised on the reference, against a hash
+     * that reads the whole file; and the token itself is still the hash, so a
+     * copy that keeps its timestamp is only ever missed here when its size is
+     * unchanged too. Without them a stale token would outlive the file, and
+     * delivery marks every ?v= URL immutable for a year.
      */
     private function versionToken(AssetSource $source, AssetReference $reference): ?string
     {
@@ -160,7 +172,13 @@ final class AssetManager
             return $this->versioning->tokenFor($reference);
         }
 
-        $key = \hash('xxh128', $this->versioning->value . '|' . $source->key() . '|' . $reference->path);
+        $key = \hash('xxh128', \implode('|', [
+            $this->versioning->value,
+            $source->key(),
+            $reference->path,
+            $reference->size(),
+            $reference->modifiedAt(),
+        ]));
 
         /** @var mixed $token */
         $token = $this->cache->remember($key, fn(): ?string => $this->versioning->tokenFor($reference));

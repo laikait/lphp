@@ -8,6 +8,8 @@ use App\Engine\Core\Application;
 use App\Engine\Core\Maintenance;
 use App\Engine\Http\Request;
 use App\Engine\Http\Response;
+use App\Engine\Security\Counters\MemoryStore;
+use App\Engine\Security\RateLimiter;
 use App\Tests\Support\TestCase;
 
 /**
@@ -100,9 +102,9 @@ final class MaintenanceTest extends TestCase
 
     public function test_the_bypass_link_sets_a_cookie_that_lets_one_browser_in(): void
     {
-        $this->maintenance->down(secret: 'preview-2026');
+        $this->maintenance->down(secret: 'preview-2026-long-enough');
 
-        $redirect = $this->get('/?lphp_bypass=preview-2026&page=2');
+        $redirect = $this->get('/?lphp_bypass=preview-2026-long-enough&page=2');
         self::assertSame(302, $redirect->status());
         self::assertSame('/?page=2', $redirect->header('Location'), 'the secret is dropped from the URL');
 
@@ -110,7 +112,7 @@ final class MaintenanceTest extends TestCase
         self::assertNotNull($cookie);
         self::assertSame(Maintenance::BYPASS_COOKIE, $cookie->name);
         self::assertTrue($cookie->httpOnly);
-        self::assertStringNotContainsString('preview-2026', $cookie->value);
+        self::assertStringNotContainsString('preview-2026-long-enough', $cookie->value);
 
         self::assertSame(200, $this->get('/', ['cookies' => [Maintenance::BYPASS_COOKIE => $cookie->value]])->status());
         self::assertSame(503, $this->get('/', ['cookies' => [Maintenance::BYPASS_COOKIE => 'forged']])->status());
@@ -120,15 +122,59 @@ final class MaintenanceTest extends TestCase
     /** A cookie from one maintenance window does not open the next. */
     public function test_a_bypass_cookie_ends_with_its_window(): void
     {
-        $this->maintenance->down(secret: 'preview');
-        $cookie = $this->get('/?lphp_bypass=preview')->cookies()[0]->value;
+        $this->maintenance->down(secret: 'preview-window-secret');
+        $cookie = $this->get('/?lphp_bypass=preview-window-secret')->cookies()[0]->value;
         $this->maintenance->up();
 
         // A new window, a second later: the same secret, a different start.
         \sleep(1);
-        $this->maintenance->down(secret: 'preview');
+        $this->maintenance->down(secret: 'preview-window-secret');
 
         self::assertSame(503, $this->get('/', ['cookies' => [Maintenance::BYPASS_COOKIE => $cookie]])->status());
+    }
+
+    /** The secret is a password the whole internet can try against the 503 page. */
+    public function test_a_short_bypass_secret_is_refused(): void
+    {
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessage('at least 16 characters');
+
+        $this->maintenance->down(secret: 'preview');
+    }
+
+    /**
+     * Maintenance answers before routing, so no route limit applies to the
+     * bypass parameter. Ten wrong guesses, and then even the right secret is
+     * a 503 -- the page never confirms a guess.
+     */
+    public function test_guessing_the_bypass_secret_is_limited_per_address(): void
+    {
+        $maintenance = new Maintenance($this->directory, new RateLimiter(new MemoryStore()));
+        $this->app->container()->instance(Maintenance::class, $maintenance);
+        $maintenance->down(secret: 'preview-2026-long-enough');
+
+        for ($i = 0; $i < 10; ++$i) {
+            self::assertSame(503, $this->get('/?lphp_bypass=guess-' . $i)->status());
+        }
+
+        self::assertSame(503, $this->get('/?lphp_bypass=preview-2026-long-enough')->status(), 'the right one, after ten wrong');
+        self::assertSame(302, $this->get('/?lphp_bypass=preview-2026-long-enough', ['server' => ['REMOTE_ADDR' => '198.51.100.4']])->status(), 'another address');
+    }
+
+    /**
+     * "/\evil.example" and "//evil.example" are links to another host to a
+     * browser. A bypass link on such a path redirected there; it now
+     * redirects to the path on this site.
+     */
+    public function test_the_bypass_redirect_never_leaves_the_site(): void
+    {
+        $this->maintenance->down(secret: 'preview-2026-long-enough');
+
+        foreach (['/%5Cevil.example', '/%5C%5Cevil.example', '//evil.example', '/%2F%2Fevil.example'] as $path) {
+            $location = (string) $this->get($path . '?lphp_bypass=preview-2026-long-enough')->header('Location');
+
+            self::assertMatchesRegularExpression('#^/[^/\\\\]#', $location, $path . ' redirected to ' . $location);
+        }
     }
 
     public function test_up_brings_it_back(): void

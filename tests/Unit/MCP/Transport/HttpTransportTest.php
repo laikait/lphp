@@ -263,6 +263,32 @@ final class HttpTransportTest extends TestCase
         self::assertSame($status, $response->status());
     }
 
+    /**
+     * DNS rebinding: the attacker's page at evil.example, its name re-pointed
+     * at this machine. The browser sends Origin evil.example and Host
+     * evil.example, and they agree -- so against the Host header the check
+     * passes. Against APP_URL's origin it cannot.
+     */
+    public function test_a_rebound_host_is_refused_when_the_public_origin_is_known(): void
+    {
+        $rebound = ['Origin' => 'http://evil.example', 'Host' => 'evil.example'];
+        $ping = '{"jsonrpc":"2.0","id":1,"method":"ping"}';
+
+        self::assertSame(200, $this->post($ping, $rebound)->status(), 'against Host alone, rebinding gets through');
+
+        $known = new HttpTransport(
+            true,
+            '/mcp',
+            static fn(): McpServer => Servers::make(),
+            static fn(): TokenAuthenticator => new TokenAuthenticator((new FakeProvider())->add('7', 'ada', roles: ['agent'])->addToken('7', self::TOKEN)),
+            publicOrigin: 'https://app.example',
+        );
+
+        self::assertSame(403, $this->post($ping, $rebound, transport: $known)->status());
+        self::assertSame(200, $this->post($ping, ['Origin' => 'https://app.example', 'Host' => 'app.example'], transport: $known)->status());
+        self::assertSame(200, $this->post($ping, ['Origin' => 'https://APP.example:443'], transport: $known)->status());
+    }
+
     // ---- the envelope -------------------------------------------------------
 
     /** @return iterable<string, array{string}> */

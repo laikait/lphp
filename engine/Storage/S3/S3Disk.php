@@ -9,6 +9,7 @@ use App\Engine\Http\Client\ClientResponse;
 use App\Engine\Storage\Contents;
 use App\Engine\Storage\Disk;
 use App\Engine\Storage\MemoryDisk;
+use App\Engine\Storage\Storage;
 use App\Engine\Storage\StorageException;
 use App\Engine\Storage\StoragePath;
 
@@ -366,12 +367,21 @@ final class S3Disk implements Disk
         return $buffer;
     }
 
+    /**
+     * The Content-Type an object is stored with, and so served with.
+     *
+     * Only a type on Storage::INLINE_TYPES is kept. The bucket serves an
+     * object with whatever type it was stored under, to anyone holding a
+     * presigned or public URL, so an uploaded .html stored as text/html was
+     * a page running script on the bucket's origin. Everything else is
+     * stored as application/octet-stream, which browsers download.
+     */
     private static function mediaType(string $body): string
     {
         if ($body !== '' && \class_exists(\finfo::class)) {
             $type = (new \finfo(\FILEINFO_MIME_TYPE))->buffer($body);
 
-            if (\is_string($type) && $type !== '') {
+            if (\is_string($type) && \in_array($type, Storage::INLINE_TYPES, true)) {
                 return $type;
             }
         }

@@ -20,6 +20,7 @@ use App\Engine\Security\RateLimiter;
 use App\Engine\Security\RequestLimits;
 use App\Engine\Security\SecurityHeaders;
 use App\Engine\Security\Signer;
+use App\Engine\Security\Webhooks;
 use App\Engine\Session\SessionManager;
 use App\Engine\Session\Stores\ArrayStore as SessionArrayStore;
 use App\Engine\Support\Path;
@@ -69,6 +70,7 @@ final class SecurityCheckCommand
         private readonly SessionManager $sessions,
         private readonly AuthManager $auth,
         private readonly Maintenance $maintenance,
+        private readonly Webhooks $webhooks,
     ) {}
 
     public function __invoke(Output $output, bool $verbose = false): int
@@ -78,7 +80,7 @@ final class SecurityCheckCommand
         $findings = [
             ...$this->checkMaintenance(),
             ...$this->checkDebug($production),
-            ...$this->checkKey(),
+            ...$this->checkKey($production),
             ...$this->checkCsrf(),
             ...$this->checkLimits(),
             ...$this->checkProxies(),
@@ -87,6 +89,8 @@ final class SecurityCheckCommand
             ...$this->checkHeaders($production),
             ...$this->checkMail($production),
             ...$this->checkCommands($production),
+            ...$this->checkMcp(),
+            ...$this->checkWebhooks(),
             ...$this->checkWebServer(),
             ...$this->checkExtensions(),
         ];
@@ -182,15 +186,27 @@ final class SecurityCheckCommand
         ]];
     }
 
-    /** @return list<array{string, string, string}> */
-    private function checkKey(): array
+    /**
+     * A failure in production, a warning anywhere else.
+     *
+     * Without a key nothing breaks, which is exactly the problem: three
+     * protections quietly stop protecting. CSRF falls back to plain
+     * double-submit, so a sibling subdomain that can set a cookie can forge a
+     * request; cached values and queued jobs are no longer sealed, so whoever
+     * can write the cache or queue store gets their bytes unserialize()d; and
+     * Encrypter refuses to run. None of that is visible until it is used.
+     *
+     * @return list<array{string, string, string}>
+     */
+    private function checkKey(bool $production): array
     {
         if (!$this->signer->isConfigured()) {
             return [[
-                self::WARN,
-                'No APP_KEY, so CSRF tokens are not signed and nothing can be encrypted.',
-                'Tokens still work. What is lost is protection against a sibling subdomain planting a '
-                . 'matching cookie and field, and Encrypter refuses to run. Generate one: php laika security:key',
+                $production ? self::FAIL : self::WARN,
+                'No APP_KEY: CSRF tokens are not signed, cache and queue entries are not sealed, nothing can be encrypted.',
+                'Everything keeps working, which is why this is easy to miss. A sibling subdomain can plant a '
+                . 'matching CSRF cookie and field; anybody able to write the cache or queue store gets what they '
+                . 'wrote unserialized; Encrypter refuses to run. Generate one: php laika security:key',
             ]];
         }
 
@@ -289,6 +305,64 @@ final class SecurityCheckCommand
             : [self::OK, 'Only these hosts are served: ' . \implode(', ', $this->limits->trustedHosts()) . '.', ''];
 
         return $findings;
+    }
+
+    /**
+     * The HTTP MCP endpoint against DNS rebinding.
+     *
+     * Its Origin check is only as good as what it compares with. With APP_URL
+     * that is the application's real origin; without it, the request's own
+     * Host -- which a rebinding attacker chooses, and makes agree with Origin.
+     * trusted_hosts refuses that Host before the endpoint is reached. With
+     * neither, a web page can talk to an MCP server on this machine.
+     *
+     * @return list<array{string, string, string}>
+     */
+    private function checkMcp(): array
+    {
+        if (!$this->config->bool('mcp.enabled', true) || !$this->config->bool('mcp.transports.http', false)) {
+            return [[self::OK, 'The HTTP MCP endpoint is off.', '']];
+        }
+
+        $appUrl = $this->config->string('app.url') ?? '';
+
+        if ($appUrl === '' && $this->limits->trustedHosts() === []) {
+            return [[
+                self::FAIL,
+                'The HTTP MCP endpoint is on with neither APP_URL nor security.trusted_hosts set.',
+                'A web page can then reach it through DNS rebinding: its Origin and Host both name the '
+                . 'attacker, and agree. Set APP_URL (Origin is then checked against it), or trusted_hosts.',
+            ]];
+        }
+
+        return [[self::OK, 'The HTTP MCP endpoint checks Origin against ' . ($appUrl !== '' ? 'APP_URL.' : 'the trusted hosts.'), '']];
+    }
+
+    /**
+     * Webhooks need a cache that remembers a delivery past its request;
+     * without one Webhooks::receive() refuses, so this says so before the
+     * first delivery does.
+     *
+     * @return list<array{string, string, string}>
+     */
+    private function checkWebhooks(): array
+    {
+        $sources = $this->config->get('security.webhooks');
+
+        if (!\is_array($sources) || $sources === []) {
+            return [[self::OK, 'No webhooks are configured.', '']];
+        }
+
+        if (!$this->webhooks->remembersAcrossRequests()) {
+            return [[
+                self::FAIL,
+                'Webhooks are configured, but the cache forgets a delivery when its request ends.',
+                'Every delivery would look new, so a captured one could be replayed; receive() refuses instead. '
+                . 'Set CACHE_STORE=file (or database).',
+            ]];
+        }
+
+        return [[self::OK, 'Webhook deliveries are remembered, so a replay is a duplicate.', '']];
     }
 
     /**
@@ -538,13 +612,13 @@ final class SecurityCheckCommand
             '',
         ]];
 
-        if (!\array_key_exists('Content-Security-Policy', $headers)) {
+        if (!$this->headers->hasPolicy()) {
             $findings[] = [
                 self::WARN,
                 'There is no Content-Security-Policy.',
-                'It is the single most effective defence against XSS and the framework will not '
-                . 'guess one: a useful policy names this application\'s own script and style '
-                . 'sources. Set security.headers.csp.',
+                'It is the single most effective defence against XSS. Either security.headers.csp is set to "" '
+                . '(none), or debug is on, which leaves out the default policy. Remove the empty setting, or '
+                . 'set a policy naming this application\'s own script and style sources.',
             ];
         }
 

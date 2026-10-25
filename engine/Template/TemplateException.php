@@ -174,4 +174,42 @@ final class TemplateException extends FrameworkException
             $engine,
         ));
     }
+
+    // ---- themes -------------------------------------------------------------
+
+    public static function invalidThemeName(string $theme, string $reason): self
+    {
+        return new self(\sprintf(
+            'The theme name "%s" is not usable: %s. A theme is "theme" or "area/theme", '
+            . 'each part matching [A-Za-z0-9][A-Za-z0-9_-]*.',
+            $theme,
+            $reason,
+        ));
+    }
+
+    public static function unknownTheme(string $theme): self
+    {
+        return new self(\sprintf(
+            'No theme "%s" is registered. Themes are never discovered: list it in templates.themes, '
+            . 'return it from the templates.theme_provider class, or call ThemeRegistry::register().',
+            $theme,
+        ));
+    }
+
+    public static function invalidErrorThemePrefix(string $prefix): self
+    {
+        return new self(\sprintf(
+            'The error theme prefix "%s" is not a path. It must start with "/", like "/admin".',
+            $prefix,
+        ));
+    }
+
+    public static function invalidThemeProvider(string $class): self
+    {
+        return new self(\sprintf(
+            'templates.theme_provider names "%s", which does not implement %s.',
+            $class,
+            ThemeProvider::class,
+        ));
+    }
 }

@@ -11,6 +11,8 @@ use App\Engine\Asset\AssetRegistry;
 use App\Engine\Asset\AssetResolver;
 use App\Engine\Asset\AssetSource;
 use App\Engine\Asset\AssetVersioning;
+use App\Engine\Cache\Cache;
+use App\Engine\Cache\Stores\ArrayStore;
 use App\Tests\Support\TestCase;
 
 final class AssetManagerTest extends TestCase
@@ -136,6 +138,59 @@ final class AssetManagerTest extends TestCase
         self::assertNotSame($first, $this->manager()->core('css/app.css'));
     }
 
+    /**
+     * A token kept between requests must not outlive the file it describes.
+     *
+     * The cache is what production uses, and a deploy that forgets cache:clear
+     * is the case this is about: the old token would keep being sent, and a
+     * ?v= URL is cached by browsers as immutable for a year.
+     */
+    public function test_a_cached_token_follows_the_file_without_a_cache_clear(): void
+    {
+        $cache = new Cache(new ArrayStore());
+        $manager = fn(): AssetManager => new AssetManager(
+            $this->registry,
+            new AssetResolver(),
+            cache: $cache,
+        );
+
+        $first = $manager()->core('css/app.css');
+
+        self::assertSame($first, $manager()->core('css/app.css'));
+
+        $file = $this->root . '/core/css/app.css';
+        \file_put_contents($file, 'body{color:red}');
+        \touch($file, \time() + 60);
+        \clearstatcache();
+
+        self::assertNotSame($first, $manager()->core('css/app.css'));
+    }
+
+    public function test_an_area_theme_has_its_own_url(): void
+    {
+        \mkdir($this->root . '/template-admin-dark/css', 0o777, true);
+        \file_put_contents($this->root . '/template-admin-dark/css/app.css', 'aside{}');
+
+        try {
+            $this->registry->publish(AssetKind::Template, 'admin/dark', $this->root . '/template-admin-dark');
+
+            $url = $this->manager()->template('admin/dark', 'css/app.css');
+
+            self::assertMatchesRegularExpression('#^/assets/template/admin/dark/css/app\.css\?v=[0-9a-f]{8}$#', $url);
+
+            // Written like a path, it is the same theme.
+            self::assertSame($url, $this->manager()->template('/admin/dark/', 'css/app.css'));
+            self::assertSame($url, $this->manager()->template('admin/dark/', 'css/app.css'));
+
+            // "/" alone names no theme: templates/assets/.
+            self::assertSame($this->manager()->template('css/app.css'), $this->manager()->template('/', 'css/app.css'));
+        } finally {
+            @\unlink($this->root . '/template-admin-dark/css/app.css');
+            @\rmdir($this->root . '/template-admin-dark/css');
+            @\rmdir($this->root . '/template-admin-dark');
+        }
+    }
+
     public function test_modified_versioning_uses_the_timestamp(): void
     {
         \touch($this->root . '/core/css/app.css', 1700000000);
@@ -257,6 +312,21 @@ final class AssetManagerTest extends TestCase
             try {
                 new AssetSource(AssetKind::Module, $name, $this->root);
                 self::fail(\sprintf('the source name "%s" was accepted', $name));
+            } catch (AssetException $e) {
+                self::assertStringContainsString('name', $e->getMessage());
+            }
+        }
+    }
+
+    public function test_a_template_may_be_named_by_area_and_theme(): void
+    {
+        self::assertSame('template/dark', (new AssetSource(AssetKind::Template, 'dark', $this->root))->key());
+        self::assertSame('template/admin/dark', (new AssetSource(AssetKind::Template, 'admin/dark', $this->root))->key());
+
+        foreach (['a/b/c', '/dark', 'dark/', 'admin//dark', '../dark', 'admin/.dark', 'admin/da rk'] as $name) {
+            try {
+                new AssetSource(AssetKind::Template, $name, $this->root);
+                self::fail(\sprintf('the template name "%s" was accepted', $name));
             } catch (AssetException $e) {
                 self::assertStringContainsString('name', $e->getMessage());
             }

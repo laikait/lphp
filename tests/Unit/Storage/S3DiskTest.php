@@ -117,6 +117,25 @@ final class S3DiskTest extends TestCase
         self::assertSame('image/png', $s3->objects['a.png']['type']);
     }
 
+    /**
+     * The bucket serves an object with the type it was stored under, to
+     * anyone with the URL. An uploaded page stored as text/html ran script on
+     * the bucket's origin; stored as application/octet-stream, it downloads.
+     */
+    public function test_a_file_that_could_run_script_is_stored_to_download(): void
+    {
+        $s3 = new FakeS3('bucket', 'AKID', 'secret', 'eu-central-1');
+        $disk = self::disk($s3);
+
+        $disk->put('page.html', '<!DOCTYPE html><html><body><script>alert(1)</script></body></html>');
+        $disk->put('icon.svg', '<?xml version="1.0"?><svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script></svg>');
+        $disk->put('notes.txt', 'just text');
+
+        self::assertSame('application/octet-stream', $s3->objects['page.html']['type']);
+        self::assertSame('application/octet-stream', $s3->objects['icon.svg']['type']);
+        self::assertSame('text/plain', $s3->objects['notes.txt']['type']);
+    }
+
     public function test_it_needs_its_credentials(): void
     {
         $this->expectException(StorageException::class);

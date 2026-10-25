@@ -17,6 +17,7 @@ use App\Engine\Mail\Transports\LogTransport;
 use App\Engine\Mail\Transports\SendmailTransport;
 use App\Engine\System\Command\CommandExecutor;
 use App\Engine\Template\TemplateManager;
+use App\Engine\Template\ThemeRegistry;
 use App\Tests\Support\TestCase;
 use PHPUnit\Framework\Attributes\RequiresOperatingSystemFamily;
 
@@ -81,6 +82,46 @@ final class MailerTest extends TestCase
         self::assertStringContainsString('multipart/alternative', $envelope->raw);
         self::assertStringContainsString('Order 12 for Ana', $envelope->raw);
         self::assertStringContainsString('<p>Order 12 for Ana</p>', $envelope->raw);
+    }
+
+    /**
+     * An email never follows a theme. A queued message renders in a worker,
+     * which has no request and so no theme; letting the sending page's theme
+     * apply would make "sync" and a real queue send different emails.
+     */
+    public function test_an_email_renders_without_the_active_theme_and_gives_it_back(): void
+    {
+        $theme = 'zzmail' . \bin2hex(\random_bytes(4));
+        $root = $this->basePath('templates/' . $theme);
+        \mkdir($root . '/emails', 0o755, true);
+        \file_put_contents($root . '/emails/receipt.twig', '<p>THEMED</p>');
+        \file_put_contents($root . '/emails/receipt.text.twig', 'THEMED');
+
+        try {
+            $themes = $this->app->container()->get(ThemeRegistry::class);
+            self::assertInstanceOf(ThemeRegistry::class, $themes);
+            $themes->register($theme);
+            $themes->use($theme);
+
+            $message = Message::create()->to('ana@example.com')->view('emails/receipt', ['order' => 3, 'name' => 'Ana']);
+
+            $this->mailer()->send($message);
+            $this->mailer()->queue($message);   // the "sync" queue: rendered inline, in this request
+
+            foreach ($this->sent()->sent() as $envelope) {
+                self::assertStringContainsString('<p>Order 3 for Ana</p>', $envelope->raw, 'the HTML came from templates/emails/');
+                self::assertStringContainsString("\r\nOrder 3 for Ana", $envelope->raw, 'and so did the text part');
+                self::assertStringNotContainsString('THEMED', $envelope->raw);
+            }
+
+            self::assertCount(2, $this->sent()->sent());
+            self::assertSame($theme, $themes->active(), 'the page keeps its theme for the rest of its render');
+        } finally {
+            @\unlink($root . '/emails/receipt.twig');
+            @\unlink($root . '/emails/receipt.text.twig');
+            @\rmdir($root . '/emails');
+            @\rmdir($root);
+        }
     }
 
     public function test_a_view_without_a_text_template_is_html_alone(): void

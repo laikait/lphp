@@ -116,11 +116,29 @@ final class Message
         return $this->with(attachments: [...$this->attachments, new Attachment($filename, $content, $contentType)]);
     }
 
+    /**
+     * Headers the builder writes, compared without case as mail does.
+     *
+     * "from" is From to every mail server, so a header() of that name was a
+     * second From -- the builder only skipped an exact-case match. The
+     * addresses, the subject and the MIME structure have their own methods,
+     * which validate what goes in them; this one does not, so it may not
+     * touch them.
+     */
+    private const RESERVED_HEADERS = [
+        'from', 'sender', 'to', 'cc', 'bcc', 'reply-to', 'subject', 'date', 'message-id', 'mime-version',
+        'return-path', 'content-type', 'content-transfer-encoding', 'content-disposition',
+    ];
+
     /** A header of your own, such as List-Unsubscribe. The ones the builder writes cannot be replaced. */
     public function header(string $name, string $value): self
     {
         if (\preg_match('/^[A-Za-z0-9-]+$/D', $name) !== 1 || \preg_match('/[\r\n]/', $value) === 1) {
             throw MailException::lineBreak('header ' . \preg_replace('/[^\x20-\x7e]/', '?', $name));
+        }
+
+        if (\in_array(\strtolower($name), self::RESERVED_HEADERS, true) || \str_starts_with(\strtolower($name), 'content-')) {
+            throw MailException::reservedHeader($name);
         }
 
         return $this->with(headers: [...$this->headers, $name => $value]);

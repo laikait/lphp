@@ -40,7 +40,7 @@ final class AssetException extends FrameworkException
     {
         return new self(\sprintf(
             'The asset source name "%s" is not usable. A name appears in a URL and in a filesystem path, '
-            . 'so it must match [A-Za-z0-9][A-Za-z0-9_-]*.',
+            . 'so it must match [A-Za-z0-9][A-Za-z0-9_-]* (a template may be "area/theme").',
             $name,
         ));
     }

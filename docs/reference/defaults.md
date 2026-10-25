@@ -117,7 +117,7 @@ the defaults with no environment variable set.
 |---|---|---|
 | `http.base_path` | `null` | — |
 | `http.trusted_proxies` | `[]` | — |
-| `http.headers` | `[]` (X-Engine: LPHP; PHP's X-Powered-By is removed) | — |
+| `http.headers` | `[]` (no X-Engine; PHP's X-Powered-By is removed) | — |
 | `http.client.timeout` | `30` | — |
 | `http.client.user_agent` | `null` (LPHP/&lt;version&gt;) | — |
 
@@ -211,7 +211,7 @@ See [Storage](storage.md).
 | `security.csrf.host_prefix` | `true` | — |
 | `security.counters` | `'file'` | — |
 | `security.max_request_bytes` | `8388608` | `MAX_REQUEST_BYTES` |
-| `security.headers.csp` | `''` | — |
+| `security.headers.csp` | `null` (the default policy on HTML pages while debug is off; `''` for none) | — |
 | `security.headers.hsts_days` | `0` | — |
 | `security.headers.hsts_subdomains` | `false` | — |
 | `security.headers.extra` | `[]` | — |
@@ -221,6 +221,10 @@ See [Storage](storage.md).
 | Key | Default | Environment variable |
 |---|---|---|
 | `auth.password.options` | `[]` | — |
+| `auth.throttle.enabled` | `true` | — |
+| `auth.throttle.per_login_ip` | `5/15m` | — |
+| `auth.throttle.per_ip` | `30/15m` | — |
+| `auth.throttle.per_login` | `100/1h` | — |
 | `auth.guest_roles` | `[]` | — |
 | `auth.passwords.ttl` | `3600` | — |
 | `auth.passwords.route` | `'password.reset'` | — |
@@ -325,6 +329,9 @@ See [Storage](storage.md).
 | Key | Default | Environment variable |
 |---|---|---|
 | `templates.cache` | `false` | — |
+| `templates.themes` | `[]` | — |
+| `templates.theme_provider` | `null` | — |
+| `templates.error_themes` | `[]` | — |
 
 ### `modules`
 

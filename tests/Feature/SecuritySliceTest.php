@@ -60,7 +60,7 @@ final class SecuritySliceTest extends TestCase
     /** An application with no APP_KEY still runs; it says so rather than refusing to boot. */
     public function test_an_application_without_a_key_still_works(): void
     {
-        $app = $this->application(['security' => ['key' => null]])->boot();
+        $app = $this->application(['security' => ['key' => '']])->boot();
 
         self::assertFalse($app->container()->get(Signer::class)->isConfigured());
         self::assertSame(200, $app->handle(Request::create('GET', '/customers.json'))->status());
@@ -89,30 +89,62 @@ final class SecuritySliceTest extends TestCase
         self::assertSame('nosniff', $response->header('X-Content-Type-Options'));
     }
 
-    /** The shipped application: the showcase fixtures set an X-Engine of their own. */
-    public function test_every_response_names_the_engine(): void
+    /**
+     * The shipped application names no framework: no X-Engine, no
+     * X-Powered-By. A header that says which framework answered tells a
+     * scanner which advisories to try first.
+     */
+    public function test_no_response_names_the_engine(): void
     {
         $app = $this->shippedApplication()->boot();
 
         foreach (['/', '/no-such-page'] as $path) {
             $response = $app->handle(Request::create('GET', $path));
 
-            self::assertSame('LPHP', $response->header('X-Engine'), $path);
+            self::assertFalse($response->hasHeader('X-Engine'), $path);
             self::assertFalse($response->hasHeader('X-Powered-By'), $path);
         }
     }
 
-    public function test_the_engine_header_can_be_changed_or_removed(): void
+    public function test_an_engine_header_can_still_be_sent_by_choice(): void
     {
-        $changed = $this->shippedApplication(['http' => ['headers' => ['X-Engine' => 'Shop']]])
-            ->boot()
-            ->handle(Request::create('GET', '/'));
-        $removed = $this->shippedApplication(['http' => ['headers' => ['X-Engine' => '']]])
+        $response = $this->shippedApplication(['http' => ['headers' => ['X-Engine' => 'Shop']]])
             ->boot()
             ->handle(Request::create('GET', '/'));
 
-        self::assertSame('Shop', $changed->header('X-Engine'));
-        self::assertFalse($removed->hasHeader('X-Engine'));
+        self::assertSame('Shop', $response->header('X-Engine'));
+    }
+
+    /**
+     * With debug off and no policy configured, pages carry the default CSP:
+     * scripts from this origin only. JSON does not -- nothing runs in it.
+     */
+    public function test_pages_get_the_default_policy_and_json_does_not(): void
+    {
+        $app = $this->shippedApplication(['app' => ['debug' => false]])->boot();
+
+        $page = $app->handle(Request::create('GET', '/'));
+        $missing = $app->handle(Request::create('GET', '/no-such-page', ['headers' => ['Accept' => 'text/html']]));
+        $json = $app->handle(Request::create('GET', '/health'));
+
+        self::assertSame(SecurityHeaders::DEFAULT_CSP, $page->header('Content-Security-Policy'));
+        self::assertSame(SecurityHeaders::DEFAULT_CSP, $missing->header('Content-Security-Policy'), 'error pages too');
+        self::assertFalse($json->hasHeader('Content-Security-Policy'));
+        self::assertSame('camera=(), microphone=(), geolocation=(), payment=()', $page->header('Permissions-Policy'));
+    }
+
+    /** Debug's page is inline script, so no default there; "" means none; a string replaces it. */
+    public function test_the_default_policy_gives_way(): void
+    {
+        $debug = $this->shippedApplication(['app' => ['debug' => true]])->boot()->handle(Request::create('GET', '/'));
+        $none = $this->shippedApplication(['app' => ['debug' => false], 'security' => ['headers' => ['csp' => '']]])
+            ->boot()->handle(Request::create('GET', '/'));
+        $own = $this->shippedApplication(['app' => ['debug' => false], 'security' => ['headers' => ['csp' => "default-src 'self' cdn.example"]]])
+            ->boot()->handle(Request::create('GET', '/'));
+
+        self::assertFalse($debug->hasHeader('Content-Security-Policy'));
+        self::assertFalse($none->hasHeader('Content-Security-Policy'));
+        self::assertSame("default-src 'self' cdn.example", $own->header('Content-Security-Policy'));
     }
 
     /** A module's own value is kept, as with the security headers. */
@@ -342,7 +374,31 @@ final class SecuritySliceTest extends TestCase
         self::assertStringNotContainsString('FAIL', $output);
     }
 
-    /** Debug on in production is the one thing it calls a failure outright. */
+    /**
+     * No APP_KEY in production fails the check: CSRF falls back to unsigned
+     * double-submit and the cache and queue are no longer sealed, all without
+     * anything visibly breaking. Outside production it stays a warning.
+     */
+    public function test_security_check_fails_without_a_key_in_production(): void
+    {
+        [$status, $output] = $this->console(
+            $this->app(['app' => ['debug' => false, 'env' => 'production'], 'security' => ['key' => '']]),
+            'security:check',
+        );
+
+        self::assertSame(ConsoleKernel::FAILURE, $status);
+        self::assertStringContainsString('No APP_KEY', $output);
+
+        [$status, $output] = $this->console(
+            $this->app(['app' => ['debug' => false, 'env' => 'local'], 'security' => ['key' => '']]),
+            'security:check',
+        );
+
+        self::assertStringContainsString('No APP_KEY', $output);
+        self::assertStringNotContainsString('FAIL  No APP_KEY', $output);
+    }
+
+    /** Debug on in production fails outright too. */
     public function test_security_check_fails_on_debug_in_production(): void
     {
         [$status, $output] = $this->console(

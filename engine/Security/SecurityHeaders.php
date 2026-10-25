@@ -41,12 +41,19 @@ use App\Engine\Http\Response;
  *       Severs the window.opener relationship, which is what stops a page you
  *       linked to from navigating the tab it came from.
  *
- * **Content-Security-Policy is off by default**, and that is a deliberate
- * refusal rather than an oversight. A useful CSP names this application's own
- * script and style sources; a generic one is either so loose it permits what it
- * exists to stop, or so strict it breaks the first page with an inline handler.
- * `security.headers.csp` takes the real one, and `security:check` says plainly
- * that there is not one yet.
+ *   Permissions-Policy: camera=(), microphone=(), geolocation=(), payment=()
+ *       Nothing on these pages -- or injected into them, or framed by them --
+ *       can ask for the camera, the microphone, the location or a payment.
+ *       An application that needs one says so in security.headers.extra.
+ *
+ * **A Content-Security-Policy is sent on HTML pages when debug is off and none
+ * is configured**: DEFAULT_CSP. Scripts come only from this origin, so an
+ * injected <script> or inline handler does not run, and nothing can frame the
+ * page or point its forms elsewhere. Inline styles are allowed -- the
+ * built-in error page has one, and a style cannot run code. An application
+ * that loads a script from a CDN or writes inline script configures its own
+ * in `security.headers.csp`; an empty string there sends none at all. With
+ * debug on it is not sent, because the debug page is itself inline script.
  *
  * **HSTS is off by default and only ever sent over HTTPS.** It is the one
  * header here that cannot be taken back: a browser that has seen it refuses
@@ -60,18 +67,25 @@ final class SecurityHeaders
         'X-Frame-Options' => 'SAMEORIGIN',
         'Referrer-Policy' => 'strict-origin-when-cross-origin',
         'Cross-Origin-Opener-Policy' => 'same-origin',
+        'Permissions-Policy' => 'camera=(), microphone=(), geolocation=(), payment=()',
     ];
 
+    /** The policy HTML pages get when none is configured and debug is off. See the class docblock. */
+    public const DEFAULT_CSP = "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; "
+        . "img-src 'self' data:; object-src 'none'; base-uri 'self'; frame-ancestors 'self'; form-action 'self'";
+
     /**
-     * @param array<string, string> $headers  overrides and additions; '' removes one
-     * @param string                $csp      the policy, or '' for none
-     * @param int                   $hstsDays 0 for none. Only ever sent over HTTPS.
+     * @param array<string, string> $headers    overrides and additions; '' removes one
+     * @param string                $csp        the policy, or '' for none
+     * @param int                   $hstsDays   0 for none. Only ever sent over HTTPS.
+     * @param string|null           $defaultCsp sent on HTML responses when $csp is ''; null for none
      */
     public function __construct(
         private readonly array $headers = [],
         private readonly string $csp = '',
         private readonly int $hstsDays = 0,
         private readonly bool $hstsSubdomains = false,
+        private readonly ?string $defaultCsp = null,
     ) {}
 
     /**
@@ -85,6 +99,8 @@ final class SecurityHeaders
 
         if ($this->csp !== '') {
             $headers['Content-Security-Policy'] = $this->csp;
+        } elseif ($this->defaultCsp !== null) {
+            $headers['Content-Security-Policy'] = $this->defaultCsp . ' (HTML pages, the default)';
         }
 
         if ($this->hstsDays > 0) {
@@ -92,6 +108,12 @@ final class SecurityHeaders
         }
 
         return $headers;
+    }
+
+    /** Whether a policy will be sent: a configured one, or the default. */
+    public function hasPolicy(): bool
+    {
+        return $this->csp !== '' || $this->defaultCsp !== null;
     }
 
     public function __invoke(Response $response, ?Request $request = null): Response
@@ -102,6 +124,8 @@ final class SecurityHeaders
 
         if ($this->csp !== '') {
             $response = $this->add($response, 'Content-Security-Policy', $this->csp);
+        } elseif ($this->defaultCsp !== null && self::isPage($response)) {
+            $response = $this->add($response, 'Content-Security-Policy', $this->defaultCsp);
         }
 
         // Over HTTP this header is ignored by browsers and is a hint to anyone
@@ -134,6 +158,21 @@ final class SecurityHeaders
         }
 
         return $headers;
+    }
+
+    /**
+     * Whether the default policy belongs on this response: a page.
+     *
+     * A policy on JSON or a stylesheet does nothing; pages are where an
+     * injected script would run. No Content-Type counts as a page, because
+     * that is what PHP sends for it (default_mimetype) -- and every response
+     * that is not a page in this framework says what it is.
+     */
+    private static function isPage(Response $response): bool
+    {
+        $type = $response->contentType();
+
+        return $type === null || $type === '' || \str_starts_with(\strtolower($type), 'text/html');
     }
 
     private function hsts(): string

@@ -114,6 +114,7 @@ use App\Engine\Migration\Migrator;
 use App\Engine\Migration\SeedRunner;
 use App\Engine\Model\ModelManager;
 use App\Engine\Model\RelationManager;
+use App\Engine\Module\ModuleDefinition;
 use App\Engine\Module\ModuleManager;
 use App\Engine\Module\ModuleRegistry;
 use App\Engine\Observability\Profiler;
@@ -182,7 +183,10 @@ use App\Engine\Template\PhpTemplateEngine;
 use App\Engine\Template\TemplateHelpers;
 use App\Engine\Template\TemplateManager;
 use App\Engine\Template\TemplateRegistry;
+use App\Engine\Template\TemplateException;
 use App\Engine\Template\TemplateSource;
+use App\Engine\Template\ThemeProvider;
+use App\Engine\Template\ThemeRegistry;
 use App\Engine\Template\TwigTemplateEngine;
 use App\Engine\Update\GithubReleaseSource;
 use App\Engine\Update\ReleaseSource;
@@ -204,6 +208,16 @@ final class Bootstrap
     /** @param array<string, mixed> $config overrides merged over the defaults */
     public static function create(string $basePath, ExecutionContext $context, array $config = []): Application
     {
+        // The error handler before anything that can fail -- including reading
+        // the configuration, which runs every config/*.php. Registered later,
+        // a config file that threw met PHP's own handler: its message, its
+        // stack trace and its paths, printed by PHP, with no debug page.
+        //
+        // It cannot have the configuration yet, so it starts with what the
+        // environment says about debug, and a page that knows no templates.
+        // configure() below hands it the real ones.
+        $errors = self::earlyErrors($basePath, $config);
+
         $container = new Container();
         $settings = new Config(self::settings($basePath, $config));
 
@@ -251,6 +265,19 @@ final class Bootstrap
             Path::join($basePath, 'templates', 'assets'),
         ));
 
+        // Themes: templates/<theme>/ and templates/<area>/<theme>/, each with
+        // views and an assets/ folder. Registered, never discovered -- which
+        // themes exist is the application's decision, made in
+        // templates.themes or by a provider that may read the database. The
+        // loader runs once Application knows the modules (their ids are
+        // reserved: templates/<Module>/ is that module's override directory),
+        // on asset requests as well as pages.
+        $themes = new ThemeRegistry(
+            $assets,
+            Path::join($basePath, 'templates'),
+            static fn(ThemeRegistry $themes) => self::loadThemes($themes, $settings, $container),
+        );
+
         $manager = new AssetManager(
             $assets,
             $resolver = new AssetResolver(),
@@ -294,7 +321,15 @@ final class Bootstrap
         // it, as a route handler is; see TemplateHelpers.
         $helpers = new TemplateHelpers(static fn(string $class): object => $container->get($class));
 
-        $templates = new TemplateManager($views, $manager, new Escaper(), $cache->namespace('templates'), $translator, $helpers);
+        $templates = new TemplateManager(
+            $views,
+            $manager,
+            new Escaper(),
+            $cache->namespace('templates'),
+            $translator,
+            $helpers,
+            $themes,
+        );
 
         // Twig first, PHP second, and the order is the precedence: where a
         // directory holds both home.twig and home.php, the Twig one renders.
@@ -312,6 +347,7 @@ final class Bootstrap
             (bool) $settings->get('app.debug', false),
             $translator,
             $helpers,
+            $themes,
         ));
         $templates->addEngine(new PhpTemplateEngine());
 
@@ -324,11 +360,12 @@ final class Bootstrap
         //
         // In debug mode with filp/whoops installed, the diagnostic page is
         // Whoops; app.editor makes its file paths open in an editor.
-        $errors = new ErrorHandler($settings, $hooks, new ErrorPage(
+        $errors->configure($settings, $hooks, new ErrorPage(
             $templates,
             $basePath,
             $settings->string('app.editor'),
             Env::names(),
+            $themes,
         ));
 
         // The log. It listens to the error handler rather than being called by
@@ -376,6 +413,25 @@ final class Bootstrap
         $container->instance(AssetManager::class, $manager);
         $container->instance(TemplateRegistry::class, $views);
         $container->instance(TemplateManager::class, $templates);
+        $container->instance(ThemeRegistry::class, $themes);
+
+        // Every request starts with no theme. The active theme is state on a
+        // shared object, so without this one request's theme would carry into
+        // the next one served by the same process -- a worker, a test, an
+        // Application::handle() loop -- and "/" would render in /admin's theme.
+        $hooks->add('request.received', static fn() => $themes->use(null), 0, 'engine');
+
+        // A route's theme, from meta(['theme' => 'admin/dark']) on it or its
+        // group. Priority 1, ahead of the guards at 5 and 8, so that the 401,
+        // 403 or 419 they throw renders in the route's theme too. The name is
+        // trimmed: 'admin/dark', '/admin/dark' and '/admin/dark/' are one theme.
+        $hooks->add('dispatch.before', static function (Route $route) use ($themes): void {
+            $theme = $route->metaValue(ThemeRegistry::META);
+
+            if (\is_string($theme) && $theme !== '') {
+                $themes->use($theme);
+            }
+        }, 1, 'engine');
         $container->instance(TemplateHelpers::class, $helpers);
         self::features($container, $settings, $hooks, $filters, $helpers);
 
@@ -477,7 +533,12 @@ final class Bootstrap
         ));
 
         $container->singleton(Dispatcher::class);
-        $container->singleton(Maintenance::class, static fn(): Maintenance => new Maintenance($basePath));
+        // The rate limiter counts wrong bypass guesses: maintenance answers
+        // before routing, where no route's rate_limit can.
+        $container->singleton(Maintenance::class, static fn(Container $container): Maintenance => new Maintenance(
+            $basePath,
+            $container->get(RateLimiter::class),
+        ));
         $container->singleton(HttpKernel::class);
         $container->singleton(ConsoleKernel::class);
 
@@ -644,7 +705,9 @@ final class Bootstrap
             /** @var mixed $sources */
             $sources = $settings->get('security.webhooks');
 
-            return new Webhooks(\is_array($sources) ? $sources : [], $container->get(Cache::class));
+            // Refuses to receive on a cache that forgets between requests: see
+            // Webhooks. A test building one directly decides for itself.
+            return new Webhooks(\is_array($sources) ? $sources : [], $container->get(Cache::class), requireSharedCache: true);
         });
         $container->singleton(UrlSigner::class, static fn(Container $container): UrlSigner => new UrlSigner($container->get(Router::class), $signedUrls));
 
@@ -733,6 +796,10 @@ final class Bootstrap
                 $sessions,
                 $hooks,
                 self::guestRoles($settings),
+                // Failed password checks are counted on the same store as every
+                // other limit; see AuthManager::THROTTLE for why there are three.
+                $settings->bool('auth.throttle.enabled', true) ? $container->get(RateLimiter::class) : null,
+                self::throttleLimits($settings),
             );
 
             // Built part-way through a request, the manager has missed the
@@ -923,11 +990,55 @@ final class Bootstrap
         $application = new Application($container, $context, $basePath);
         $container->instance(Application::class, $application);
 
+        // Already registered at the top unless the caller said otherwise; a
+        // config file can still switch it off, and that is honoured here.
         if ((bool) $settings->get('app.handle_errors', true)) {
             $errors->register();
+        } else {
+            $errors->unregister();
         }
 
         return $application;
+    }
+
+    /**
+     * The error handler as it can be before the configuration is read.
+     *
+     * .env is loaded here, as settings() does a moment later -- DotEnv fills
+     * gaps, so the second load changes nothing -- because APP_DEBUG is what
+     * decides whether a config file that throws gets Whoops or a plain 500.
+     * A caller's own app.debug and app.handle_errors win, as they do in
+     * settings(); that is how a test keeps the handler away from PHPUnit's.
+     *
+     * @param array<string, mixed> $overrides
+     */
+    private static function earlyErrors(string $basePath, array $overrides): ErrorHandler
+    {
+        /** @var mixed $app */
+        $app = $overrides['app'] ?? [];
+        $app = \is_array($app) ? $app : [];
+
+        $provisional = static fn(): Config => new Config(['app' => [
+            'debug' => (bool) ($app['debug'] ?? Env::bool('APP_DEBUG', false)),
+        ]]);
+
+        $errors = new ErrorHandler($provisional(), page: new ErrorPage(basePath: $basePath));
+
+        // Registered before .env is read, since a malformed .env throws too;
+        // what it says about APP_DEBUG is picked up straight after.
+        if (($app['handle_errors'] ?? true) !== false) {
+            $errors->register();
+        }
+
+        DotEnv::load(Path::join($basePath, DotEnv::fileFor(Env::string('APP_ENV'))));
+
+        $errors->configure(
+            $provisional(),
+            new HookEngine(),
+            new ErrorPage(basePath: $basePath, environment: Env::names()),
+        );
+
+        return $errors;
     }
 
 
@@ -1205,6 +1316,28 @@ final class Bootstrap
     }
 
     /**
+     * auth.throttle's limits, each checked as RateLimiter reads it, so a typo
+     * stops the boot rather than silently leaving logins unthrottled.
+     *
+     * @return array{per_login_ip?: string, per_login?: string, per_ip?: string}
+     */
+    private static function throttleLimits(Config $settings): array
+    {
+        $limits = [];
+
+        foreach (\array_keys(AuthManager::THROTTLE) as $name) {
+            $limit = $settings->string('auth.throttle.' . $name);
+
+            if ($limit !== null && $limit !== '') {
+                RateLimiter::parse($limit);
+                $limits[$name] = $limit;
+            }
+        }
+
+        return $limits;
+    }
+
+    /**
      * The framework's own tables, for what is configured to keep things in the
      * database: sessions, the cache, the queue and the log. None while they
      * keep them elsewhere, so an application on files gets no tables it never
@@ -1272,9 +1405,9 @@ final class Bootstrap
     }
 
     /**
-     * X-Engine, with http.headers merged over it.
+     * http.headers, sent on every response; none by default.
      *
-     * No X-Powered-By, and no version anywhere: a version number on every
+     * No X-Powered-By, no X-Engine, and no version anywhere: a version number on every
      * response is a lookup key for whichever release has a known hole. PHP's
      * own X-Powered-By is removed when a response is sent; see Response. An
      * empty value drops a header.
@@ -1283,7 +1416,10 @@ final class Bootstrap
      */
     private static function engineHeaders(Config $settings): array
     {
-        $headers = ['X-Engine' => 'LPHP'];
+        // Nothing by default. "X-Engine: LPHP" used to be sent, which told
+        // anybody scanning which framework -- and so which advisories -- to
+        // try first. ['X-Engine' => 'LPHP'] in http.headers brings it back.
+        $headers = [];
 
         foreach ($settings->array('http.headers') as $name => $value) {
             if (\is_string($name) && \is_string($value)) {
@@ -1297,11 +1433,10 @@ final class Bootstrap
     /**
      * The headers every response carries.
      *
-     * Note what is not defaulted: a Content-Security-Policy. A generic one is
-     * either too loose to be a policy or too strict to survive the first page
-     * with an inline handler, and the one that gets turned off in a hurry is
-     * worse than the one that was never claimed. security:check says so out
-     * loud rather than leaving the absence to be noticed.
+     * The Content-Security-Policy is three-way: unset (null) sends the default
+     * policy on pages while debug is off -- the debug page is inline script,
+     * which the default refuses -- a string is the application's own policy,
+     * sent always, and "" is an explicit "none", which security:check reports.
      */
     private static function securityHeaders(Config $settings): SecurityHeaders
     {
@@ -1313,11 +1448,14 @@ final class Bootstrap
             }
         }
 
+        $csp = $settings->string('security.headers.csp');
+
         return new SecurityHeaders(
             $extra,
-            $settings->string('security.headers.csp', '') ?? '',
+            $csp ?? '',
             $settings->int('security.headers.hsts_days', 0) ?? 0,
             $settings->bool('security.headers.hsts_subdomains', false),
+            $csp === null && !$settings->bool('app.debug', false) ? SecurityHeaders::DEFAULT_CSP : null,
         );
     }
 
@@ -1370,6 +1508,7 @@ final class Bootstrap
                 $container->get(FilterEngine::class),
                 $container->get(HookEngine::class),
                 $container->get(Queue::class),
+                $container->get(ThemeRegistry::class),
             );
         });
     }
@@ -1648,6 +1787,9 @@ final class Bootstrap
             static function (string $diagnostic) use ($container): void {
                 $container->get(Logger::class)->warning($diagnostic);
             },
+            // Origin is checked against APP_URL when there is one: against the
+            // Host header it proves nothing under DNS rebinding.
+            $settings->string('app.url') ?: null,
         ));
     }
 
@@ -1920,8 +2062,9 @@ final class Bootstrap
                 // Apache in a subdirectory and the built-in server.
                 'base_path' => null,
                 'trusted_proxies' => [],
-                // Merged over X-Engine: LPHP, which every response carries; an
-                // empty value removes it. PHP's X-Powered-By is never sent.
+                // Headers every response carries; none by default, so nothing
+                // names the framework. ['X-Engine' => 'LPHP'] if it should.
+                // PHP's X-Powered-By is never sent.
                 'headers' => [],
                 // Outgoing requests, through Http\Client\Client.
                 'client' => [
@@ -2091,10 +2234,10 @@ final class Bootstrap
                 // …]. See Security\Webhooks for the formats and their options.
                 'webhooks' => [],
                 'headers' => [
-                    // Deliberately empty. A useful policy names this
-                    // application's own sources; a generic one is the kind
-                    // that gets switched off. See Bootstrap::securityHeaders().
-                    'csp' => '',
+                    // null sends SecurityHeaders::DEFAULT_CSP on HTML pages
+                    // while debug is off: scripts from this origin only. A
+                    // string replaces it everywhere; "" sends no policy at all.
+                    'csp' => null,
                     // Off, and only ever sent over HTTPS. It is the one header
                     // here that cannot be taken back -- a browser that has
                     // seen it refuses plain HTTP for the whole max-age.
@@ -2112,6 +2255,13 @@ final class Bootstrap
                 // the test suite.
                 'password' => [
                     'options' => [],
+                ],
+                // Failed password checks before AuthManager answers 429; see
+                // AuthManager::THROTTLE. Counted per account and address, per
+                // address, and per account across all addresses.
+                'throttle' => [
+                    'enabled' => true,
+                    ...AuthManager::THROTTLE,
                 ],
                 // What an unauthenticated request is granted. Usually nothing.
                 // An application with genuinely public data can declare a role
@@ -2328,6 +2478,16 @@ final class Bootstrap
                 // deployment decision rather than a default. PHP templates
                 // never need it -- opcache already has them.
                 'cache' => false,
+                // Themes to publish: "dark" is templates/dark/, "admin/dark"
+                // is templates/admin/dark/. Nothing is discovered; a theme not
+                // named here or by the provider does not exist.
+                'themes' => [],
+                // A ThemeProvider class, built through the container, for
+                // themes that live in the database. null for none.
+                'theme_provider' => null,
+                // Path prefix => theme, for error pages raised before a route
+                // chose one: ['/admin' => 'admin/dark'].
+                'error_themes' => [],
             ],
             'modules' => [
                 // Where modules are. Every directory directly inside one of
@@ -2367,6 +2527,53 @@ final class Bootstrap
      * a second implementation of that derivation would eventually disagree with
      * the first.
      */
+    /**
+     * Fill the theme registry from configuration and the provider.
+     *
+     * Module ids first, so a theme that would sit on a module's override
+     * directory is refused by name rather than quietly merged with it. The
+     * provider is built through the container, which is why this runs when
+     * Application asks rather than here, while the container is still being
+     * filled.
+     */
+    private static function loadThemes(ThemeRegistry $themes, Config $settings, Container $container): void
+    {
+        $themes->reserve(\array_map(
+            static fn(ModuleDefinition $definition): string => $definition->id,
+            $container->get(ModuleManager::class)->registry()->installed(),
+        ));
+
+        foreach ($settings->strings('templates.themes') as $theme) {
+            $themes->register($theme);
+        }
+
+        $provider = null;
+        $class = $settings->string('templates.theme_provider');
+
+        if ($class !== null && $class !== '') {
+            $provider = $container->get($class);
+
+            if (!$provider instanceof ThemeProvider) {
+                throw TemplateException::invalidThemeProvider($class);
+            }
+
+            foreach ($provider->themes() as $theme) {
+                $themes->register($theme);
+            }
+        }
+
+        /** @var mixed $theme */
+        foreach ($settings->array('templates.error_themes') as $prefix => $theme) {
+            if (\is_string($prefix) && \is_string($theme)) {
+                $themes->mapErrors($prefix, $theme);
+            }
+        }
+
+        foreach ($provider?->errorThemes() ?? [] as $prefix => $theme) {
+            $themes->mapErrors($prefix, $theme);
+        }
+    }
+
     private static function assetBaseUrl(Config $settings, ExecutionContext $context): string
     {
         /** @var mixed $configured */

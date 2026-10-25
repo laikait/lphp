@@ -293,6 +293,81 @@ final class StoreConformanceTest extends TestCase
         self::assertSame($next, $record->successor);
     }
 
+    /**
+     * Everything a store physically holds, as one string: the array, every
+     * file's name and contents, or every row of the table.
+     */
+    private static function rawStorage(SessionStore $store): string
+    {
+        $read = static fn(object $object, string $property): mixed => (new \ReflectionProperty($object, $property))->getValue($object);
+
+        if ($store instanceof ArrayStore) {
+            return \json_encode($read($store, 'records'), \JSON_THROW_ON_ERROR);
+        }
+
+        if ($store instanceof FileStore) {
+            $raw = '';
+
+            foreach (\glob($read($store, 'directory') . '/*') ?: [] as $file) {
+                $raw .= \basename($file) . "\n" . \file_get_contents($file) . "\n";
+            }
+
+            return $raw;
+        }
+
+        /** @var Connection $connection */
+        $connection = $read($store, 'connection');
+
+        return \json_encode($connection->table(self::TABLE)->get(), \JSON_THROW_ON_ERROR);
+    }
+
+    /**
+     * A session id is a live login, so no store keeps one: not as a key, a
+     * column, a file name or inside the record. Whoever reads the storage --
+     * a backup, a replica, a support query -- learns only hashes.
+     *
+     * @param \Closure(): SessionStore $make
+     */
+    #[DataProvider('stores')]
+    public function test_the_id_itself_is_never_stored(\Closure $make): void
+    {
+        $store = $make();
+        $id = self::id();
+
+        $store->commit($id, static fn(): SessionRecord => SessionRecord::fresh($id, ['user' => 'ada']));
+
+        $raw = self::rawStorage($store);
+
+        self::assertStringContainsString('ada', $raw, 'the record is there');
+        self::assertStringContainsString(SessionRecord::keyFor($id), $raw, 'under the id\'s hash');
+
+        if (!$store instanceof ArrayStore) {
+            // The array store is keyed by id in memory, for this process only;
+            // what it keeps in each entry still must not repeat the id.
+            self::assertStringNotContainsString($id, $raw);
+        } else {
+            self::assertStringNotContainsString('"' . $id . '"', \str_replace('"' . $id . '":', '', $raw));
+        }
+
+        self::assertSame(['user' => 'ada'], $store->read($id)?->payload, 'and it reads back by the id');
+    }
+
+    /** A record written before ids were hashed still reads -- by the same id, and no other. */
+    public function test_a_record_from_before_the_hashing_still_decodes(): void
+    {
+        $id = self::id();
+        $legacy = \json_encode(['id' => $id, 'payload' => ['a' => 1], 'created' => 1, 'touched' => 2, 'successor' => null], \JSON_THROW_ON_ERROR);
+
+        self::assertSame(['a' => 1], SessionRecord::decode($legacy, $id)?->payload);
+        self::assertNull(SessionRecord::decode($legacy, self::id()), 'another id does not unlock it');
+
+        $current = SessionRecord::fresh($id, ['a' => 1])->encode();
+
+        self::assertNull(SessionRecord::decode($current, self::id()));
+        self::assertNull(SessionRecord::decode($current), 'without the id there is nothing to bind it to');
+        self::assertNotNull(SessionRecord::forSweep($current), 'but a sweep can still read its age');
+    }
+
     // ---- destroying and sweeping -----------------------------------------
 
     /** @param \Closure(): SessionStore $make */

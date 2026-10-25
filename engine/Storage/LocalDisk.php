@@ -49,7 +49,7 @@ final class LocalDisk implements Disk
 
     public function put(string $path, mixed $contents): void
     {
-        $path = StoragePath::file($path);
+        $path = StoragePath::local($path);
         $target = $this->root . '/' . $path;
         $directory = \dirname($target);
 
@@ -146,7 +146,7 @@ final class LocalDisk implements Disk
 
     public function files(string $prefix = ''): array
     {
-        $prefix = StoragePath::prefix($prefix);
+        $prefix = StoragePath::localPrefix($prefix);
         $start = $prefix === '' ? $this->root : $this->root . '/' . $prefix;
 
         if (!\is_dir($start) || ($prefix !== '' && !$this->isInside($start))) {
@@ -176,14 +176,14 @@ final class LocalDisk implements Disk
 
     public function url(string $path): ?string
     {
-        $path = StoragePath::file($path);
+        $path = StoragePath::local($path);
 
         return $this->url === null ? null : \rtrim($this->url, '/') . '/' . MemoryDisk::encode($path);
     }
 
     public function temporaryUrl(string $path, int $expiresAt): string
     {
-        $path = StoragePath::file($path);
+        $path = StoragePath::local($path);
 
         if ($this->temporaryUrls === null) {
             throw StorageException::noTemporaryUrls($this->name, 'it was built without a URL signer.');
@@ -195,7 +195,7 @@ final class LocalDisk implements Disk
     /** The real path of an existing file inside the root, or null. */
     private function resolve(string $path): ?string
     {
-        $candidate = $this->root . '/' . StoragePath::file($path);
+        $candidate = $this->root . '/' . StoragePath::local($path);
 
         if (\is_link($candidate) || !\is_file($candidate)) {
             return null;

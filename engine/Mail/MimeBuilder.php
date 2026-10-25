@@ -55,9 +55,15 @@ final class MimeBuilder
         $headers['Message-ID'] = '<' . $messageId . '>';
         $headers['MIME-Version'] = '1.0';
 
+        // Mail header names are case-insensitive, so "subject" is Subject: an
+        // exact-case check let a second one through. Message::header() refuses
+        // these names already; this is the builder not trusting that alone.
+        $written = \array_change_key_case(\array_fill_keys(\array_keys($headers), true));
+
         foreach ($message->headers as $name => $value) {
-            if (!isset($headers[$name])) {
+            if (!isset($written[\strtolower($name)])) {
                 $headers[$name] = self::encodeHeader($value);
+                $written[\strtolower($name)] = true;
             }
         }
 

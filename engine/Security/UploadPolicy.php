@@ -350,10 +350,10 @@ final class UploadPolicy
     /**
      * What the bytes say, against what the name claims.
      *
-     * Skipped when fileinfo is unavailable rather than failing: the extension
-     * allowlist is still enforced, and refusing every upload because an
-     * extension is missing would be a worse default than the one weaker check.
-     * `security:check` reports when this is not running.
+     * Fails closed. When a type is declared for the extension, the file is
+     * refused if fileinfo is unavailable, and refused if fileinfo cannot say
+     * what it is: "could not check" is never "checked". `security:check`
+     * reports a missing fileinfo before the first upload does.
      */
     private function contentMismatch(UploadedFile $file, string $extension): ?string
     {
@@ -374,7 +374,14 @@ final class UploadPolicy
         $detected = @\finfo_file($finfo, $file->temporaryPath());
         @\finfo_close($finfo);
 
-        if (!\is_string($detected) || \in_array($detected, $expected, true)) {
+        // No answer is not a pass. finfo returning false -- an unreadable
+        // temporary file, a broken magic database -- used to wave the file
+        // through, which is the one outcome a content check must not have.
+        if (!\is_string($detected)) {
+            return \sprintf('The contents of this .%s file could not be identified.', $extension);
+        }
+
+        if (\in_array($detected, $expected, true)) {
             return null;
         }
 

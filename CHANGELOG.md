@@ -13,6 +13,16 @@ public, is in [`STABILITY.md`](STABILITY.md).
 
 ### Added
 
+- **Template themes.** `templates/<theme>/` and `templates/<area>/<theme>/`, each
+  with views and an `assets/` folder, registered in `templates.themes` or by a
+  `templates.theme_provider` class (which may read the database) and never
+  discovered. `asset()->template('admin/dark', 'css/app.css')` reads only that
+  theme's `assets/`; a route or group with `meta(['theme' => 'admin/dark'])`
+  searches the theme's views before `templates/`, layouts and error pages
+  included; `templates.error_themes` picks the theme for errors raised before a
+  route matched. Emails always render without a theme, so a queued and an
+  inline one are the same. See [Templates](docs/reference/templates.md#themes).
+
 - **Sub-directory translations.** `setLocale('admin/bn')` reads
   `lang/admin/bn.php`, then `lang/admin/en.php`, then the files of `lang/`;
   `Localization::directory()` returns the directory. Only a caller can choose
@@ -139,8 +149,70 @@ public, is in [`STABILITY.md`](STABILITY.md).
   `security:check` warns while the application is down. See
   [Running](docs/operations/running.md#maintenance-mode).
 
+### Changed
+
+- **`@assets/…` is not a template name.** Its override folder would be
+  `templates/assets/`, which holds static files. Breaking only for a module
+  whose id is `assets`: see [`UPGRADING.md`](UPGRADING.md).
+
+### Fixed
+
+- **An asset's `?v=` follows the file without `cache:clear`.** The cached
+  content hash is keyed by the file's size and modification time too, so a
+  deploy that forgot to clear the cache no longer keeps sending the old token
+  for a URL browsers cache as immutable for a year.
+- **In debug, Whoops is the only error page.** `display_errors` is off in debug
+  too, so PHP no longer prints a fatal (out of memory, timeout) ahead of Whoops
+  or instead of it; out-of-memory and timeout fatals get the headroom to render
+  and a 500 instead of a 200; the handler is installed before `.env` and
+  `config/*.php` are read, so a file that throws there gets Whoops too; output a
+  handler printed before failing is discarded; and when Whoops cannot render,
+  the plain page says why (an unknown `APP_EDITOR`, for example). See
+  [Errors](docs/reference/errors.md#the-debug-page-whoops).
+
 ### Security
 
+- **Logins are throttled by the framework.** `AuthManager::attempt()` and
+  `verify()` count failed passwords per account and address (`5/15m`), per
+  address (`30/15m`) and per account (`100/1h`), and answer 429 past a limit
+  before checking the password. Before, a login route without `rate_limit`
+  allowed unlimited guessing. See [Authentication](docs/reference/auth.md#logging-in).
+- **A missing account takes as long as a wrong password at any cost.** The
+  fixed dummy hash was bcrypt cost 10, so with a higher cost (or PHP 8.4's
+  default of 12) a missing account answered about four times faster, which told
+  a stranger which accounts exist.
+- **The request body is read no further than the limit**, so a chunked body
+  with no `Content-Length` is refused with 413 rather than read whole.
+- **A `Host` header that is not a host name is refused with 400**, whatever
+  `trusted_hosts` says.
+- **No store keeps a session id.** The database store's `id` column, the file
+  store's names and every stored record hold the id's SHA-256.
+- **Two-factor codes and recovery codes are claimed atomically**, so one code
+  sent by two requests at once logs in once.
+- **Webhooks refuse to receive on a cache that forgets between requests**
+  (the default `array` store), rather than accepting every replay as new.
+- **The HTTP MCP endpoint checks `Origin` against `APP_URL`** when it is set,
+  which DNS rebinding cannot satisfy; `security:check` fails when the endpoint
+  is on with neither `APP_URL` nor `trusted_hosts`.
+- **HTML pages get a Content-Security-Policy** while debug is off and none is
+  configured (scripts from this origin only), and every response gets
+  `Permissions-Policy: camera=(), microphone=(), geolocation=(), payment=()`.
+- **`X-Engine: LPHP` is no longer sent**, so responses do not name the framework.
+- **`security:check` fails a production deployment without `APP_KEY`**, which
+  leaves CSRF unsigned and cache and queue entries unsealed.
+- **The local disk refuses paths Windows reads differently**: `:`, a segment
+  ending in `.` or a space, and device names such as `CON`.
+- **S3 objects are stored as `application/octet-stream` unless their type cannot
+  run script**, so an uploaded page cannot run on the bucket's origin.
+- **Smaller fixes:** uploads whose contents cannot be identified are refused;
+  `Message::header()` refuses the headers the mailer writes, in any case; SMTP
+  refuses to send a password unencrypted to another machine; the SSRF guard
+  treats NAT64, 6to4 and IPv4-compatible addresses as non-public; the
+  maintenance bypass limits wrong guesses, needs a 16-character secret and can
+  no longer redirect off-site; static files get `nosniff` from
+  `public/.htaccess`; the generated nginx block refuses dotfiles under
+  `/assets/core/`; systemd unit values refuse line breaks; the development
+  server never serves a Windows alias of a PHP file.
 - **Social sign-in no longer skips two-factor.** `SocialLogin::login()` called
   `AuthManager::login()` directly, so an account with two-factor turned on was
   logged in by the provider alone — or by anybody who opened a provider account

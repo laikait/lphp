@@ -40,7 +40,7 @@ final class ArrayStore implements SessionStore
             return null;
         }
 
-        return SessionRecord::decode($this->records[$id]);
+        return SessionRecord::decode($this->records[$id], $id);
     }
 
     public function commit(string $id, \Closure $apply): ?SessionRecord
@@ -80,7 +80,7 @@ final class ArrayStore implements SessionStore
         $removed = 0;
 
         foreach ($this->records as $id => $encoded) {
-            $record = SessionRecord::decode($encoded);
+            $record = SessionRecord::decode($encoded, (string) $id);
 
             if ($record === null || $record->hasExpired($idle, $absolute)) {
                 unset($this->records[$id]);

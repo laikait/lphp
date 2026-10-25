@@ -1032,6 +1032,8 @@ final class ArchitectureTest extends TestCase
             'TemplateRegistry.php',
             'TemplateSource.php',
             'TemplateView.php',
+            'ThemeProvider.php',
+            'ThemeRegistry.php',
             'TwigTemplateEngine.php',
         ];
 

@@ -40,8 +40,15 @@ use App\Engine\Session\SessionStore;
  * it does it at the worst possible time. `migrate` creates it, from
  * SessionTableMigration, while session.store is "database".
  *
- * The id and the timestamps appear both as columns and inside the JSON, and
- * that duplication is deliberate. The columns exist so that the sweep is one
+ * **The id column holds the session id's SHA-256, never the id.** A session id
+ * is a live login, and a sessions table is read by more people than its
+ * purpose suggests: a backup, a reporting replica, a support query. The JSON
+ * carries the same hash (SessionRecord::encode()), the file store names its
+ * files by it, and every lookup hashes the id it was given. The hash is as
+ * long as an id, so the column is unchanged.
+ *
+ * The timestamps appear both as columns and inside the JSON, and that
+ * duplication is deliberate. The columns exist so that the sweep is one
  * indexed DELETE rather than a read loop; the JSON is the canonical record, so
  * every store in this framework decodes the same bytes with the same code and
  * a session written by one can be read by another.
@@ -66,7 +73,7 @@ final class DatabaseStore implements SessionStore
             return null;
         }
 
-        return $this->decode($this->row($id, lock: false));
+        return $this->decode($this->row($id, lock: false), $id);
     }
 
     public function commit(string $id, \Closure $apply): ?SessionRecord
@@ -78,11 +85,11 @@ final class DatabaseStore implements SessionStore
         /** @var SessionRecord|null $result */
         $result = $this->connection->transaction(function () use ($id, $apply): ?SessionRecord {
             $existing = $this->row($id, lock: true);
-            $record = $apply($this->decode($existing));
+            $record = $apply($this->decode($existing, $id));
 
             if ($record === null) {
                 if ($existing !== null) {
-                    $this->sessions()->where('id', $id)->delete();
+                    $this->sessions()->where('id', SessionRecord::keyFor($id))->delete();
                 }
 
                 return null;
@@ -96,9 +103,9 @@ final class DatabaseStore implements SessionStore
             ];
 
             if ($existing === null) {
-                $this->sessions()->insert(['id' => $record->id, ...$columns]);
+                $this->sessions()->insert(['id' => SessionRecord::keyFor($record->id), ...$columns]);
             } else {
-                $this->sessions()->where('id', $record->id)->update($columns);
+                $this->sessions()->where('id', SessionRecord::keyFor($record->id))->update($columns);
             }
 
             return $record;
@@ -113,7 +120,7 @@ final class DatabaseStore implements SessionStore
             return false;
         }
 
-        return $this->sessions()->where('id', $id)->delete() > 0;
+        return $this->sessions()->where('id', SessionRecord::keyFor($id))->delete() > 0;
     }
 
     /**
@@ -150,7 +157,7 @@ final class DatabaseStore implements SessionStore
     /** @return array<string, mixed>|null */
     private function row(string $id, bool $lock): ?array
     {
-        $query = $this->sessions()->select('id', 'payload', 'created_at', 'touched_at', 'successor')->where('id', $id);
+        $query = $this->sessions()->select('id', 'payload', 'created_at', 'touched_at', 'successor')->where('id', SessionRecord::keyFor($id));
 
         try {
             return ($lock ? $query->lockForUpdate() : $query)->first();
@@ -168,12 +175,12 @@ final class DatabaseStore implements SessionStore
     }
 
     /** @param array<string, mixed>|null $row */
-    private function decode(?array $row): ?SessionRecord
+    private function decode(?array $row, string $id): ?SessionRecord
     {
         if ($row === null || !isset($row['payload']) || !\is_string($row['payload'])) {
             return null;
         }
 
-        return SessionRecord::decode($row['payload']);
+        return SessionRecord::decode($row['payload'], $id);
     }
 }

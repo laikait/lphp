@@ -32,12 +32,6 @@ use App\Engine\Security\Secret;
 final class Password
 {
     /**
-     * Only needed where a value is required and there is nothing to hash
-     * against; never stored, never compared to anything real.
-     */
-    private const DUMMY = '$2y$10$usesomesillystringfoxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxu';
-
-    /**
      * @param array<string, int|string> $options passed straight to PHP, e.g.
      *                                           ['cost' => 12]. Empty means the
      *                                           algorithm's own default, which
@@ -69,11 +63,19 @@ final class Password
      *
      * A null or empty hash answers false, and takes the same time doing it as
      * a real comparison would. See the class docblock.
+     *
+     * The cost is paid by hashing the password with this instance's own
+     * algorithm and options and throwing the result away -- not by checking
+     * it against a fixed dummy hash. A fixed one has a fixed cost: it used to
+     * be bcrypt at cost 10, so configuring cost 12 (or running PHP 8.4, whose
+     * default is 12) made a missing account answer four times faster than a
+     * real one. A hash made now always costs exactly what checking a hash made
+     * by hash() costs.
      */
     public function verify(Secret $plain, ?string $hash): bool
     {
         if ($hash === null || $hash === '') {
-            \password_verify($plain->reveal(), self::DUMMY);
+            \password_hash($plain->reveal(), \PASSWORD_DEFAULT, $this->options);
 
             return false;
         }

@@ -254,11 +254,9 @@ file exists.
 
 Without a CDN, the country can come from a MaxMind database on the server:
 GeoLite2 (free, needs a MaxMind account to download) or GeoIP2, **Country or
-City** — both have the country, and City is simply larger.
-
-```bash
-composer require maxmind-db/reader
-```
+City** — both have the country, and City is simply larger. The reader,
+`maxmind-db/reader`, is installed with the framework; only the database file is
+yours to download.
 
 ```php
 // config/localization.php
@@ -339,7 +337,7 @@ responses `Cache-Control: private`.
 | `Unknown "local" filter` | A Twig engine built outside `Bootstrap` | Render through the application's `TemplateManager` |
 | The cookie is ignored | No `lang/<value>.php`, or the value is not a tag | Name the file exactly as the tag: `pt-BR.php` |
 | The country is ignored | The request did not come from `http.trusted_proxies`, or no `country_header` | Configure both |
-| `the MaxMind reader is not installed` | `maxmind_database` is set without the package | `composer require maxmind-db/reader` |
+| `the MaxMind reader is not installed` | The package was removed from `vendor/` (it is a regular dependency) | `composer install` |
 | Every visitor gets the same country from MaxMind | The app sees the proxy's address | Add the proxy to `http.trusted_proxies` |
 | `pt_BR.php` is not a language | File names are canonical tags | Rename it `pt-BR.php` |
 

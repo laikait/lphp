@@ -126,7 +126,7 @@ to confirm the web server still serves no source files.
 ## Maintenance mode
 
 ```bash
-php laika down --retry=120 --message="Back at 14:00 UTC" --allow=203.0.113.7,10.0.0.0/8 --secret=preview-token
+php laika down --retry=120 --message="Back at 14:00 UTC" --allow=203.0.113.7,10.0.0.0/8 --secret=preview-token-2026-10
 php laika up
 ```
 

@@ -26,10 +26,16 @@ namespace App\Engine\Template;
  * would have resolved them — including the override rule. If they did not
  * agree, a template found by one would be missing to the other, which is the
  * sort of bug that takes a day.
+ *
+ * An active theme is part of that mirror. Its directory goes in front, as it
+ * does for the manager, and each theme gets an Environment of its own: a
+ * FilesystemLoader remembers what a name resolved to, so one loader shared
+ * between themes would hand the second theme the first one's layout.
  */
 final class TwigTemplateEngine implements TemplateEngine
 {
-    private ?\Twig\Environment $twig = null;
+    /** @var array<string, \Twig\Environment> one per theme root, "" for none */
+    private array $twigs = [];
 
     /** @param string|null $cacheDirectory null disables Twig's compilation cache */
     public function __construct(
@@ -45,6 +51,8 @@ final class TwigTemplateEngine implements TemplateEngine
         private readonly ?\Closure $translator = null,
         /** The filters and functions modules offer; see TemplateHelpers. */
         private readonly TemplateHelpers $helpers = new TemplateHelpers(),
+        /** Which theme to search ahead of templates/; see ThemeRegistry. */
+        private readonly ?ThemeRegistry $themes = null,
     ) {}
 
     public function extensions(): array
@@ -82,23 +90,28 @@ final class TwigTemplateEngine implements TemplateEngine
      * so an Environment built at wiring time would have an empty loader. Being
      * lazy also means a request that renders no Twig template -- an API call,
      * an asset -- never builds an Environment at all.
+     *
+     * The one returned is the active theme's, built the first time that theme
+     * renders.
      */
     public function twig(): \Twig\Environment
     {
-        if ($this->twig instanceof \Twig\Environment) {
-            return $this->twig;
+        $theme = $this->themes?->activeRoot();
+
+        if (isset($this->twigs[$theme ?? ''])) {
+            return $this->twigs[$theme ?? ''];
         }
 
         $loader = new \Twig\Loader\FilesystemLoader();
 
-        foreach ($this->registry->searchPath(null) as $path) {
+        foreach ($this->registry->searchPath(null, $theme) as $path) {
             if (\is_dir($path)) {
                 $loader->addPath($path);
             }
         }
 
         foreach ($this->registry->namespaces() as $namespace) {
-            foreach ($this->registry->searchPath($namespace) as $path) {
+            foreach ($this->registry->searchPath($namespace, $theme) as $path) {
                 if (\is_dir($path)) {
                     $loader->addPath($path, $namespace);
                 }
@@ -130,7 +143,7 @@ final class TwigTemplateEngine implements TemplateEngine
 
         $this->addHelpers($twig);
 
-        return $this->twig = $twig;
+        return $this->twigs[$theme ?? ''] = $twig;
     }
 
     /**
@@ -180,9 +193,9 @@ final class TwigTemplateEngine implements TemplateEngine
         }
     }
 
-    /** Forget the Environment, so a later registration is picked up. */
+    /** Forget every Environment, so a later registration is picked up. */
     public function flush(): void
     {
-        $this->twig = null;
+        $this->twigs = [];
     }
 }

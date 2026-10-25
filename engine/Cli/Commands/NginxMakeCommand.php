@@ -102,10 +102,18 @@ final class NginxMakeCommand
                 # The application's own assets are served directly; /assets/core/<path> is
                 # public/assets/<path>. Every other asset namespace lives in modules/ or
                 # templates/ and goes through the front controller.
+                #
+                # ^~ stops nginx looking at the regex locations, so the dotfile rule
+                # above does not reach in here: it is repeated inside. A file served
+                # here never reaches PHP, so nosniff is added here as well.
                 location ^~ /assets/core/ {
                     alias {$root}/public/assets/;
                     access_log off;
+                    add_header X-Content-Type-Options "nosniff" always;
+                    location ~ /\. { deny all; }
                 }
+
+                # nginx answers TRACE with 405 by itself; there is nothing to add.
 
                 location / {
                     try_files \$uri /index.php\$is_args\$args;

@@ -60,10 +60,18 @@ object — usually a stale copy of a row that changed an hour ago, occasionally 
 class that no longer exists, which is a fatal error on a page nobody touched.
 **Keep an id in the session and load the object from it.**
 
-**File names are SHA-256 hashes, not ids.** A session id is a live credential:
-whoever holds one is the user. A folder listing, a backup manifest or an `ls` in
-a support ticket should not hand over an account, so the id appears only inside
-the file, which needs read permission to reach.
+**No store keeps the id itself.** A session id is a live credential: whoever
+holds one is the user. File names, the database's `id` column and the stored
+record all hold the id's SHA-256, and every lookup hashes the id it was given,
+so a folder listing, a backup, a reporting replica or a support query on the
+table hands over no account. A record written before this, which held the id in
+the clear, still reads with the same cookie; rows in the database store are
+looked up by the hash, so database sessions from before the change are logged
+out once.
+
+One live id is still stored: a regenerated session's **successor**, which the
+old id points to for the grace window (`session.grace`, 30 seconds) so a
+request already in flight follows the regeneration.
 
 ### The database store
 

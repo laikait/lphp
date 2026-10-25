@@ -33,18 +33,28 @@ one. The `?v=` is how the browser finds out.
 
 ## Where the files go
 
-There are four places, and no fifth. Each has its own URL prefix:
+Each place has its own URL prefix:
 
 | Write the file here | It is served at | Link to it with |
 |---|---|---|
 | `public/assets/` | `/assets/core/` | `asset()->core('css/app.css')` |
 | `templates/assets/` | `/assets/template/` | `asset()->template('css/app.css')` |
+| `templates/dark/assets/` | `/assets/template/dark/` | `asset()->template('dark', 'css/app.css')` |
+| `templates/admin/dark/assets/` | `/assets/template/admin/dark/` | `asset()->template('admin/dark', 'css/app.css')` |
 | `modules/Example/assets/` | `/assets/module/Example/` | `asset()->module('Example', 'js/x.js')` |
 | `modules/Stripe/assets/` | `/assets/module/Stripe/` | `asset()->module('Stripe', 'js/x.js')` |
 
 Use `public/assets/` for the application's own files and `templates/assets/` for
 files belonging to the look of the site. A module's files go in its own
 `assets/` folder, so that installing the module brings them with it.
+
+**A theme is published because it is registered**, in `templates.themes` or by a
+provider; a folder under `templates/` alone publishes nothing. See
+[Themes](templates.md#themes). A theme's assets are always named in the call and
+never fall back: a file missing from `templates/admin/dark/assets/` is a 404, not
+the copy in `templates/assets/`. When a URL could name either, the longest
+registered theme wins, so `/assets/template/admin/dark/…` is the `admin/dark`
+theme even when `admin` is registered too.
 
 **A module is published because it has an `assets/` folder** — there is nothing
 to declare in `module.php`. Create the folder, put a file in it, and it is
@@ -103,6 +113,12 @@ file can arrive with an unchanged date, and every browser keeps the old copy. A
 hash of the contents cannot be wrong about whether the contents changed. Set
 `assets.versioning` to `modified` or `none` if you would rather not pay for the
 read.
+
+Outside debug mode the hash is computed once and kept in the cache, keyed by the
+file's size and modification time as well as its name. A deploy that changes a
+file therefore gets a new `?v=` even if nobody runs `cache:clear`; the one case
+it misses is a file rewritten with the same size *and* the same timestamp, which
+`cache:clear` after the deploy covers.
 
 **If you use a bundler**, its manifest wins. `assets/manifest.json` maps the name
 you write to the file it built, in either of these shapes:

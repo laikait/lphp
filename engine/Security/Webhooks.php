@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Engine\Security;
 
 use App\Engine\Cache\AtomicStore;
+use App\Engine\Cache\Stores\ArrayStore;
 use App\Engine\Cache\Cache;
 use App\Engine\Http\HttpException;
 use App\Engine\Http\Request;
@@ -43,6 +44,13 @@ use App\Engine\Http\Request;
  * atomic add(), so the second delivery of an id comes back as a duplicate.
  * That needs a cache every process shares (file or database): the array
  * store forgets at the end of the request.
+ *
+ * **Without one, receive() refuses** rather than accept every delivery as
+ * new. Before, a cache that could not remember -- the array store, which is
+ * the default, or none at all -- silently turned de-duplication off, and for
+ * github, shopify and hmac, which sign no timestamp, nothing else stopped a
+ * captured delivery being sent again a year later. Bootstrap asks for the
+ * refusal; a test that builds this directly with an in-process store does not.
  */
 final class Webhooks
 {
@@ -58,7 +66,22 @@ final class Webhooks
         private readonly array $sources,
         private readonly ?Cache $cache = null,
         private readonly ?\Closure $clock = null,
+        /** Refuse to receive when the cache cannot remember an id across requests. */
+        private readonly bool $requireSharedCache = false,
     ) {}
+
+    /**
+     * Whether a delivery seen by one request is remembered by the next.
+     *
+     * Atomic and outliving the request: the array store is atomic, but it is
+     * gone when the request ends, so to a replay every delivery is the first.
+     */
+    public function remembersAcrossRequests(): bool
+    {
+        $store = $this->cache?->store();
+
+        return $store instanceof AtomicStore && !$store instanceof ArrayStore;
+    }
 
     /**
      * Verify a delivery, and say whether it was seen before.
@@ -79,6 +102,10 @@ final class Webhooks
 
         if ($secrets === []) {
             throw SecurityException::webhookWithoutSecret($source);
+        }
+
+        if ($this->requireSharedCache && !$this->remembersAcrossRequests()) {
+            throw SecurityException::webhookWithoutReplayProtection($source);
         }
 
         $tolerance = \is_int($settings['tolerance'] ?? null) ? $settings['tolerance'] : self::TOLERANCE;
