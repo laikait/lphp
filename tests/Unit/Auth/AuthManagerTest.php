@@ -59,7 +59,7 @@ final class AuthManagerTest extends TestCase
         }
     }
 
-    private function manager(Request $request = null, bool $withToken = true): AuthManager
+    private function manager(?Request $request = null, bool $withToken = true): AuthManager
     {
         $authenticators = $withToken ? [new TokenAuthenticator($this->provider)] : [];
         $authenticators[] = new SessionAuthenticator($this->sessions, $this->provider);

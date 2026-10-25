@@ -84,11 +84,13 @@ final class ErrorHandler
      *                         it. A test passes ob_get_level(), so the test
      *                         runner's own buffer survives.
      * @param ?\Closure(): bool $headersSent whether the response has already
-     *                         begun; null asks headers_sent(). A test answers
+     *                         begun, which decides whether to render a page
+     *                         at all; null asks headers_sent(). A test answers
      *                         for itself, because in the CLI headers_sent() is
-     *                         true as soon as anything -- PHPUnit's progress
-     *                         dots -- reached stdout, which made the browser
-     *                         path depend on what ran before the test.
+     *                         true as soon as anything reached stdout -- a
+     *                         deprecation another test file triggered, say --
+     *                         which made the browser path depend on what ran
+     *                         before the test. Calls to header() still ask PHP.
      */
     public function __construct(
         private Config $config,
@@ -467,7 +469,10 @@ final class ErrorHandler
         // Whatever the failed page managed to write goes too.
         $this->discardOutput();
 
-        if (!$this->headersSent()) {
+        // PHP's own answer, not headersSent(): this is about whether header()
+        // can still work, and a test that says "nothing has gone out" must not
+        // make it try when something really has.
+        if (!\headers_sent()) {
             \http_response_code(500);
             \header('Content-Type: text/html; charset=UTF-8');
         }
