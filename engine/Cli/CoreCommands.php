@@ -66,10 +66,10 @@ use App\Engine\System\Cron\ScheduleRunJob;
  * answer -- what loaded, what routes exist, where templates are searched.
  * nginx:make writes web server configuration, which nothing in the framework
  * reads. module:make is the one generator, and it writes the one file a module
- * requires, exactly as modules.md documents it. A make:something command writes
+ * requires, exactly as modules.md documents it, plus the starter files --with asks for. A make:something command writes
  * a file whose shape the framework then quietly depends on, and scaffolding is
  * how a framework stops being a library you call and starts being a thing you
- * live inside; so there is no make:controller, and module:make adds no folders.
+ * live inside; so there is no make:controller, and module:make adds no folder unless asked.
  */
 final class CoreCommands
 {
@@ -102,6 +102,7 @@ final class CoreCommands
         $commands->add('module:make', ModuleMakeCommand::class)
             ->describe('Create modules/<name>/module.php, the one file a module needs.')
             ->argument('name', 'Billing, or Plugins/Billing to put it in a group folder. The module id is the last part.')
+            ->option('with', 'Also create: http, model, database, seeder, templates, assets, lang, or all (comma-separated).')
             ->note('Writes module.php only and never overwrites. A grouped module loads once modules/<Group> is in modules.paths: it creates config/modules.php for that, or tells you what to add to an existing one.');
 
         $commands->add('route:list', RouteListCommand::class)

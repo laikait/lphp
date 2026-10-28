@@ -238,7 +238,8 @@ depends on, and that shape is undocumented because the generator *is* the
 documentation. It is how a framework stops being a library you call and becomes
 a thing you live inside. So `module:make` writes the `module.php` that
 [Modules: Start a new module](modules.md#start-a-new-module) documents line for
-line, and nothing else: no folders, no sample handler, no options.
+line, plus only the starter files you name with `--with`: nothing is created for
+later.
 
 ### `module:make`
 
@@ -248,10 +249,35 @@ php laika module:make Plugins/Billing    # modules/Plugins/Billing/module.php
 php laika module:list                    # Billing is there; nothing was registered
 ```
 
-Creates `module.php` and nothing else. Each part of the name must be a capital
+Creates `module.php`, and nothing else unless `--with` asks (below). Each part of the name must be a capital
 letter followed by letters, digits or underscores (`Billing`, `OrderHistory`),
 which also rules out `..`, drive letters and anything that is not a name. `/`
 and `\` both separate. At most one group level is allowed.
+
+**`--with` adds starter files**, one small working file per part, each the shape
+the framework documents for it:
+
+```bash
+php laika module:make Billing --with=http,templates
+php laika module:make Plugins/Billing --with=database,seeder,model
+php laika module:make Billing --with=all
+```
+
+| Part | Writes |
+|---|---|
+| `http` | `Http/Index.php`, an invokable handler, and a `GET /billing` route in `module.php`. With `database` too, the handler lists the `name` of every row in the module's table (and, with `templates`, hands them to the template as `$rows`) |
+| `model` | `Model/Billing.php`, extending `Model` |
+| `database` | `Database/Migrations/<UTC timestamp>_create_billing_table.php`, a `Reversible` creating `billing` (`id`, `name`, timestamps) |
+| `seeder` | `Database/Seeders/billing.php`, adding one row only if it is absent. Needs `database`, whose table it fills |
+| `templates` | `Templates/index.php`, found as `@Billing/index`. With `http`, the handler renders it |
+| `assets` | `assets/css/billing.css`, served at `/assets/module/Billing/css/billing.css` |
+| `lang` | `lang/en.php` |
+
+`all` is every part. Names are derived from the id: `OrderHistory` gives the
+table `order_history`, the route `/order-history` and the file `order_history.php`.
+An unknown part, or `seeder` without `database`, is refused before anything is
+written. In a grouped module the classes are in `App\Modules\Plugins\Billing\…`.
+Edit the generated files freely; nothing reads them differently from a file you wrote.
 
 **The module id is the last part.** `Plugins/Billing` is the module `Billing`:
 discovery names a module after its own folder, so the id (and `@Billing/…`,

@@ -19,7 +19,10 @@ public, is in [`STABILITY.md`](STABILITY.md).
   (`Plugins/Billing`: id `Billing`, loaded once `modules/Plugins` is in
   `modules.paths`: the command creates `config/modules.php` when there is none,
   and prints the line to add when there is one). It never overwrites,
-  and a folder differing only by case counts as taken. It is the framework's single
+  and a folder differing only by case counts as taken. `--with=http,model,database,seeder,templates,assets,lang`
+  (or `all`) also writes one starter file per part you name (with `http` and
+  `database` together, the handler lists the rows of the module's table), and nothing for
+  parts you do not. It is the framework's single
   generator: there is still no `make:controller` and the architecture test that
   pins the command list now includes it.
 - **OpenAPI descriptions.** Routes with `'openapi' => true` or an array of

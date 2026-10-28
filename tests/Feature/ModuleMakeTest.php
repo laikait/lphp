@@ -10,6 +10,14 @@ use App\Engine\Config\Config;
 use App\Engine\Container\Container;
 use App\Engine\Core\Application;
 use App\Engine\Core\ExecutionContext;
+use App\Engine\Database\ConnectionConfig;
+use App\Engine\Database\ConnectionManager;
+use App\Engine\Database\Structure\Tables;
+use App\Engine\Http\Request;
+use App\Engine\Migration\MigrationFile;
+use App\Engine\Migration\Reversible;
+use App\Engine\Migration\Seeder;
+use App\Engine\Migration\SeederFile;
 use App\Engine\Module\ModuleDiscovery;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
@@ -54,7 +62,7 @@ final class ModuleMakeTest extends TestCase
      *
      * @return array{int, string}
      */
-    private function make(string $name, array $paths = ['modules']): array
+    private function make(string $name, array $paths = ['modules'], ?string $with = null): array
     {
         $container = new Container();
         $container->instance(Config::class, new Config(['modules' => ['paths' => $paths]]));
@@ -63,7 +71,7 @@ final class ModuleMakeTest extends TestCase
         $stream = \fopen('php://memory', 'r+');
         self::assertIsResource($stream);
 
-        $status = (new ModuleMakeCommand($app))(new Output($stream), $name);
+        $status = (new ModuleMakeCommand($app))(new Output($stream), $name, $with);
 
         \rewind($stream);
         $output = (string) \stream_get_contents($stream);
@@ -111,8 +119,6 @@ final class ModuleMakeTest extends TestCase
         return [
             'lowercase first' => ['billing'],
             'three levels' => ['A/B/C'],
-            'trailing slash' => ['Plugins/'],
-            'leading slash' => ['/Billing'],
             'double slash' => ['Plugins//Billing'],
             'lowercase module' => ['Plugins/billing'],
             'lowercase group' => ['plugins/Billing'],
@@ -262,6 +268,135 @@ final class ModuleMakeTest extends TestCase
         self::assertDirectoryDoesNotExist($this->base . '/config');
     }
 
+    public function test_slashes_around_a_name_are_ignored(): void
+    {
+        self::assertSame(0, $this->make('/Billing/')[0]);
+        self::assertFileExists($this->base . '/modules/Billing/module.php');
+    }
+
+    /** @return array<string, array{string, list<string>}> */
+    public static function parts(): array
+    {
+        $migration = 'Database/Migrations/%s_create_order_history_table.php';
+
+        return [
+            'http' => ['http', ['module.php', 'Http/Index.php']],
+            'model' => ['model', ['module.php', 'Model/OrderHistory.php']],
+            'database' => ['database', ['module.php', $migration]],
+            'database and seeder' => ['database,seeder', ['module.php', $migration, 'Database/Seeders/order_history.php']],
+            'http and database' => ['http,database', ['module.php', 'Http/Index.php', $migration]],
+            'http, database and templates' => ['http,database,templates', ['module.php', 'Http/Index.php', $migration, 'Templates/index.php']],
+            'templates' => ['templates', ['module.php', 'Templates/index.php']],
+            'http and templates' => ['http,templates', ['module.php', 'Http/Index.php', 'Templates/index.php']],
+            'assets' => ['assets', ['module.php', 'assets/css/order-history.css']],
+            'lang' => ['lang', ['module.php', 'lang/en.php']],
+            'duplicates and case' => ['LANG, lang', ['module.php', 'lang/en.php']],
+        ];
+    }
+
+    /** @param list<string> $expected */
+    #[DataProvider('parts')]
+    public function test_each_part_writes_its_files_and_only_those(string $with, array $expected): void
+    {
+        [$status] = $this->make('OrderHistory', with: $with);
+        self::assertSame(0, $status);
+
+        $root = $this->base . '/modules/OrderHistory';
+        $found = [];
+
+        foreach (new \RecursiveIteratorIterator(new \RecursiveDirectoryIterator($root, \FilesystemIterator::SKIP_DOTS)) as $file) {
+            $found[] = \str_replace('\\', '/', \substr((string) $file, \strlen($root) + 1));
+
+            if (\str_ends_with((string) $file, '.php')) {
+                \exec(\escapeshellarg(PHP_BINARY) . ' -l ' . \escapeshellarg((string) $file) . ' 2>&1', $lines, $code);
+                self::assertSame(0, $code, $file . ': ' . \implode("\n", $lines));
+            }
+        }
+
+        // The migration's name starts with a timestamp, so match it by its tail.
+        $found = \array_map(static fn(string $path): string => \preg_replace('#/\d{4}_\d{2}_\d{2}_\d{6}_#', '/%s_', $path) ?? $path, $found);
+        \sort($found);
+        \sort($expected);
+
+        self::assertSame($expected, $found);
+    }
+
+    public function test_all_parts_on_a_grouped_module_use_the_group_in_every_namespace(): void
+    {
+        self::assertSame(0, $this->make('Plugins/Billing', ['modules', 'modules/Plugins'], 'all')[0]);
+
+        $root = $this->base . '/modules/Plugins/Billing';
+        self::assertStringContainsString('namespace App\Modules\Plugins\Billing\Http;', (string) \file_get_contents($root . '/Http/Index.php'));
+        self::assertStringContainsString('namespace App\Modules\Plugins\Billing\Model;', (string) \file_get_contents($root . '/Model/Billing.php'));
+        self::assertStringContainsString('use App\Modules\Plugins\Billing\Http\Index;', (string) \file_get_contents($root . '/module.php'));
+    }
+
+    public function test_the_generated_files_are_the_shapes_the_framework_reads(): void
+    {
+        $this->make('Billing', with: 'all');
+        $root = $this->base . '/modules/Billing';
+
+        $migration = \glob($root . '/Database/Migrations/*.php') ?: [];
+        self::assertCount(1, $migration);
+        self::assertMatchesRegularExpression(MigrationFile::PATTERN, \basename($migration[0], '.php'));
+        self::assertInstanceOf(Reversible::class, require $migration[0]);
+
+        self::assertMatchesRegularExpression(SeederFile::PATTERN, 'billing');
+        self::assertInstanceOf(Seeder::class, require $root . '/Database/Seeders/billing.php');
+
+        self::assertSame(['title' => 'Billing'], require $root . '/lang/en.php');
+        self::assertInstanceOf(\Closure::class, require $root . '/module.php');
+        self::assertStringContainsString("'/billing', Index::class", (string) \file_get_contents($root . '/module.php'));
+    }
+
+    /** @return array<string, array{string}> */
+    public static function badParts(): array
+    {
+        return [
+            'unknown' => ['controllers'],
+            'empty' => [''],
+            'empty entry' => ['http,'],
+            'seeder alone' => ['seeder'],
+            'seeder without database' => ['http,seeder'],
+        ];
+    }
+
+    #[DataProvider('badParts')]
+    public function test_a_bad_with_list_is_refused_and_writes_nothing(string $with): void
+    {
+        [$status, $output] = $this->make('Billing', with: $with);
+
+        self::assertSame(1, $status);
+        self::assertStringContainsString('--with takes', $output);
+        self::assertSame([], \glob($this->base . '/*') ?: []);
+    }
+
+    public function test_a_repeat_run_with_parts_is_refused_and_changes_nothing(): void
+    {
+        $root = $this->base . '/modules/Billing';
+
+        self::assertSame(0, $this->make('Billing', with: 'all')[0]);
+        $before = $this->tree($this->base);
+
+        self::assertSame(1, $this->make('Billing', with: 'all')[0]);
+        self::assertSame($before, $this->tree($this->base));
+        self::assertFileExists($root . '/module.php');
+    }
+
+    /** @return list<string> */
+    private function tree(string $directory): array
+    {
+        $paths = [];
+
+        foreach (new \RecursiveIteratorIterator(new \RecursiveDirectoryIterator($directory, \FilesystemIterator::SKIP_DOTS), \RecursiveIteratorIterator::SELF_FIRST) as $path) {
+            $paths[] = (string) $path;
+        }
+
+        \sort($paths);
+
+        return $paths;
+    }
+
     public function test_an_existing_group_folder_is_reused_and_an_existing_nested_module_is_not_overwritten(): void
     {
         \mkdir($this->base . '/modules/Plugins/Billing', 0o775, true);
@@ -307,4 +442,52 @@ final class ModuleMakeTest extends TestCase
 
         self::assertSame(1, $status);
         self::assertSame('in the way', \file_get_contents($this->base . '/modules/Plugins'));
+    }
+
+    public function test_the_handler_lists_the_rows_of_the_table_the_migration_creates(): void
+    {
+        if (!\in_array('sqlite', \PDO::getAvailableDrivers(), true)) {
+            self::markTestSkipped('pdo_sqlite is not available.');
+        }
+
+        $this->make('Ledger', with: 'http,database');
+        $root = $this->base . '/modules/Ledger';
+
+        $connections = new ConnectionManager([ConnectionConfig::of('test', 'sqlite::memory:')], 'test');
+        $connection = $connections->connection();
+
+        $migration = \glob($root . '/Database/Migrations/*.php') ?: [];
+        (require $migration[0])->up(new Tables($connection));
+        $connection->table('ledger')->insert(['name' => '<b>Rent</b>']);
+        $connection->table('ledger')->insert(['name' => 'Food']);
+
+        require $root . '/Http/Index.php';
+        // Generated a moment ago, so it is known to no analyser: name it at run time.
+        $class = 'App\\Modules\\' . \basename($root) . '\\Http\\Index';
+        self::assertTrue(\class_exists($class));
+        $handler = new $class($connections);
+        self::assertTrue(\is_callable($handler));
+        $body = $handler(Request::create('GET', '/ledger'))->body();
+
+        self::assertStringContainsString('<li>Food</li>', $body);
+        self::assertStringContainsString('<li>&lt;b&gt;Rent&lt;/b&gt;</li>', $body);
+        self::assertStringNotContainsString('<b>Rent', $body);
+    }
+
+    public function test_the_handler_only_reads_the_table_when_database_is_asked_for(): void
+    {
+        $this->make('Plain', with: 'http,templates');
+        $handler = (string) \file_get_contents($this->base . '/modules/Plain/Http/Index.php');
+        self::assertStringNotContainsString('ConnectionManager', $handler);
+        self::assertStringNotContainsString('$rows', (string) \file_get_contents($this->base . '/modules/Plain/Templates/index.php'));
+
+        $this->make('Listed', with: 'http,database,templates');
+        $handler = (string) \file_get_contents($this->base . '/modules/Listed/Http/Index.php');
+        self::assertStringContainsString("->table('listed')", $handler);
+        self::assertStringContainsString("['rows' => \$rows]", $handler);
+        self::assertStringContainsString('foreach ($rows as $row)', (string) \file_get_contents($this->base . '/modules/Listed/Templates/index.php'));
+
+        // A template with no handler to give it rows must not read any.
+        $this->make('Orphan', with: 'database,templates');
+        self::assertStringNotContainsString('$rows', (string) \file_get_contents($this->base . '/modules/Orphan/Templates/index.php'));
     }}

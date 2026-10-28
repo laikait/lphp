@@ -1717,7 +1717,7 @@ final class ArchitectureTest extends TestCase
             'about',
             'help',
             'module:list',
-            // The one generator: module.php, the documented skeleton, never more.
+            // The one generator: module.php, the documented skeleton, plus only the --with parts.
             'module:make',
             'nginx:make',
             'queue:failed',
