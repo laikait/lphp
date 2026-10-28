@@ -13,6 +13,15 @@ public, is in [`STABILITY.md`](STABILITY.md).
 
 ### Added
 
+- **`php laika module:make <Name>`.** Creates `modules/<Name>/module.php`, the
+  skeleton [Modules](docs/reference/modules.md#start-a-new-module) documents, and
+  nothing else. The name is a valid module id, optionally with one group folder
+  (`Plugins/Billing`: id `Billing`, loaded once `modules/Plugins` is in
+  `modules.paths`: the command creates `config/modules.php` when there is none,
+  and prints the line to add when there is one). It never overwrites,
+  and a folder differing only by case counts as taken. It is the framework's single
+  generator: there is still no `make:controller` and the architecture test that
+  pins the command list now includes it.
 - **OpenAPI descriptions.** Routes with `'openapi' => true` or an array of
   details (summary, tags, path/query/header parameters, a `Schema` body,
   responses) are described as an OpenAPI 3.1 document, with the schemas their
