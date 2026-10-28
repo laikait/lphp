@@ -11,6 +11,14 @@ order. An entry that cannot say who is affected is not finished.
 
 ## To the next release, from 3.0.1
 
+### Stability levels
+
+- **Changed:** every API [`STABILITY.md`](STABILITY.md) marked Experimental is
+  now Stable.
+- **Affected:** nothing in your code. Only the promise changed: a Stable API is
+  no longer changed in a minor release.
+- **Do:** nothing.
+
 ### HTML pages get a Content-Security-Policy
 
 - **Changed:** with debug off and `security.headers.csp` unset, HTML responses

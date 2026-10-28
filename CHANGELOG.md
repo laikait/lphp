@@ -182,6 +182,10 @@ public, is in [`STABILITY.md`](STABILITY.md).
 
 ### Changed
 
+- **Every public API is Stable.** Everything [`STABILITY.md`](STABILITY.md)
+  marked Experimental is now Stable: changing it takes a deprecation in a minor
+  release and a major version. Internal classes and persisted formats are
+  unchanged, and the Experimental level stays available for new additions.
 - **`@assets/…` is not a template name.** Its override folder would be
   `templates/assets/`, which holds static files. Breaking only for a module
   whose id is `assets`: see [`UPGRADING.md`](UPGRADING.md).
