@@ -36,6 +36,25 @@ final class RequestLimits
     public const DEFAULT_BYTES = 8388608;
 
     /**
+     * What a Host header may be: a DNS name, an IPv4 address or a bracketed
+     * IPv6 one, then an optional port.
+     *
+     * Checked whatever trusted_hosts says, because the header is client input
+     * that ends up in comparisons, cache keys and log lines: "evil.com/x",
+     * "a b" or a name stuffed with quotes is never a host a browser sends.
+     * Labels may hold an underscore, which DNS forbids but container networks
+     * use; international names arrive as punycode, which this allows.
+     */
+    private const HOST_PATTERN = '/^(?:\[[0-9A-Fa-f:.]+\]|[A-Za-z0-9_](?:[A-Za-z0-9_-]{0,61}[A-Za-z0-9_])?'
+        . '(?:\.[A-Za-z0-9_](?:[A-Za-z0-9_-]{0,61}[A-Za-z0-9_])?)*\.?)(?::[0-9]{1,5})?$/';
+
+    /** Whether a Host header is shaped like a host at all; see HOST_PATTERN. An absent one is fine. */
+    public static function isWellFormedHost(?string $header): bool
+    {
+        return $header === null || $header === '' || (\strlen($header) <= 260 && \preg_match(self::HOST_PATTERN, $header) === 1);
+    }
+
+    /**
      * @param list<string> $trustedHosts host names this application answers to
      *                                   ("example.com", "*.example.com"); empty accepts any
      */
@@ -88,12 +107,22 @@ final class RequestLimits
 
     public function __invoke(Request $request): void
     {
+        if (!self::isWellFormedHost($request->header('Host'))) {
+            throw HttpException::badRequest('The Host header is not a host name.');
+        }
+
         if (!$this->trustsHost($request->host())) {
             throw HttpException::badRequest('The Host header is not one this application serves.');
         }
 
         if ($request->hasMalformedInput()) {
             throw HttpException::badRequest('The request contains text that is not valid UTF-8, or a NUL byte.');
+        }
+
+        // Over the limit whatever the headers said -- including a chunked body,
+        // which has no Content-Length to judge it by. See Request::readBody().
+        if ($request->bodyTooLarge()) {
+            throw HttpException::payloadTooLarge($this->maxBytes);
         }
 
         $length = $this->contentLength($request);

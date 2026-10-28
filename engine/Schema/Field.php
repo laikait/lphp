@@ -317,6 +317,18 @@ final class Field
         return $this->default;
     }
 
+    /**
+     * The regular expression given to pattern(), delimiters and all.
+     *
+     * describe() carries the expectation instead, which is what a client is
+     * told; a description format that has a pattern of its own -- OpenAPI's
+     * JSON Schema -- needs the expression itself.
+     */
+    public function regex(): ?string
+    {
+        return $this->pattern;
+    }
+
     // ---- applying it ------------------------------------------------------
 
     /**

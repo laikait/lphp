@@ -103,6 +103,28 @@ final class MimeBuilderTest extends TestCase
         MimeBuilder::build($this->base());
     }
 
+    /**
+     * Mail header names have no case, so header('from', ...) was a second
+     * From -- the builder only skipped an exact-case match. Every name the
+     * builder writes is refused, in any case, and a custom one is kept.
+     */
+    public function test_a_header_the_builder_writes_cannot_be_set_in_any_case(): void
+    {
+        foreach (['from', 'FROM', 'Subject', 'bcc', 'Reply-To', 'message-id', 'Content-Type', 'content-x', 'Return-Path'] as $name) {
+            try {
+                $this->base()->header($name, 'attacker@evil.example');
+                self::fail(\sprintf('header("%s") was accepted', $name));
+            } catch (MailException $e) {
+                self::assertStringContainsString('written by the mailer', $e->getMessage());
+            }
+        }
+
+        $raw = $this->build($this->base()->text('x')->header('List-Unsubscribe', '<mailto:u@example.com>'));
+
+        self::assertStringContainsString('List-Unsubscribe: <mailto:u@example.com>', $raw);
+        self::assertSame(1, \preg_match_all('/^From:/mi', $raw));
+    }
+
     public function test_messages_are_immutable(): void
     {
         $base = $this->base();

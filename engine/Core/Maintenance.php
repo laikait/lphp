@@ -10,11 +10,12 @@ use App\Engine\Http\RedirectResponse;
 use App\Engine\Http\Request;
 use App\Engine\Http\Response;
 use App\Engine\Network\IpSet;
+use App\Engine\Security\RateLimiter;
 
 /**
  * Maintenance mode: answer 503 to the web while something is being changed.
  *
- *     php laika down --retry=120 --allow=10.0.0.0/8 --secret=preview --message="Back at 14:00"
+ *     php laika down --retry=120 --allow=10.0.0.0/8 --secret=preview-2026-10-25 --message="Back at 14:00"
  *     php laika up
  *
  * The state is one file, system/Runtime/maintenance.json, so while the
@@ -47,7 +48,23 @@ final class Maintenance
     /** @var array{since: int, retry: int, message: string, allow: list<string>, secret: ?string}|false|null not read yet, or false when up */
     private array|false|null $state = null;
 
-    public function __construct(private readonly string $basePath) {}
+    /**
+     * The shortest bypass secret down() accepts.
+     *
+     * The secret is a password anybody on the internet can try against the
+     * 503 page, so it has to be one that cannot be guessed in the time a
+     * deployment takes -- and wrong guesses are counted too (see intercept()).
+     */
+    public const MIN_SECRET_LENGTH = 16;
+
+    /** Wrong bypass guesses an address gets before the right one stops working too. */
+    public const GUESSES = '10/15m';
+
+    /** @param RateLimiter|null $limiter counts wrong bypass guesses; null counts nothing */
+    public function __construct(
+        private readonly string $basePath,
+        private readonly ?RateLimiter $limiter = null,
+    ) {}
 
     public function isDown(): bool
     {
@@ -76,6 +93,14 @@ final class Maintenance
     public function down(int $retry = 60, string $message = '', array $allow = [], ?string $secret = null): void
     {
         new IpSet($allow);
+
+        if ($secret !== null && $secret !== '' && \strlen($secret) < self::MIN_SECRET_LENGTH) {
+            throw new \InvalidArgumentException(\sprintf(
+                'The bypass secret must be at least %d characters: it is a password the whole internet can try '
+                . 'against the 503 page. php laika security:key prints one long enough.',
+                self::MIN_SECRET_LENGTH,
+            ));
+        }
 
         $state = [
             'since' => \time(),
@@ -128,12 +153,18 @@ final class Maintenance
 
         $candidate = $request->query(self::BYPASS_PARAMETER);
 
-        if ($state['secret'] !== null && \is_string($candidate) && \hash_equals($state['secret'], \hash('sha256', $candidate))) {
+        if ($state['secret'] !== null && \is_string($candidate) && $this->bypassMatches($request, $state['secret'], $candidate)) {
             $query = $request->query();
             unset($query[self::BYPASS_PARAMETER]);
-            $location = $request->basePath() . $request->path() . ($query === [] ? '' : '?' . \http_build_query($query));
 
-            return (new RedirectResponse($location === '' ? '/' : $location))->withCookie(new Cookie(
+            // One leading "/", whatever the request path began with. "//evil"
+            // and "/\evil" are both read by browsers as a link to another
+            // host, so a path of either shape would have made this redirect
+            // an open one.
+            $path = '/' . \ltrim($request->path(), '/\\');
+            $location = $request->basePath() . $path . ($query === [] ? '' : '?' . \http_build_query($query));
+
+            return (new RedirectResponse($location))->withCookie(new Cookie(
                 self::BYPASS_COOKIE,
                 $this->cookieValue($state),
                 0,
@@ -148,6 +179,31 @@ final class Maintenance
         }
 
         throw HttpException::serviceUnavailable($state['retry'], $state['message']);
+    }
+
+    /**
+     * The bypass secret, checked at most GUESSES times per address.
+     *
+     * Maintenance answers before routing, so no route's rate_limit applies,
+     * and without this the 503 page was a place to try secrets as fast as the
+     * server would answer. Past the limit even the right secret is refused, so
+     * the page never confirms a guess; the count clears with the window.
+     */
+    private function bypassMatches(Request $request, string $hash, string $candidate): bool
+    {
+        $key = 'maintenance-bypass:' . ($request->ip() ?? 'unknown');
+
+        if ($this->limiter !== null && !$this->limiter->check($key, self::GUESSES)->allowed) {
+            return false;
+        }
+
+        if (\hash_equals($hash, \hash('sha256', $candidate))) {
+            return true;
+        }
+
+        $this->limiter?->attempt($key, self::GUESSES);
+
+        return false;
     }
 
     /** @param array{since: int, retry: int, message: string, allow: list<string>, secret: ?string} $state */

@@ -70,7 +70,7 @@ final class FileStore implements SessionStore
         try {
             @\flock($handle, \LOCK_SH);
 
-            return $this->decode($this->contents($handle));
+            return SessionRecord::decode($this->contents($handle), $id);
         } finally {
             @\flock($handle, \LOCK_UN);
             @\fclose($handle);
@@ -99,7 +99,7 @@ final class FileStore implements SessionStore
             // interface exists to prevent.
             @\flock($handle, \LOCK_EX);
 
-            $record = $apply($this->decode($this->contents($handle)));
+            $record = $apply(SessionRecord::decode($this->contents($handle), $id));
 
             if ($record === null) {
                 @\ftruncate($handle, 0);
@@ -140,7 +140,9 @@ final class FileStore implements SessionStore
 
         foreach (\glob($this->directory . \DIRECTORY_SEPARATOR . '*' . self::EXTENSION) ?: [] as $file) {
             $contents = @\file_get_contents($file);
-            $record = $contents === false ? null : $this->decode($contents);
+            // Swept by file name, which is the id's hash: the id that would
+            // decode the record is exactly what is not available here.
+            $record = $contents === false ? null : SessionRecord::forSweep($contents);
 
             // A file that does not decode is swept too. It is either a
             // half-written record from a machine that lost power or a leftover
@@ -168,11 +170,6 @@ final class FileStore implements SessionStore
         return \is_string($contents) ? $contents : '';
     }
 
-    private function decode(string $contents): ?SessionRecord
-    {
-        return SessionRecord::decode($contents);
-    }
-
     private function write(mixed $handle, SessionRecord $record): void
     {
         if (!\is_resource($handle)) {
@@ -193,7 +190,7 @@ final class FileStore implements SessionStore
     /** SHA-256, for the reason on the class. */
     private function pathFor(string $id): string
     {
-        return $this->directory . \DIRECTORY_SEPARATOR . \hash('sha256', $id) . self::EXTENSION;
+        return $this->directory . \DIRECTORY_SEPARATOR . SessionRecord::keyFor($id) . self::EXTENSION;
     }
 
     private function ensureDirectory(): void

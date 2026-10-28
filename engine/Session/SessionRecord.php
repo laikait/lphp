@@ -101,15 +101,83 @@ final class SessionRecord
      */
     public function encode(): string
     {
+        $stored = $this->toArray();
+
+        // The id itself is not written, only its hash. A session id is a live
+        // login, and a store's contents get read by more people than its
+        // purpose suggests -- a backup, a support query on the sessions table,
+        // a directory listing. The store always knows the id it is reading
+        // (it looked the record up by it), so decode() is handed it back.
+        unset($stored['id']);
+        $stored = ['key' => self::keyFor($this->id), ...$stored];
+
         try {
-            return \json_encode($this->toArray(), \JSON_THROW_ON_ERROR);
+            return \json_encode($stored, \JSON_THROW_ON_ERROR);
         } catch (\JsonException $e) {
             throw SessionException::unserialisablePayload($this->unserialisableKey(), $e);
         }
     }
 
-    /** Null for anything that is not a record this framework wrote. */
-    public static function decode(string $contents): ?self
+    /** What a record is stored under, and written in place of the id: its SHA-256. */
+    public static function keyFor(string $id): string
+    {
+        return \hash('sha256', $id);
+    }
+
+    /**
+     * Null for anything that is not a record this framework wrote for this id.
+     *
+     * $id is the id the store looked the record up by. A record written by
+     * encode() carries only the id's hash, which must match; one written
+     * before that carries the id itself, which is accepted when it is the
+     * same, so sessions survive the upgrade.
+     */
+    public static function decode(string $contents, ?string $id = null): ?self
+    {
+        $data = self::parse($contents);
+
+        if ($data === null) {
+            return null;
+        }
+
+        if (isset($data['key'])) {
+            if ($id === null || !\is_string($data['key']) || !\hash_equals($data['key'], self::keyFor($id))) {
+                return null;
+            }
+
+            $data['id'] = $id;
+        } elseif ($id !== null && (!\is_string($data['id'] ?? null) || !\hash_equals($data['id'], $id))) {
+            return null;
+        }
+
+        return self::fromArray($data);
+    }
+
+    /**
+     * Enough of a record to decide whether a sweep removes it, without its id.
+     *
+     * A file store sweeps by reading every file, and has only the file's name
+     * -- the hash -- not the id that would decode it. The id of what comes back
+     * is empty; it is good for hasExpired() and nothing else.
+     */
+    public static function forSweep(string $contents): ?self
+    {
+        $data = self::parse($contents);
+
+        if ($data === null || (!isset($data['key']) && !isset($data['id']))) {
+            return null;
+        }
+
+        return new self(
+            '',
+            [],
+            isset($data['created']) && \is_int($data['created']) ? $data['created'] : 0,
+            isset($data['touched']) && \is_int($data['touched']) ? $data['touched'] : 0,
+        );
+    }
+
+    /** @return array<array-key, mixed>|null */
+    private static function parse(string $contents): ?array
     {
         if (\trim($contents) === '') {
             return null;
@@ -122,7 +190,7 @@ final class SessionRecord
             return null;
         }
 
-        return self::fromArray($data);
+        return \is_array($data) ? $data : null;
     }
 
     /**

@@ -63,6 +63,15 @@ final class TwoFactorMemoryAccounts implements UserProvider, TwoFactorAccounts
         $this->update($account, ['step' => $step]);
     }
 
+    /**
+     * As if the step had never been recorded: what a second request sent at
+     * the same moment as the first sees, having read before the first wrote.
+     */
+    public function forgetStep(string $id): void
+    {
+        $this->accounts[$id]['step'] = null;
+    }
+
     public function recoveryCodes(Account $account): array
     {
         return $this->accounts[$account->identity->id]['codes'] ?? [];

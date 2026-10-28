@@ -28,6 +28,14 @@ final class SystemdException extends SystemException
         ));
     }
 
+    public static function lineBreak(): self
+    {
+        return new self(
+            'A systemd unit value cannot contain a line break or a NUL byte: the rest would be read as '
+            . 'another directive, which no quoting prevents.',
+        );
+    }
+
     public static function relativePhp(string $php): self
     {
         return new self(\sprintf('The PHP binary must be an absolute path; "%s" is not.', $php));

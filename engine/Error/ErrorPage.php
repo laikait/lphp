@@ -6,6 +6,7 @@ namespace App\Engine\Error;
 
 use App\Engine\Http\Request;
 use App\Engine\Template\TemplateManager;
+use App\Engine\Template\ThemeRegistry;
 
 /**
  * An error, as a page for a person.
@@ -51,6 +52,11 @@ final class ErrorPage
          * @var list<string>
          */
         private readonly array $environment = [],
+        /**
+         * The theme to render in when the error came before any route chose
+         * one; see themeFor(). Null leaves the page to templates/.
+         */
+        private readonly ?ThemeRegistry $themes = null,
     ) {}
 
     /**
@@ -70,7 +76,13 @@ final class ErrorPage
     public function render(ErrorDocument $document, ?Request $request = null, ?\Throwable $exception = null): string
     {
         if ($document->detail('trace') !== null) {
-            return ($exception === null ? null : $this->whoops($exception)) ?? self::builtIn($document);
+            if ($exception === null) {
+                return self::builtIn($document);
+            }
+
+            [$html, $why] = $this->whoops($exception);
+
+            return $html ?? self::builtIn($document, $why);
         }
 
         return $this->fromTemplate($document, $request) ?? self::builtIn($document);
@@ -105,17 +117,62 @@ final class ErrorPage
 
     private function fromTemplate(ErrorDocument $document, ?Request $request): ?string
     {
-        if ($this->templates === null) {
+        $templates = $this->templates;
+
+        if ($templates === null) {
             return null;
         }
 
+        $theme = $this->themeFor($request);
+
+        if ($theme === null) {
+            return $this->firstCandidate($templates, $document, $request);
+        }
+
+        // Borrowed for this page only. The request is over either way, but a
+        // worker serving the next one must not inherit an error's theme.
+        $this->themes?->use($theme);
+
+        try {
+            return $this->firstCandidate($templates, $document, $request);
+        } finally {
+            $this->themes?->use(null);
+        }
+    }
+
+    /**
+     * The theme an error page should use when nothing has chosen one yet.
+     *
+     * A route with meta(['theme' => ...]) has already made the theme active
+     * by the time its handler or a guard throws, and that choice stands. An
+     * unknown URL, a 405 or maintenance fails before any route is asked, so
+     * the path is matched against templates.error_themes instead -- which is
+     * what gives /admin/nonexistent the admin theme's 404.
+     *
+     * Never throws: a provider that fails here would turn a 404 into a 500.
+     */
+    private function themeFor(?Request $request): ?string
+    {
+        if ($this->themes === null || $request === null) {
+            return null;
+        }
+
+        try {
+            return $this->themes->active() === null ? $this->themes->forPath($request->path()) : null;
+        } catch (\Throwable) {
+            return null;
+        }
+    }
+
+    private function firstCandidate(TemplateManager $templates, ErrorDocument $document, ?Request $request): ?string
+    {
         foreach ($this->candidates($document) as $name) {
-            if (!$this->templates->exists($name)) {
+            if (!$templates->exists($name)) {
                 continue;
             }
 
             try {
-                return $this->templates->render($name, $this->data($document, $request));
+                return $templates->render($name, $this->data($document, $request));
             } catch (\Throwable) {
                 // Deliberately swallowed. Whatever went wrong in the error
                 // template, the caller still needs a page, and the built-in one
@@ -129,17 +186,22 @@ final class ErrorPage
     }
 
     /**
-     * The Whoops page for $exception, or null when Whoops is not installed or
-     * could not render it.
+     * The Whoops page for $exception, or why there is none.
      *
      * Whoops only renders here: it is not registered as a handler, it writes
      * nothing, sends no header and never exits. ErrorHandler stays the one
      * thing that catches, reports and responds.
+     *
+     * The reason matters because the fallback is the built-in page, and in
+     * debug that page appearing instead of Whoops otherwise looks like the
+     * debug page simply not working.
+     *
+     * @return array{0: ?string, 1: ?string} the page, or null and the reason
      */
-    private function whoops(\Throwable $exception): ?string
+    private function whoops(\Throwable $exception): array
     {
         if (!\class_exists(\Whoops\Run::class)) {
-            return null;
+            return [null, 'filp/whoops is not installed, so this is the plain debug page. Run: composer require filp/whoops'];
         }
 
         try {
@@ -172,10 +234,18 @@ final class ErrorPage
 
             $html = $run->handleException($exception);
 
-            return \is_string($html) && $html !== '' ? $html : null;
-        } catch (\Throwable) {
+            return \is_string($html) && $html !== ''
+                ? [$html, null]
+                : [null, 'Whoops produced no output for this error.'];
+        } catch (\Throwable $failure) {
             // As with a broken error template: the caller still needs a page.
-            return null;
+            return [null, \sprintf(
+                'Whoops could not render this error (%s: %s at %s:%d).',
+                $failure::class,
+                $failure->getMessage(),
+                $failure->getFile(),
+                $failure->getLine(),
+            )];
         }
     }
 
@@ -215,8 +285,11 @@ final class ErrorPage
      * contains a string argument that came from the request, and an error page
      * that renders it raw is a cross-site scripting hole reachable by causing
      * an error on purpose.
+     *
+     * @param string|null $note why this page is showing instead of Whoops; only
+     *                          ever passed for a debug document
      */
-    private static function builtIn(ErrorDocument $document): string
+    private static function builtIn(ErrorDocument $document, ?string $note = null): string
     {
         $escape = static fn(string $value): string => \htmlspecialchars($value, \ENT_QUOTES | \ENT_SUBSTITUTE);
 
@@ -231,6 +304,10 @@ final class ErrorPage
             $escape($heading),
             $escape($document->message),
         );
+
+        if ($note !== null) {
+            $page .= \sprintf('<p class="note">%s</p>', $escape($note));
+        }
 
         $trace = $document->detail('trace');
 
@@ -250,7 +327,8 @@ final class ErrorPage
     private const STYLE = 'body{font:16px/1.5 system-ui,sans-serif;margin:0;padding:3rem 1rem;color:#111;'
         . 'background:#fafafa}main{max-width:44rem;margin:0 auto}h1{font-size:1.5rem;margin:0 0 .5rem}'
         . 'h2{font-size:1rem;margin:2rem 0 .25rem}p{margin:0 0 1rem}.where{color:#666;font-size:.875rem}'
+        . '.note{padding:.5rem .75rem;border-left:3px solid #c80;background:#fff8e6;font-size:.875rem}'
         . 'pre{overflow-x:auto;background:#fff;border:1px solid #e5e5e5;padding:1rem;font-size:.8125rem;white-space:normal;}'
         . '@media(prefers-color-scheme:dark){body{background:#111;color:#eee}'
-        . 'pre{background:#1a1a1a;border-color:#333}.where{color:#999}}';
+        . 'pre{background:#1a1a1a;border-color:#333}.where{color:#999}.note{background:#2a2210}}';
 }

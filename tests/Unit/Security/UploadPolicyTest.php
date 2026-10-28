@@ -206,6 +206,25 @@ final class UploadPolicyTest extends TestCase
         self::assertStringContainsString('not evidence of anything', \implode(' ', $problems));
     }
 
+    /**
+     * finfo with no answer -- here, a temporary file gone before it could be
+     * read -- is a refusal. It used to be a pass: "could not check" counted as
+     * "checked and fine".
+     */
+    public function test_contents_that_cannot_be_identified_are_refused(): void
+    {
+        if (!\function_exists('finfo_open')) {
+            self::markTestSkipped('fileinfo is not installed.');
+        }
+
+        $file = $this->upload('notes.pdf', '%PDF-1.4');
+        @\unlink($file->temporaryPath());
+
+        $problems = UploadPolicy::documents()->check($file);
+
+        self::assertStringContainsString('could not be identified', \implode(' ', $problems));
+    }
+
     public function test_a_real_image_passes(): void
     {
         if (!\function_exists('finfo_open')) {

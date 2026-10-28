@@ -291,6 +291,13 @@ final class SystemdUnits
      */
     private static function quote(string $word): string
     {
+        // A line break ends the setting inside quotes too, and whatever follows
+        // is read as the next directive -- an ExecStartPre of somebody's
+        // choosing in a unit that runs as a service. No quoting fixes that.
+        if (\preg_match('/[\r\n\0]/', $word) === 1) {
+            throw SystemdException::lineBreak();
+        }
+
         if (\preg_match('/^[A-Za-z0-9_@%+=:,.\/-]+$/', $word) === 1) {
             return $word;
         }

@@ -25,7 +25,11 @@ use App\Engine\Cli\Commands\MigrateCommand;
 use App\Engine\Cli\Commands\MigrateRollbackCommand;
 use App\Engine\Cli\Commands\MigrateStatusCommand;
 use App\Engine\Cli\Commands\ModuleListCommand;
+use App\Engine\Cli\Commands\ModuleMakeCommand;
 use App\Engine\Cli\Commands\NginxMakeCommand;
+use App\Engine\Cli\Commands\OpenApiAuthCommand;
+use App\Engine\Cli\Commands\OpenApiDocsCommand;
+use App\Engine\Cli\Commands\OpenApiExportCommand;
 use App\Engine\Cli\Commands\QueueFailedCommand;
 use App\Engine\Cli\Commands\QueueStatusCommand;
 use App\Engine\Cli\Commands\QueueWorkCommand;
@@ -58,12 +62,14 @@ use App\Engine\System\Cron\ScheduleRunJob;
  * because they are not: if this file were deleted the console would still work
  * and would simply have fewer commands.
  *
- * Every one of them answers a question that is otherwise expensive to answer --
- * what loaded, what routes exist, where templates are searched. None of them
- * generates code; nginx:make writes web server configuration, which nothing in
- * the framework reads. A make:something command writes a file whose shape the
- * framework then quietly depends on, and scaffolding is how a framework stops
- * being a library you call and starts being a thing you live inside.
+ * Almost every one of them answers a question that is otherwise expensive to
+ * answer -- what loaded, what routes exist, where templates are searched.
+ * nginx:make writes web server configuration, which nothing in the framework
+ * reads. module:make is the one generator, and it writes the one file a module
+ * requires, exactly as modules.md documents it, plus the starter files --with asks for. A make:something command writes
+ * a file whose shape the framework then quietly depends on, and scaffolding is
+ * how a framework stops being a library you call and starts being a thing you
+ * live inside; so there is no make:controller, and module:make adds no folder unless asked.
  */
 final class CoreCommands
 {
@@ -93,10 +99,37 @@ final class CoreCommands
             ->describe('List discovered modules, in the order they load.')
             ->note('The order is load order, which is what decides whose hook runs first at equal priority.');
 
+        $commands->add('module:make', ModuleMakeCommand::class)
+            ->describe('Create modules/<name>/module.php, the one file a module needs.')
+            ->argument('name', 'Billing, or Plugins/Billing to put it in a group folder. The module id is the last part.')
+            ->option('with', 'Also create: http, model, database, seeder, templates, assets, lang, or all (comma-separated).')
+            ->note('Writes module.php only and never overwrites. A grouped module loads once modules/<Group> is in modules.paths: it creates config/modules.php for that, or tells you what to add to an existing one.');
+
         $commands->add('route:list', RouteListCommand::class)
             ->describe('List every registered route and its owning module.')
             ->option('module', 'Only routes belonging to this module, e.g. Billing.', shortcut: 'm')
             ->flag('names', 'Only routes that have a name.', shortcut: 'n');
+
+        $commands->add('openapi:export', OpenApiExportCommand::class)
+            ->describe('Print the OpenAPI description of the routes marked with openapi meta.')
+            ->option('file', 'Write it to this file instead of stdout.', shortcut: 'f')
+            ->flag('compact', 'One line, no indentation.', shortcut: 'c')
+            ->note('Only routes with the openapi meta appear. A meta mistake exits 1 with the reason on stderr.');
+
+        $commands->add('openapi:docs', OpenApiDocsCommand::class)
+            ->describe('Switch the API docs page (/docs) and its description (/openapi.json) on or off.')
+            ->flag('enable', 'Turn both on.')
+            ->flag('disable', 'Turn both off.')
+            ->option('path', 'Where the page is, e.g. /api-docs. Default /docs.')
+            ->option('spec', 'Where the description is. Default /openapi.json.')
+            ->note('With neither flag, shows what is on. One machine at a time; it wins over config/openapi.php.');
+
+        $commands->add('openapi:auth', OpenApiAuthCommand::class)
+            ->describe('Require a login, or a capability, for the API docs and description.')
+            ->flag('enable', 'Require a login.')
+            ->flag('disable', 'Let anyone read them.')
+            ->option('can', 'With --enable: require this capability instead of any login.')
+            ->note('With neither flag, shows what is set. One machine at a time; it wins over config/openapi.php.');
 
         $commands->add('asset:list', AssetListCommand::class)
             ->describe('List every published asset directory and the URL prefix it answers on.');

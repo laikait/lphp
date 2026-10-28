@@ -24,7 +24,10 @@ use App\Engine\Security\Signer;
  * because a store's forgetIf() finds a row by its stored value.
  *
  * **Without a key nothing is sealed**, and open() hands back what it was given
- * -- the behaviour from before. A key comes from APP_KEY, derived per purpose
+ * -- the behaviour from before, and an unprotected one: whoever can write the
+ * cache directory, the cache table or the queue then decides what is
+ * unserialized. That is why security:check fails a production deployment
+ * without APP_KEY. A key comes from APP_KEY, derived per purpose
  * so a sealed cache entry is not a sealed job. Bytes sealed under a key that is
  * no longer configured read as null.
  *

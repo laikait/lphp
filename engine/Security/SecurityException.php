@@ -91,6 +91,15 @@ final class SecurityException extends FrameworkException
         return new self(\sprintf('The "%s" webhook has no secret, so nothing it receives can be verified.', $source));
     }
 
+    public static function webhookWithoutReplayProtection(string $source): self
+    {
+        return new self(\sprintf(
+            'The "%s" webhook cannot be received safely: the cache does not remember a delivery from one request '
+            . 'to the next, so a replayed delivery would be accepted as new. Set CACHE_STORE=file (or database).',
+            $source,
+        ));
+    }
+
     public static function unknownWebhookFormat(string $source, string $format): self
     {
         return new self(\sprintf(

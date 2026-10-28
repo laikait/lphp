@@ -90,6 +90,11 @@ abstract class TestCase extends PHPUnitTestCase
 
         $config['app']['handle_errors'] = false;
 
+        // A developer's own `php laika openapi:docs --enable` writes into this
+        // project's system/Runtime; it must not change what the suite sees. A
+        // test that wants the switches says so.
+        $config['openapi']['runtime'] ??= false;
+
         // Rate-limit counts go to memory unless a test says otherwise.
         //
         // Two reasons, and the second is the one that bites. The file store

@@ -25,6 +25,49 @@ final class LocalDiskTest extends TestCase
         \exec('rm -rf ' . \escapeshellarg($this->base));
     }
 
+    /**
+     * Names Windows reads as something else: a data stream, a name whose
+     * trailing dot or space it drops, a device. Refused on every system, so a
+     * path that works on a laptop cannot misbehave on a Windows server.
+     */
+    public function test_names_windows_would_read_differently_are_refused(): void
+    {
+        $disk = new LocalDisk($this->base . '/root');
+        $disk->put('report.php', 'x');
+
+        foreach (['report.txt:hidden', 'a/b.txt::$DATA', 'report.php.', 'report.php ', 'dir./x', 'CON', 'nul.txt',
+            'a/COM1', 'Lpt9.log', 'aux'] as $path) {
+            foreach ([
+                static fn() => $disk->put($path, 'x'),
+                static fn() => $disk->get($path),
+                static fn() => $disk->exists($path),
+                static fn() => $disk->delete($path),
+            ] as $call) {
+                try {
+                    $call();
+                    self::fail(\sprintf('"%s" was accepted.', $path));
+                } catch (StorageException $e) {
+                    self::assertStringContainsString('is not a storage path', $e->getMessage());
+                }
+            }
+        }
+
+        // Names that merely look similar are ordinary files.
+        foreach (['console.txt', 'nullable.json', 'com10.txt', 'a.b.c', 'reports/2026-10-25.csv'] as $path) {
+            $disk->put($path, 'ok');
+            self::assertSame('ok', $disk->get($path));
+        }
+    }
+
+    /** S3 and memory keys are not files: ":" stays an ordinary character there. */
+    public function test_other_disks_keep_the_shorter_rule(): void
+    {
+        $disk = new \App\Engine\Storage\MemoryDisk('memory');
+        $disk->put('logs/2026-10-25T10:00:00.log', 'x');
+
+        self::assertTrue($disk->exists('logs/2026-10-25T10:00:00.log'));
+    }
+
     public function test_a_symlink_out_of_the_root_is_neither_read_nor_written_through(): void
     {
         if (!\function_exists('symlink') || \PHP_OS_FAMILY === 'Windows') {

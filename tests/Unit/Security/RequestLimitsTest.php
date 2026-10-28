@@ -58,6 +58,92 @@ final class RequestLimitsTest extends TestCase
         $limits(Request::create('GET', '/', ['headers' => ['Host' => 'evil.test']]));
     }
 
+    /** @return iterable<string, array{string}> */
+    public static function hostsThatAreNotHosts(): iterable
+    {
+        yield 'a path' => ['evil.example/x'];
+        yield 'a space' => ['a b'];
+        yield 'a quote' => ['example.com"><script>'];
+        yield 'userinfo' => ['user@example.com'];
+        yield 'a second port' => ['example.com:80:80'];
+        yield 'a backslash' => ['example.com\\evil'];
+        yield 'a label too long' => [\str_repeat('a', 64) . '.example'];
+        yield 'an unbracketed IPv6 with a port' => ['::1:8080x'];
+    }
+
+    /**
+     * Whatever trusted_hosts says, including when it is empty, as it is by
+     * default: none of these is a Host a browser sends, and each one ends up
+     * in a comparison, a cache key or a log line.
+     */
+    #[\PHPUnit\Framework\Attributes\DataProvider('hostsThatAreNotHosts')]
+    public function test_a_host_header_that_is_not_a_host_is_refused(string $host): void
+    {
+        try {
+            (new RequestLimits())(Request::create('GET', '/', ['headers' => ['Host' => $host]]));
+            self::fail(\sprintf('"%s" was accepted as a host', $host));
+        } catch (HttpException $e) {
+            self::assertSame(400, $e->status());
+        }
+    }
+
+    public function test_every_real_kind_of_host_is_accepted(): void
+    {
+        foreach (['example.com', 'example.com:8080', 'localhost', '127.0.0.1:8000', '[::1]', '[2001:db8::1]:443',
+            'xn--bcher-kva.example', 'my_service', 'example.com.'] as $host) {
+            (new RequestLimits())(Request::create('GET', '/', ['headers' => ['Host' => $host]]));
+        }
+
+        (new RequestLimits())(Request::create('GET', '/'));
+
+        $this->addToAssertionCount(1);
+    }
+
+    /**
+     * A body over the limit with no Content-Length -- chunked transfer, which
+     * the limit used to wave through after reading all of it.
+     */
+    public function test_a_body_over_the_limit_without_a_length_is_refused(): void
+    {
+        $request = Request::create('POST', '/customers', [
+            'body' => \str_repeat('x', 101),
+            'maxBodyBytes' => 100,
+        ]);
+
+        self::assertNull($request->header('Content-Length'));
+        self::assertTrue($request->bodyTooLarge());
+        self::assertSame('', $request->body(), 'what was over the limit was not kept');
+
+        try {
+            (new RequestLimits(100))($request);
+            self::fail('a 101-byte body passed a 100-byte limit');
+        } catch (HttpException $e) {
+            self::assertSame(413, $e->status());
+        }
+
+        $exact = Request::create('POST', '/customers', ['body' => \str_repeat('x', 100), 'maxBodyBytes' => 100]);
+        self::assertFalse($exact->bodyTooLarge(), 'the limit is inclusive');
+        (new RequestLimits(100))($exact);
+    }
+
+    /** The reading itself: one byte past the limit and no further, from the real stream code. */
+    public function test_the_body_is_read_no_further_than_the_limit(): void
+    {
+        $file = \tempnam(\sys_get_temp_dir(), 'body');
+        self::assertIsString($file);
+        \file_put_contents($file, \str_repeat('y', 1000));
+
+        try {
+            $read = new \ReflectionMethod(Request::class, 'readBody');
+
+            self::assertSame([\str_repeat('y', 1000), false], $read->invoke(null, 1000, $file));
+            self::assertSame(['', true], $read->invoke(null, 999, $file));
+            self::assertSame([\str_repeat('y', 1000), false], $read->invoke(null, null, $file));
+        } finally {
+            @\unlink($file);
+        }
+    }
+
     public function test_a_json_body_nested_too_deeply_reads_as_malformed(): void
     {
         $body = \str_repeat('[', 100) . \str_repeat(']', 100);

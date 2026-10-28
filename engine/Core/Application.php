@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Engine\Core;
 
 use App\Engine\Asset\AssetServer;
+use App\Engine\Auth\AccessRegistry;
 use App\Engine\Cli\ConsoleKernel;
 use App\Engine\Config\Config;
 use App\Engine\Container\Container;
@@ -15,8 +16,11 @@ use App\Engine\Http\Response;
 use App\Engine\Module\ModuleManager;
 use App\Engine\Observability\TraceKind;
 use App\Engine\Observability\Tracer;
+use App\Engine\OpenApi\OpenApiRoutes;
 use App\Engine\Routing\Router;
+use App\Engine\Security\RequestLimits;
 use App\Engine\Support\Path;
+use App\Engine\Template\ThemeRegistry;
 
 /**
  * The application.
@@ -30,7 +34,7 @@ use App\Engine\Support\Path;
  */
 final class Application
 {
-    public const VERSION = '3.1.2';
+    public const VERSION = '3.2.0';
 
     private bool $booted = false;
 
@@ -76,6 +80,14 @@ final class Application
 
         $this->container->get(ModuleManager::class)->run();
 
+        // After the modules, whose ids a theme may not take, and before
+        // app.booted, so a listener there already sees every theme.
+        $this->container->get(ThemeRegistry::class)->load();
+
+        // openapi.route and openapi.docs, after the modules too, so the
+        // collision check sees every route. See OpenApiRoutes.
+        OpenApiRoutes::register($this->container->get(Router::class), $this->config(), $this->container->get(AccessRegistry::class));
+
         $hooks = $this->container->get(HookEngine::class);
         $hooks->do('app.booted', $this);
         $hooks->do('app.ready', $this);
@@ -117,6 +129,10 @@ final class Application
         if ($this->container->get(AssetServer::class)->handles($request->path())) {
             $this->container->get(ModuleManager::class)->prepareAssets();
 
+            // A theme's assets are published by registering it, so the asset
+            // path needs the themes as much as it needs the modules' folders.
+            $this->container->get(ThemeRegistry::class)->load();
+
             return;
         }
 
@@ -134,6 +150,9 @@ final class Application
             : Request::fromGlobals(
                 $this->configuredBasePath(),
                 $this->trustedProxies(),
+                // The body is read no further than the limit; RequestLimits
+                // answers 413 for the rest. See Request::readBody().
+                $this->config()->int('security.max_request_bytes', RequestLimits::DEFAULT_BYTES),
             );
 
         $response = $this->serve($request);

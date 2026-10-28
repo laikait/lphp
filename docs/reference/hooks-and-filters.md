@@ -131,7 +131,7 @@ they carry.
 | `session.started` | `system.command.max_output` (narrow only) |
 | `session.regenerated` |  |
 | `auth.identified`, `auth.login` |  |
-| `auth.logout`, `auth.failed` |  |
+| `auth.logout`, `auth.failed`, `auth.throttled` |  |
 | `auth.rehash` | `authorization.decision` |
 | `auth.password_reset_requested`, `auth.password_reset` |  |
 | `auth.email_verified` |  |

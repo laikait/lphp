@@ -6,6 +6,7 @@ namespace App\Tests\Unit\Security;
 
 use App\Engine\Cache\Cache;
 use App\Engine\Cache\Stores\ArrayStore;
+use App\Engine\Cache\Stores\FileStore;
 use App\Engine\Http\HttpException;
 use App\Engine\Http\Request;
 use App\Engine\Security\SecurityException;
@@ -147,6 +148,44 @@ final class WebhooksTest extends TestCase
 
         $webhooks->release($again);
         self::assertFalse($webhooks->receive('github', $request)->duplicate);
+    }
+
+    /**
+     * A cache that forgets between requests makes every delivery the first
+     * one. The array store is atomic, so the old check let it through; and
+     * github signs no timestamp, so nothing else would stop a replay a year
+     * later. Asked to, receive() refuses instead of pretending.
+     */
+    public function test_a_cache_that_forgets_between_requests_is_refused_rather_than_trusted(): void
+    {
+        $sources = ['github' => ['secret' => 's']];
+        $request = self::post('{}', ['X-Hub-Signature-256' => 'sha256=' . \hash_hmac('sha256', '{}', 's'), 'X-GitHub-Delivery' => 'd-1']);
+
+        foreach ([null, new Cache(new ArrayStore())] as $cache) {
+            $webhooks = new Webhooks($sources, $cache, static fn(): int => self::NOW, requireSharedCache: true);
+
+            self::assertFalse($webhooks->remembersAcrossRequests());
+
+            try {
+                $webhooks->receive('github', $request);
+                self::fail('a delivery was received with no replay protection');
+            } catch (SecurityException $e) {
+                self::assertStringContainsString('CACHE_STORE=file', $e->getMessage());
+            }
+        }
+
+        $directory = \sys_get_temp_dir() . '/webhook-cache-' . \bin2hex(\random_bytes(4));
+
+        try {
+            $shared = new Webhooks($sources, new Cache(new FileStore($directory)), static fn(): int => self::NOW, requireSharedCache: true);
+
+            self::assertTrue($shared->remembersAcrossRequests());
+            self::assertFalse($shared->receive('github', $request)->duplicate);
+            self::assertTrue($shared->receive('github', $request)->duplicate);
+        } finally {
+            (new FileStore($directory))->flush();
+            @\rmdir($directory);
+        }
     }
 
     public function test_configuration_mistakes_are_named(): void

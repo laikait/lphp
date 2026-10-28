@@ -181,6 +181,26 @@ final class ErrorPageTest extends TestCase
         self::assertStringNotContainsString('<b>x</b>', $html);
     }
 
+    /**
+     * When Whoops cannot render, the plain page in its place says why.
+     *
+     * The real case that prompted this: an APP_EDITOR Whoops does not know
+     * made it throw while being set up, and the debug page quietly became the
+     * plain one -- which looked like the debug page simply not working.
+     */
+    public function test_when_whoops_fails_the_plain_page_says_why(): void
+    {
+        $e = new \RuntimeException('boom');
+        $page = new ErrorPage(editor: 'no-such-editor');
+
+        $html = $page->render(ErrorDocument::fromThrowable($e, debug: true), null, $e);
+
+        self::assertStringNotContainsString('Whoops container', $html);
+        self::assertStringContainsString('Whoops could not render this error', $html);
+        self::assertStringContainsString('Unknown editor identifier: no-such-editor', $html);
+        self::assertStringContainsString('#0', $html, 'and the trace is still there');
+    }
+
     public function test_whoops_is_never_used_outside_debug(): void
     {
         $e = new \RuntimeException('boom');

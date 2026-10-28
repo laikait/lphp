@@ -156,6 +156,22 @@ still costs a password hash, because a wrong username answering in microseconds
 and a wrong password answering in fifty milliseconds is the same disclosure by
 another route.
 
+**Guessing is throttled**, inside `attempt()` and `verify()`, so every login
+form gets it without a `rate_limit` on its route. Only failures count, and a
+guess past a limit is answered with **429** (with `Retry-After`) before the
+password is looked at, so a right guess there says nothing either:
+
+| Limit | Default | Stops |
+|---|---|---|
+| `auth.throttle.per_login_ip` | `5/15m` | one address guessing one account; the right password clears it |
+| `auth.throttle.per_ip` | `30/15m` | one address trying a list of accounts |
+| `auth.throttle.per_login` | `100/1h` | many addresses guessing one account |
+
+The per-account limit is what an attacker could use to lock somebody else out,
+so it is deliberately loose: it stops a botnet, not a user who mistyped. Counts
+live in `security.counters`, like every other limit; `auth.throttle.enabled =>
+false` turns this off, and `auth.throttled` fires when it refuses.
+
 Three things happen on a successful `attempt()`:
 
 1. **The session id is regenerated.** An attacker who planted a session id in

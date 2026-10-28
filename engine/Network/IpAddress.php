@@ -45,6 +45,18 @@ final class IpAddress implements \Stringable
             '203.0.113.0/24',     // documentation (TEST-NET-3)
             '240.0.0.0/4',        // reserved, and the limited broadcast address
             '::/128',             // unspecified
+            // Three IPv6 forms that carry an IPv4 address inside them. Through
+            // a NAT64 gateway or a 6to4 relay each one reaches that IPv4 host,
+            // so 64:ff9b::7f00:1 is 127.0.0.1 by another name. They are not
+            // judged by the address inside: none of them is how a public
+            // service is published, and refusing them outright is simpler
+            // than trusting every relay to translate as expected.
+            '64:ff9b::/96',       // NAT64 well-known prefix (RFC 6052)
+            '2002::/16',          // 6to4 (RFC 3056)
+            // IPv4-compatible, deprecated (RFC 4291): ::/96, less its first /8,
+            // which holds :: and ::1 and is classified above.
+            '::1.0.0.0/104', '::2.0.0.0/103', '::4.0.0.0/102', '::8.0.0.0/101',
+            '::16.0.0.0/100', '::32.0.0.0/99', '::64.0.0.0/98', '::128.0.0.0/97',
             '64:ff9b:1::/48',     // local-use IPv4/IPv6 translation
             '100::/64',           // discard-only
             '2001:2::/48',        // benchmarking

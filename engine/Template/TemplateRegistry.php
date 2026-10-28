@@ -110,17 +110,28 @@ final class TemplateRegistry
      * directory rather than the whole theme, so a "../" inside a namespaced
      * name cannot climb out of it.
      *
+     * An active theme's directory goes in front of everything, with the same
+     * override rule: "customer/profile" looks in templates/admin/dark/ first,
+     * "@Billing/invoice" in templates/admin/dark/Billing/. The rest of the
+     * order is unchanged, so templates/ is the theme's fallback.
+     *
+     * @param string|null $theme the active theme's root, from ThemeRegistry
+     *
      * @return list<string>
      */
-    public function searchPath(?string $namespace): array
+    public function searchPath(?string $namespace, ?string $theme = null): array
     {
-        $key = $namespace ?? '';
+        $key = ($theme ?? '') . '|' . ($namespace ?? '');
 
         if (isset($this->paths[$key])) {
             return $this->paths[$key];
         }
 
         $paths = [];
+
+        if ($theme !== null) {
+            $paths[] = $namespace === null ? $theme : Path::join($theme, $namespace);
+        }
 
         foreach ($this->all() as $source) {
             if ($source->namespace === $namespace) {

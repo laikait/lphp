@@ -138,6 +138,57 @@ final class AssetServerTest extends TestCase
         self::assertSame(200, $this->get('/assets/template/css/app.css')->status());
     }
 
+    /**
+     * templates/<area>/<theme>/assets/, published as "admin/dark". Two leading
+     * segments that name a registered theme win over one, so "admin/dark" is
+     * not read as the "admin" theme's dark/ folder.
+     */
+    public function test_an_area_theme_is_the_longest_match(): void
+    {
+        $this->registry->publish(AssetKind::Template, 'admin/dark', $this->root . '/plugin');
+
+        $themed = $this->get('/assets/template/admin/dark/js/example.js');
+
+        self::assertSame(200, $themed->status());
+        self::assertSame('export const a = 1;', $this->bodyOf($themed));
+
+        // The one-segment theme next to it is untouched.
+        self::assertSame(200, $this->get('/assets/template/admin/css/admin.css')->status());
+    }
+
+    public function test_a_single_segment_theme_is_served(): void
+    {
+        $this->registry->publish(AssetKind::Template, 'dark', $this->root . '/admin');
+
+        $response = $this->get('/assets/template/dark/css/admin.css');
+
+        self::assertSame(200, $response->status());
+        self::assertSame('nav{}', $this->bodyOf($response));
+    }
+
+    /** Explicit means explicit: nothing falls back to templates/assets/. */
+    public function test_a_file_missing_from_a_theme_is_a_404_not_a_fallback(): void
+    {
+        $this->registry->publish(AssetKind::Template, 'admin/dark', $this->root . '/plugin');
+
+        // css/app.css exists in the unnamed template source, not in the theme.
+        self::assertSame(200, $this->get('/assets/template/css/app.css')->status());
+        self::assertSame(404, $this->get('/assets/template/admin/dark/css/app.css')->status());
+    }
+
+    /**
+     * The documented cost of longest-first: an area theme named after a
+     * folder of the one-segment theme shadows that folder.
+     */
+    public function test_an_area_theme_shadows_a_folder_of_the_same_name(): void
+    {
+        self::assertSame(200, $this->get('/assets/template/admin/css/admin.css')->status());
+
+        $this->registry->publish(AssetKind::Template, 'admin/css', $this->root . '/plugin');
+
+        self::assertSame(404, $this->get('/assets/template/admin/css/admin.css')->status());
+    }
+
     public function test_an_unknown_namespace_is_a_404(): void
     {
         self::assertSame(404, $this->get('/assets/nonsense/css/app.css')->status());

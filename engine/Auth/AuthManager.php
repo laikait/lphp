@@ -6,7 +6,9 @@ namespace App\Engine\Auth;
 
 use App\Engine\Auth\Authenticators\SessionAuthenticator;
 use App\Engine\Hook\HookEngine;
+use App\Engine\Http\HttpException;
 use App\Engine\Http\Request;
+use App\Engine\Security\RateLimiter;
 use App\Engine\Security\Secret;
 use App\Engine\Session\SessionManager;
 
@@ -43,7 +45,33 @@ final class AuthManager
         private readonly ?HookEngine $hooks = null,
         /** @var list<string> */
         private readonly array $guestRoles = [],
+        /** Counts failed password checks; null switches the throttle off. See throttled(). */
+        private readonly ?RateLimiter $limiter = null,
+        /** @var array{per_login_ip?: string, per_login?: string, per_ip?: string} */
+        private readonly array $throttle = [],
     ) {}
+
+    /**
+     * Failed password checks allowed before verify() answers 429.
+     *
+     * Three limits, because each stops a different attack and none can do the
+     * others' job:
+     *
+     *   per_login_ip  one address guessing one account's password -- the
+     *                 common case, and the strict one
+     *   per_ip        one address trying a list of accounts ("spraying")
+     *   per_login     many addresses, one account: a botnet
+     *
+     * The per-account limits are what an attacker can use to lock somebody
+     * else out, so the one that applies to every address is deliberately
+     * generous: it stops a distributed guess, not a user who mistyped. Only
+     * failures are counted, and the right password clears the strict one.
+     */
+    public const THROTTLE = [
+        'per_login_ip' => '5/15m',
+        'per_ip' => '30/15m',
+        'per_login' => '100/1h',
+    ];
 
     public function describe(): string
     {
@@ -173,15 +201,23 @@ final class AuthManager
             throw AuthException::emptyLogin();
         }
 
+        $keys = $this->throttleKeys($login);
+        $this->refuseIfThrottled($keys);
+
         $account = $this->provider->byLogin($login);
 
         // Even when there is no account: see Password::verify().
         $verified = $this->passwords->verify($password, $account?->passwordHash);
 
         if ($account === null || !$account->canUsePassword() || !$verified) {
+            $this->countFailure($keys);
             $this->hooks?->do('auth.failed', $login, $this->request);
 
             return null;
+        }
+
+        if ($this->limiter !== null && isset($keys['per_login_ip'])) {
+            $this->limiter->clear($keys['per_login_ip']);
         }
 
         // The one moment the application holds the plaintext, and so the only
@@ -194,6 +230,74 @@ final class AuthManager
         }
 
         return $account;
+    }
+
+    /**
+     * The counter keys for this attempt, by limit name.
+     *
+     * The login is hashed -- a counter's key is a file name in one store and a
+     * row in another, and neither should be a list of the addresses somebody
+     * tried. Without a client address (a console command) only the per-login
+     * limit applies.
+     *
+     * @return array<string, string>
+     */
+    private function throttleKeys(string $login): array
+    {
+        if ($this->limiter === null) {
+            return [];
+        }
+
+        $who = \hash('sha256', \mb_strtolower(\trim($login)));
+        $ip = $this->request?->ip();
+
+        $keys = ['per_login' => 'login:' . $who];
+
+        if ($ip !== null && $ip !== '') {
+            $keys['per_login_ip'] = 'login:' . $who . '|' . $ip;
+            $keys['per_ip'] = 'login-ip:' . $ip;
+        }
+
+        return $keys;
+    }
+
+    /**
+     * Refuse before any password work when a limit is already used up.
+     *
+     * Before, not after: the point is that a guess past the limit is never
+     * checked at all, so a correct one arriving there tells the attacker
+     * nothing -- it gets the same 429 as a wrong one.
+     *
+     * @param array<string, string> $keys
+     */
+    private function refuseIfThrottled(array $keys): void
+    {
+        if ($this->limiter === null) {
+            return;
+        }
+
+        foreach ($keys as $name => $key) {
+            $standing = $this->limiter->check($key, $this->limitFor($name));
+
+            if (!$standing->allowed) {
+                $this->hooks?->do('auth.throttled', $name, $this->request);
+
+                throw HttpException::tooManyRequests($standing->retryAfter);
+            }
+        }
+    }
+
+    /** @param array<string, string> $keys */
+    private function countFailure(array $keys): void
+    {
+        foreach ($keys as $name => $key) {
+            $this->limiter?->attempt($key, $this->limitFor($name));
+        }
+    }
+
+    private function limitFor(string $name): string
+    {
+        return $this->throttle[$name] ?? self::THROTTLE[$name];
     }
 
     /**

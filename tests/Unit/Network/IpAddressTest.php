@@ -160,6 +160,12 @@ final class IpAddressTest extends TestCase
             '2001:db8::1' => ['2001:db8::1', 'reserved'],
             'mapped private' => ['::ffff:10.0.0.1', 'private'],
             'mapped public' => ['::ffff:8.8.8.8', 'public'],
+            // IPv4 inside IPv6, reachable through a translator: loopback and
+            // the metadata endpoint by other names, so never "public".
+            'NAT64 loopback' => ['64:ff9b::7f00:1', 'reserved'],
+            'NAT64 metadata' => ['64:ff9b::a9fe:a9fe', 'reserved'],
+            '6to4' => ['2002:7f00:1::1', 'reserved'],
+            'IPv4-compatible' => ['::7f00:1', 'reserved'],
         ];
     }
 

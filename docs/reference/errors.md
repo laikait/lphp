@@ -91,6 +91,14 @@ Two rules keep an error page from making things worse:
 The consequence of the second rule is that you preview your error templates with
 debug **off**, which is the right way round.
 
+**A theme can have its own error pages**, in `errors/` inside the theme folder,
+for example `templates/admin/dark/errors/404.twig`. A route with
+`meta(['theme' => 'admin/dark'])` makes the theme active before the guards run,
+so its 401, 403 and 419 pages are themed, and `templates/errors/` is the
+fallback, rendered in the theme's layout. An unknown URL has no route to ask, so
+`templates.error_themes` maps a path prefix to a theme for those:
+`['/admin' => 'admin/dark']`. See [Themes](templates.md#error-pages).
+
 The built-in page has no `<link>`, no `<script>` and no asset URL, and an
 architecture test keeps it that way. It has to render when the thing that broke
 is the asset pipeline.
@@ -99,9 +107,23 @@ is the asset pipeline.
 
 With `APP_DEBUG=true` and [`filp/whoops`](https://github.com/filp/whoops)
 installed, a browser gets the Whoops page instead of the built-in one: the
-source around every frame, the request, and the environment. It is a
-development dependency, so `composer install` gets it and
-`composer install --no-dev` does not.
+source around every frame, the request, and the environment. It is a regular
+dependency in `composer.json`, so every install has it.
+
+**It is the only thing that displays an error.** PHP's `display_errors` is off
+in debug as well as production, so PHP never prints its own "Fatal error:" in
+front of the page. That covers every way a request can fail:
+
+- an exception or a warning in a handler;
+- a fatal (out of memory, a timeout, a call to an undefined function). Memory
+  and time are raised before the page is built, so an exhausted request still
+  gets Whoops and a 500, not PHP's message and a 200;
+- a failure before the application exists, such as a `config/*.php` file or a
+  `.env` file that throws. The handler is installed before configuration is
+  read, and takes `APP_DEBUG` from the environment until it has the rest.
+
+Anything a handler printed before it failed (an `echo`, a `var_dump`) is
+discarded, so it never comes out above the page.
 
 - **Debug only.** Outside debug mode Whoops is never used, whatever is
   installed.
@@ -115,7 +137,10 @@ development dependency, so `composer install` gets it and
   and the exception message are shown as they are, so a message carrying a
   secret still shows it: that is what debug mode is for.
 - **It cannot make things worse.** Without the package, or if Whoops itself
-  fails, the built-in page renders as before.
+  fails, the built-in page renders, and says why in a note at the top: the
+  package is missing, or what Whoops threw (an unknown `APP_EDITOR` is the usual
+  one). If even rendering the error fails, a plain 500 names both errors in
+  debug and neither in production.
 - **Editor links.** `APP_EDITOR=phpstorm` (or `vscode`, `sublime`, `idea`, ...)
   makes every file path open in your editor. Paths are shown relative to the
   project root, and frames in `modules/`, `templates/` and `config/` are marked
@@ -144,7 +169,8 @@ why there is no logger interface here to implement. See [Logging](logging.md).
 | What you see | Why | Fix |
 |---|---|---|
 | Your error template is ignored | Debug mode is on, and always shows the debug page | `APP_DEBUG=false` |
-| Debug mode shows the plain built-in page, not Whoops | `filp/whoops` is not installed (`--no-dev`) | `composer install` |
+| Debug mode shows the plain built-in page, not Whoops | The note at the top of the page says why: Whoops is missing from `vendor/`, or it threw (usually an unknown `APP_EDITOR`) | `composer install`, or fix `APP_EDITOR` |
+| PHP's own "Fatal error:" text appears | The error happened before `Bootstrap::create()` (in `vendor/autoload.php` or `public/index.php` itself), where no framework code runs yet | Fix the file the message names; PHP's log has it too |
 | An error page shows the built-in one in production | Your template threw while rendering | Check it renders on its own |
 | An API client gets an HTML error page | It did not send `Accept: application/json` | Send the header |
 | A message says only the status text | It was withheld, as designed | Read it on the console, or with `APP_DEBUG=1` |
@@ -163,24 +189,35 @@ both.
 
 `register()` installs four things:
 
-- **`display_errors` off** in production. This is the single most
-  security-relevant line in the whole area. Left on, PHP writes a warning — with
-  the absolute path of the file that raised it — straight into the response body,
-  above the doctype, before any framework code runs and with no way to intercept
-  it afterwards. `error_reporting` stays at `E_ALL` either way, because the
-  handler still needs to see everything.
+- **`display_errors` off**, in production and in debug. In production this is
+  the single most security-relevant line in the whole area: left on, PHP writes a
+  warning — with the absolute path of the file that raised it — straight into the
+  response body, above the doctype, with no way to intercept it afterwards. In
+  debug it was the reason Whoops sometimes did not appear: PHP prints a fatal
+  before the shutdown handler runs, so the page came after PHP's message or not
+  at all. `error_reporting` stays at `E_ALL` and `log_errors` is left alone, so
+  the handler sees everything and PHP's log still records it.
 - **Errors become `ErrorException`**, so they can be caught like anything else,
   while a suppressed notice stays suppressed.
 - **An exception handler**, so an uncaught throwable renders a page instead of
   printing a trace.
 - **A shutdown handler**, so a fatal produces a 500 rather than a blank 200.
 
-That last one needs memory it will not have, so `RESERVED_MEMORY` is 256 KB held
+Bootstrap installs them **first**, before `.env` and `config/*.php` are read,
+with a provisional debug flag from `APP_DEBUG`; `configure()` hands over the
+real configuration and the template-aware page once they exist. A test, or a
+config file, that sets `app.handle_errors` to `false` gets PHP's handlers back
+through `unregister()`.
+
+The shutdown handler needs memory it will not have, so `RESERVED_MEMORY` is 256 KB held
 from registration and released at the top of the shutdown handler. The size was
 measured, not guessed: at 32 KB the handler ran out of memory a second time and
 produced **nothing at all**, because building the `ErrorException` captures a
 backtrace and the document and page are strings. 64 KB was enough for
-production; 256 KB leaves room for a debug trace on a deep stack.
+production; 256 KB leaves room for a debug trace on a deep stack. Whoops needs
+more than any reserve, so for an out-of-memory fatal the handler also raises
+`memory_limit` by `FATAL_MEMORY_HEADROOM` (64 MB), and for a timeout it allows
+`FATAL_TIME_HEADROOM` (30 s) more.
 
 The handler is also told which request is in flight:
 

@@ -45,12 +45,23 @@ final class SmtpTransport implements Transport
 
     public function send(Envelope $envelope): void
     {
+        $authenticates = $this->username !== null && $this->username !== '';
+
+        // AUTH PLAIN and LOGIN are the password in base64. Over a connection
+        // that is not encrypted, everything between here and the mail server
+        // can read it -- so encryption "none" with a user name is refused,
+        // unless the server is this machine. Before connecting: there is
+        // nothing to say to a server this cannot log in to.
+        if ($authenticates && $this->encryption !== 'tls' && $this->encryption !== 'ssl' && !$this->isLoopback()) {
+            throw MailException::plainTextPassword($this->host);
+        }
+
         $this->connect();
 
         try {
             $extensions = $this->open();
 
-            if ($this->username !== null && $this->username !== '') {
+            if ($authenticates) {
                 $this->authenticate($extensions);
             }
 
@@ -163,6 +174,14 @@ final class SmtpTransport implements Transport
         }
 
         return $extensions;
+    }
+
+    /** Whether the server is this machine, where nothing on the wire can listen. */
+    private function isLoopback(): bool
+    {
+        $host = \strtolower(\trim($this->host, '[]'));
+
+        return $host === 'localhost' || $host === '::1' || \str_starts_with($host, '127.');
     }
 
     /** @param list<string> $extensions */

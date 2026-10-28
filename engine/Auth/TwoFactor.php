@@ -144,7 +144,20 @@ final class TwoFactor
 
         $secret = $accounts->twoFactorSecret($account);
         $step = $secret === null ? null : Totp::verify($secret, $code, $accounts->lastTwoFactorStep($account), $this->now());
-        $recovered = $step === null && $this->useRecoveryCode($account, $code);
+
+        // lastTwoFactorStep() is read above and written below, with nothing
+        // in between to stop two requests carrying the same code from both
+        // reading the old value -- one code, two logins. The claim is the
+        // counter store's atomic increment, which every process shares: the
+        // second request to claim a step loses, whatever the provider does.
+        if ($step !== null && !$this->claim('step:' . $step, $account)) {
+            $step = null;
+        }
+
+        $recovered = $step === null
+            && self::looksLikeRecoveryCode($code)
+            && $this->claim('recovery:' . \hash('sha256', self::normaliseRecovery($code)), $account)
+            && $this->useRecoveryCode($account, $code);
 
         if ($step === null && !$recovered) {
             $this->countFailure();
@@ -270,11 +283,41 @@ final class TwoFactor
     }
 
     /** A recovery code, used up if it is one of the account's. */
+    /**
+     * Take a one-time code for this account, once, across every process.
+     *
+     * The rate limiter's store is the one place an increment is atomic between
+     * requests -- file-locked by default, and security:check fails on one that
+     * is not shared. The first request to count a key gets 1 and wins; any
+     * other gets 2 and loses. Three minutes outlives the TOTP window (one step
+     * either side of now) and the time a recovery code takes to be removed.
+     * Without a limiter there is no claim to make, and the provider's own
+     * bookkeeping is all there is.
+     */
+    private function claim(string $what, Account $account): bool
+    {
+        if ($this->limiter === null) {
+            return true;
+        }
+
+        return $this->limiter->attempt('two-factor-used:' . \hash('sha256', $account->identity->id) . ':' . $what, '1/3m')->allowed;
+    }
+
+    private static function normaliseRecovery(string $code): string
+    {
+        return \strtolower(\trim($code));
+    }
+
+    private static function looksLikeRecoveryCode(string $code): bool
+    {
+        return \preg_match('/^[a-z2-7]{5}-[a-z2-7]{5}$/D', self::normaliseRecovery($code)) === 1;
+    }
+
     private function useRecoveryCode(Account $account, string $code): bool
     {
-        $code = \strtolower(\trim($code));
+        $code = self::normaliseRecovery($code);
 
-        if (\preg_match('/^[a-z2-7]{5}-[a-z2-7]{5}$/D', $code) !== 1) {
+        if (!self::looksLikeRecoveryCode($code)) {
             return false;
         }
 

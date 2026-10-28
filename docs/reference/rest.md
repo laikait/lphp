@@ -181,6 +181,12 @@ filter reads `Route::metadata()` and decorates accordingly, and adding a second
 one is a line in `module.php` rather than a place in a pipeline everything has
 to pass through.
 
+## Describing the API
+
+`'openapi' => [...]` route meta turns these routes and their schemas into an
+OpenAPI 3.1 document: `php laika openapi:export > openapi.json`. See
+[OpenAPI](openapi.md).
+
 ## If it doesn't work
 
 | What you see | Why | Fix |

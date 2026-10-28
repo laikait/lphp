@@ -61,6 +61,7 @@ First hit wins, in this order:
 
 | | Folder |
 |---|---|
+| 0. the active [theme](#themes), if any | `templates/<theme>/` or `templates/<area>/<theme>/` |
 | 1. the application | `templates/` |
 | 2. the override of a namespace | `templates/<namespace>/` |
 | 3. the module itself | `modules/Example/Templates/` |
@@ -103,6 +104,129 @@ engines have to agree on how a template is named.
 The shared module *does* get a namespace here, unlike in the asset layer — a
 shared partial is an ordinary thing to want, and unlike a URL, there is a name
 for it.
+
+## Themes
+
+A theme is a folder under `templates/` with its own views and its own
+`assets/`. There are two shapes, and `templates/` itself stays the default:
+
+```
+templates/                        the site; always the fallback
+templates/assets/                 /assets/template/…
+templates/dark/                   theme "dark"
+templates/dark/assets/            /assets/template/dark/…
+templates/admin/dark/             theme "admin/dark": an area and a theme
+templates/admin/dark/assets/      /assets/template/admin/dark/…
+```
+
+### Register a theme
+
+**Themes are registered, never discovered.** A folder under `templates/` is not
+a theme until something says it is. List the themes in configuration:
+
+```php
+// config/templates.php
+return [
+    'themes' => ['dark', 'admin/dark'],
+];
+```
+
+or, when they live in the database, name a class that returns them:
+
+```php
+'theme_provider' => App\Themes\DatabaseThemes::class,
+```
+
+```php
+use App\Engine\Database\ConnectionManager;
+use App\Engine\Template\ThemeProvider;
+
+final class DatabaseThemes implements ThemeProvider
+{
+    public function __construct(private readonly ConnectionManager $db) {}
+
+    public function themes(): iterable
+    {
+        $rows = $this->db->connection()->table('themes')->where('enabled', 1)->get();
+
+        return \array_column($rows, 'name');
+    }
+
+    public function errorThemes(): iterable
+    {
+        return []; // see "Error pages" below
+    }
+}
+```
+
+The provider is built through the container and asked once per request,
+**including asset requests**, which load no module. Cache its answer if the
+themes rarely change. Both lists are used together.
+
+A name is `theme` or `area/theme`, each part matching `[A-Za-z0-9][A-Za-z0-9_-]*`.
+Slashes at either end are trimmed wherever a name is accepted (config, route
+meta, `use()`, `asset()->template()`), so `/app/default/` is the theme
+`app/default`; a doubled slash in the middle is still refused.
+Some names are refused: `assets`, `emails` and `errors`, which are folders of
+`templates/` itself, and a module id such as `Example` (`templates/Example/`
+already overrides that module). Emails never follow a theme; see
+[Mail](mail.md#building-a-message).
+
+### Use a theme for a page
+
+A route, or a whole group, names its theme in meta:
+
+```php
+$routes->group('/admin', static function (RouteCollector $admin): void {
+    $admin->get('/', [Dashboard::class, 'index']);
+    $admin->get('/users', [Users::class, 'index']);
+}, meta: ['theme' => 'admin/dark']);
+```
+
+For a theme chosen at runtime (per user, per tenant), call the registry
+yourself before rendering:
+
+```php
+$themes->use($user->theme);   // App\Engine\Template\ThemeRegistry, injected
+```
+
+Every request starts with no theme, so one request's theme never carries into
+the next one served by the same process.
+
+With a theme active, `render('customer/profile')` looks in
+`templates/admin/dark/customer/profile.*` first and then in `templates/`.
+Layouts and includes follow along: `{% extends "layout.twig" %}` in a page
+from `templates/` picks up `templates/admin/dark/layout.twig` when the theme has
+one. A module override works the same way: `@Example/row` looks in
+`templates/admin/dark/Example/` before `templates/Example/`.
+
+**Assets are always named, and never fall back:**
+
+```twig
+<link rel="stylesheet" href="{{ view.asset().template('admin/dark', 'css/app.css') }}">
+```
+
+That reads `templates/admin/dark/assets/css/app.css` and nothing else; a file
+missing there is a 404, not the copy in `templates/assets/`.
+
+### Error pages
+
+A theme can have its own error pages, in `errors/` inside the theme. For an
+error raised after a route was chosen (a 403 from a guard, a 500 from a
+handler), the route's theme is already active, so `errors/404` is looked for in
+the theme first and `templates/errors/` is the fallback, rendered inside the
+theme's layout.
+
+An error raised **before** any route matches has no route to ask: an unknown
+URL, a 405, maintenance mode. For those, map a path prefix to a theme:
+
+```php
+'error_themes' => ['/admin' => 'admin/dark'],
+```
+
+so `/admin/nonexistent` gets the admin theme's 404. The longest prefix wins, a
+prefix matches whole segments (`/admin` does not match `/administrator`), and
+`/` matches everything. A provider's `errorThemes()` is merged over this list.
 
 ## Twig by default, PHP second
 
@@ -243,7 +367,8 @@ it will execute, and a Twig view it can reach is source it will hand out.
 
 `templates/assets/` stays reachable as `/assets/template/…` through the asset
 manager, which is the only way in — and it is never a view. `render('assets/…')`
-is refused, so a `.php` file among the static files cannot run as a template.
+is refused, and so is `render('admin/dark/assets/…')` for every registered
+theme, so a `.php` file among the static files cannot run as a template.
 
 A request for `/templates`, or anything under it, reaches the application like
 any other path, so a module may declare a route there. A path with no route is
@@ -254,6 +379,9 @@ the application's 404, whether or not a file of that name exists.
 | Key | Default | What it does |
 |---|---|---|
 | `templates.cache` | `false` | Twig's compilation cache, under `system/Cache/templates`. PHP templates never need it — opcache already has them. |
+| `templates.themes` | `[]` | Themes to publish: `dark` is `templates/dark/`, `admin/dark` is `templates/admin/dark/`. See [Themes](#themes). |
+| `templates.theme_provider` | `null` | A `ThemeProvider` class, built through the container, for themes kept in the database. |
+| `templates.error_themes` | `[]` | Path prefix to theme, for error pages raised before a route matched: `['/admin' => 'admin/dark']`. |
 
 ## If it doesn't work
 
@@ -262,6 +390,9 @@ the application's 404, whether or not a file of that name exists.
 | The wrong template renders | Another folder earlier in the search path has that name | `php laika template:list` prints the order |
 | "is not a plain name", for `assets/…` | `templates/assets/` holds static files, never views | Move the template elsewhere under `templates/` |
 | A template is not found | The name is a path under `templates/`, without the extension | Check the path, not the extension |
+| "No theme … is registered" | Themes are never discovered | Add it to `templates.themes` or return it from the provider |
+| A theme's page does not change anything | No theme is active for that route | Add `meta(['theme' => …])` to the route or its group |
+| `/admin/nonexistent` shows the site's 404 | No route matched, so no route chose a theme | Map `/admin` in `templates.error_themes` |
 | A module's override is ignored | Only `templates/<namespace>/` overrides a module | Put the file there, not in another module |
 | `<b>` shows as text in a PHP template | Twig escapes; PHP does not, and `$e()` escaped it | Use `$e->raw()` for markup you trust |
 | A partial cannot see a variable | Partials get only what they are passed | Pass it explicitly |

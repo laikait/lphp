@@ -28,6 +28,24 @@ final class MailException extends FrameworkException
         ));
     }
 
+    public static function plainTextPassword(string $host): self
+    {
+        return new self(\sprintf(
+            'Refusing to send the SMTP password to %s over an unencrypted connection. '
+            . 'Set mail.smtp.encryption to tls (STARTTLS) or ssl.',
+            $host,
+        ));
+    }
+
+    public static function reservedHeader(string $name): self
+    {
+        return new self(\sprintf(
+            'The %s header is written by the mailer and cannot be set with header(); use from(), to(), subject() '
+            . 'and the others, which check what goes in them.',
+            $name,
+        ));
+    }
+
     public static function noRecipients(): self
     {
         return new self('The message has no recipients: add one with to(), cc() or bcc().');

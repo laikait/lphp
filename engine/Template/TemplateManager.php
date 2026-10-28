@@ -22,14 +22,15 @@ use App\Engine\Support\Path;
  *
  * **Resolution order**, first hit wins:
  *
+ *   0. the active theme, when one is -- templates/admin/dark/, see ThemeRegistry
  *   1. templates/ -- "customer/profile" is templates/customer/profile.twig
  *   2. for a namespaced name, templates/ under a subdirectory named after the
  *      namespace -- this is the override rule, see TemplateRegistry
  *   3. the module's own Templates/ directory
  *
  * so a site replaces a module's markup by adding a file to templates/, and the
- * module's copy is the fallback. templates/assets/ is never searched: it
- * holds static files.
+ * module's copy is the fallback. No assets/ directory is ever searched --
+ * templates/assets/ or a theme's -- because they hold static files.
  *
  * **This class renders; it never responds.** It cannot see Request or Response
  * and an architecture test keeps it that way. A handler wraps the string:
@@ -82,6 +83,11 @@ final class TemplateManager
          * default, so a manager built without modules renders as it always did.
          */
         private readonly TemplateHelpers $helpers = new TemplateHelpers(),
+        /**
+         * Which theme's directory to search ahead of templates/. Null renders
+         * from templates/ alone, as a manager without themes always has.
+         */
+        private readonly ?ThemeRegistry $themes = null,
     ) {}
 
     // ---- engines ----------------------------------------------------------
@@ -196,7 +202,7 @@ final class TemplateManager
     {
         return $this->find($name) ?? throw TemplateException::notFound(
             $name,
-            $this->registry->searchPath($this->split($name)[0]),
+            $this->registry->searchPath($this->split($name)[0], $this->themes?->activeRoot()),
             $this->extensions(),
         );
     }
@@ -212,14 +218,19 @@ final class TemplateManager
      */
     public function find(string $name): ?TemplateFile
     {
-        if (\array_key_exists($name, $this->resolved)) {
-            return $this->resolved[$name];
+        // A name means a different file under each theme, so the theme is part
+        // of every key that remembers what a name resolved to.
+        $theme = $this->themes?->active();
+        $memo = ($theme ?? '') . '|' . $name;
+
+        if (\array_key_exists($memo, $this->resolved)) {
+            return $this->resolved[$memo];
         }
 
-        $remembered = $this->remembered($name);
+        $remembered = $this->remembered($name, $theme);
 
         if ($remembered !== null) {
-            return $this->resolved[$name] = $remembered;
+            return $this->resolved[$memo] = $remembered;
         }
 
         [$namespace, $relative] = $this->split($name);
@@ -230,16 +241,15 @@ final class TemplateManager
 
         $this->assertUsableName($name, $relative);
 
-        // templates/assets/ holds the site's static files, served by the asset
-        // layer. Resolving a view there would run a .php among them as code.
-        if ($namespace === null && \explode('/', $relative, 2)[0] === self::ASSETS) {
+        if ($this->isPublishedAssets($namespace, $relative)) {
             throw TemplateException::unacceptableName(
                 $name,
-                'templates/assets/ holds static files, not views; asset()->template() links to them',
+                'templates/assets/ holds static files, not views, and so does every theme\'s assets/; '
+                . 'asset()->template() links to them',
             );
         }
 
-        foreach ($this->registry->searchPath($namespace) as $directory) {
+        foreach ($this->registry->searchPath($namespace, $this->themes?->activeRoot()) as $directory) {
             foreach ($this->extensions() as $extension) {
                 $candidate = Path::join($directory, $relative . '.' . $extension);
 
@@ -255,17 +265,17 @@ final class TemplateManager
 
                 $real = \realpath($candidate);
 
-                return $this->resolved[$name] = $this->remember(new TemplateFile(
+                return $this->resolved[$memo] = $this->remember(new TemplateFile(
                     name: $name,
                     root: $directory,
                     relativePath: $relative . '.' . $extension,
                     absolutePath: Path::normalize($real === false ? $candidate : $real),
                     extension: $extension,
-                ));
+                ), $theme);
             }
         }
 
-        return $this->resolved[$name] = null;
+        return $this->resolved[$memo] = null;
     }
 
     /**
@@ -338,6 +348,43 @@ final class TemplateManager
     }
 
     /**
+     * Whether a name points into a directory the asset layer publishes.
+     *
+     * Those hold static files, and resolving a view in one would run a .php
+     * among them as code. Three spellings reach one:
+     *
+     *   - "assets/x", which is templates/assets/, or the active theme's
+     *     assets/ once its root is searched first;
+     *   - "admin/dark/assets/x", a registered theme's assets/ reached through
+     *     templates/ itself;
+     *   - "@assets/x", whose override directory is templates/assets/.
+     *
+     * Only those. A module's own Templates/assets/ is not published, so
+     * "@Billing/assets/row" stays an ordinary view. Compared in lower case,
+     * because on Windows "Assets" is the same directory.
+     */
+    private function isPublishedAssets(?string $namespace, string $relative): bool
+    {
+        $relative = \strtolower($relative);
+
+        if ($namespace !== null) {
+            return \strtolower($namespace) === self::ASSETS;
+        }
+
+        if (\str_starts_with($relative, self::ASSETS . '/')) {
+            return true;
+        }
+
+        foreach ($this->themes?->all() ?? [] as $theme) {
+            if (\str_starts_with($relative, \strtolower($theme) . '/' . self::ASSETS . '/')) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
      * A resolution kept from an earlier request, if it still describes a file.
      *
      * The file is stat-ed before it is trusted, which is one stat instead of
@@ -348,9 +395,9 @@ final class TemplateManager
      * What it cannot notice is a NEW file that would have won: dropping an
      * override into a theme is a deployment, and a deployment runs cache:clear.
      */
-    private function remembered(string $name): ?TemplateFile
+    private function remembered(string $name, ?string $theme): ?TemplateFile
     {
-        $file = $this->cache->get($this->keyFor($name));
+        $file = $this->cache->get($this->keyFor($name, $theme));
 
         if (!$file instanceof TemplateFile || !\is_file($file->absolutePath)) {
             return null;
@@ -367,9 +414,9 @@ final class TemplateManager
      * caching one would turn "add the file" into "add the file and clear the
      * cache" -- and the failure it causes looks nothing like a stale cache.
      */
-    private function remember(TemplateFile $file): TemplateFile
+    private function remember(TemplateFile $file, ?string $theme): TemplateFile
     {
-        $this->cache->set($this->keyFor($file->name), $file);
+        $this->cache->set($this->keyFor($file->name, $theme), $file);
 
         return $file;
     }
@@ -380,10 +427,14 @@ final class TemplateManager
      * Names hold "@" and "/", which keys deliberately do not: a key becomes a
      * filename in one store and part of a protocol in another, and Cache
      * refuses rather than escaping per backend.
+     *
+     * With a theme active the theme is hashed in, since the same name is a
+     * different file under each one. Without one the key is what it always
+     * was, so a warm cache survives the upgrade.
      */
-    private function keyFor(string $name): string
+    private function keyFor(string $name, ?string $theme = null): string
     {
-        return \hash('xxh128', $name);
+        return \hash('xxh128', $theme === null ? $name : $theme . '|' . $name);
     }
 
     /** Forget what has been resolved; a long-running worker between jobs. */

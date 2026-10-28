@@ -35,7 +35,16 @@ $file = $public . \str_replace('/', \DIRECTORY_SEPARATOR, $path);
 // without case, because on Windows and macOS INDEX.PHP is the same file.
 $dotfile = \preg_match('#(^|/)\.(?!well-known/)#', $path) === 1;
 
-if ($path !== '/' && !$dotfile && \is_file($file) && !\str_ends_with(\strtolower($file), '.php')) {
+// Windows opens "index.php." and "index.php " as index.php, and "index.php::$DATA"
+// is its data stream: each passes a suffix check on the requested name and then
+// serves the source. So the name is judged by the file it really opens, and a
+// name of those shapes is never served as a file at all.
+$windowsAlias = \preg_match('/[.\s]$|:/', $path) === 1;
+$real = \realpath($file);
+$inside = $real !== false && \str_starts_with($real, \realpath($public) . \DIRECTORY_SEPARATOR);
+
+if ($path !== '/' && !$dotfile && !$windowsAlias && $inside && \is_file($real)
+    && !\str_ends_with(\strtolower($real), '.php') && !\str_ends_with(\strtolower($file), '.php')) {
     return false;
 }
 

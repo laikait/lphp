@@ -147,6 +147,22 @@ final class SmtpTransportTest extends TestCase
         (new SmtpTransport('127.0.0.1', $port, 'none', null, null, 5))->send($this->envelope());
     }
 
+    /**
+     * AUTH over a connection that is not encrypted is the password in base64
+     * for everything on the way to read. Refused before a connection is even
+     * opened -- except to this machine, where nothing is on the way.
+     */
+    public function test_a_password_is_never_sent_unencrypted_to_another_machine(): void
+    {
+        try {
+            (new SmtpTransport('smtp.example.com', 25, 'none', 'shop', new Secret('s3cret'), 1))->send($this->envelope());
+            self::fail('the password would have been sent in the clear');
+        } catch (MailException $e) {
+            self::assertStringContainsString('unencrypted', $e->getMessage());
+            self::assertStringNotContainsString('s3cret', $e->getMessage());
+        }
+    }
+
     public function test_no_server_is_a_connection_error(): void
     {
         $this->expectException(MailException::class);

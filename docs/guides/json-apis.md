@@ -324,6 +324,10 @@ php laika route:list
 `curl -i` prints the status and headers too, so you can see `201`, `Location` or
 `415` for yourself.
 
+To hand the API to someone else, add `openapi` meta to the routes and run
+`php laika openapi:export > openapi.json`. The file opens in Swagger Editor,
+Postman or any other OpenAPI tool. See [OpenAPI](../reference/openapi.md).
+
 ## If it doesn't work
 
 | What you see | Why | Fix |

@@ -11,6 +11,86 @@ order. An entry that cannot say who is affected is not finished.
 
 ## To the next release, from 3.0.1
 
+### Stability levels
+
+- **Changed:** every API [`STABILITY.md`](STABILITY.md) marked Experimental is
+  now Stable.
+- **Affected:** nothing in your code. Only the promise changed: a Stable API is
+  no longer changed in a minor release.
+- **Do:** nothing.
+
+### HTML pages get a Content-Security-Policy
+
+- **Changed:** with debug off and `security.headers.csp` unset, HTML responses
+  carry `default-src 'self'; script-src 'self'; style-src 'self'
+  'unsafe-inline'; img-src 'self' data:; object-src 'none'; base-uri 'self';
+  frame-ancestors 'self'; form-action 'self'`.
+- **Affected:** pages with inline `<script>`, `onclick=` handlers, scripts or
+  fonts from a CDN, or forms that post to another site. The browser blocks them
+  and says so in its console.
+- **Do:** set your own policy in `security.headers.csp` naming those sources, or
+  `''` for none (not recommended; `security:check` warns).
+
+### X-Engine is not sent
+
+- **Changed:** responses no longer carry `X-Engine: LPHP`.
+- **Affected:** a monitor or proxy rule that looks for that header.
+- **Do:** `http.headers => ['X-Engine' => 'LPHP']` sends it again.
+
+### Logins are throttled
+
+- **Changed:** `AuthManager::attempt()` and `verify()` throw a 429
+  `HttpException` after too many failed passwords (see `auth.throttle.*`).
+- **Affected:** a login handler that catches every exception and shows "wrong
+  password", and test suites that log in with a wrong password more than five
+  times from one address.
+- **Do:** let the 429 through (the error handler renders it), and in tests use
+  `auth.throttle.enabled => false` or a fresh counter store.
+
+### Database sessions are logged out once
+
+- **Changed:** the database session store keys rows by the SHA-256 of the
+  session id, not the id.
+- **Affected:** every application with `session.store` = `database`. Sessions
+  from before the upgrade are not found, so their users sign in again. File
+  sessions keep working.
+- **Do:** nothing; `php laika session:gc` removes the old rows as they expire.
+
+### Webhook ids are remembered in a file when the cache cannot
+
+- **Changed:** with a cache that forgets between requests (the default `array`
+  store, or none), webhook delivery ids are kept in `system/Cache/webhooks/`,
+  so a replay is reported as a duplicate. Deliveries are never refused for it.
+- **Affected:** applications receiving webhooks with the default cache.
+- **Do:** make `system/Cache/` writable, as it already is for `CACHE_STORE=file`.
+
+### Other refusals
+
+- **Changed:**
+  - `php laika down --secret` needs at least 16 characters;
+  - `security:check` exits 1 in production without `APP_KEY`;
+  - the local disk refuses paths with `:`, a segment ending in `.` or a space,
+    or a Windows device name;
+  - `Message::header()` refuses the headers the mailer writes, in any case;
+  - SMTP refuses to authenticate without TLS to a host other than this machine;
+  - a `Host` header that is not a host name is refused with 400.
+- **Affected:** deploy scripts with a short bypass secret or no `APP_KEY`;
+  stored file names of those shapes; mail sent with `header('from', …)`; SMTP
+  configured with `encryption=none` and a user name.
+- **Do:** use a longer secret (`php laika security:key` prints one) and set
+  `APP_KEY`; rename such files; use `from()`, `to()` and `subject()`; set
+  `mail.smtp.encryption` to `tls`.
+
+### A module called "assets" cannot be rendered as @assets/…
+
+- **Changed:** a template name in the `assets` namespace is refused, because
+  its override folder is `templates/assets/`, which holds static files. Names
+  that reach a registered theme's `assets/` through `templates/`, like
+  `admin/dark/assets/…`, are refused for the same reason.
+- **Affected:** only a module whose id is `assets`. Every other module,
+  including one with a `Templates/assets/` folder, is unchanged.
+- **Do:** rename the module's folder, and its `@assets/…` names with it.
+
 ### The CSRF cookie is __Host-XSRF-TOKEN over HTTPS
 
 - **Changed:** over HTTPS the CSRF cookie is set and read as

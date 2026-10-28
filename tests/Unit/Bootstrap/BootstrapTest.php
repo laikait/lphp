@@ -27,6 +27,52 @@ use App\Tests\Support\TestCase;
 
 final class BootstrapTest extends TestCase
 {
+    /**
+     * The error handler is installed before the configuration is read.
+     *
+     * Registered last, as it used to be, a config/*.php that threw met PHP's
+     * own handler: "PHP Fatal error: Uncaught ...", a stack trace, paths, and
+     * no debug page. Run in a child process, because what is being tested is
+     * what happens to an error nothing catches -- which in this process would
+     * be PHPUnit's business.
+     */
+    public function test_a_config_file_that_throws_is_rendered_by_the_framework_not_php(): void
+    {
+        $base = \sys_get_temp_dir() . '/lphp-early-errors-' . \bin2hex(\random_bytes(4));
+        \mkdir($base . '/config', 0o777, true);
+        \file_put_contents($base . '/config/broken.php', '<?php throw new \RuntimeException("a config file threw");');
+        \file_put_contents($base . '/run.php', \sprintf(
+            '<?php require %s; App\Engine\Bootstrap\Bootstrap::create(%s, App\Engine\Core\ExecutionContext::cli(["laika"]));',
+            \var_export($this->basePath('vendor/autoload.php'), true),
+            \var_export($base, true),
+        ));
+
+        try {
+            $process = \proc_open(
+                [\PHP_BINARY, '-d', 'display_errors=1', '-d', 'log_errors=0', $base . '/run.php'],
+                [1 => ['pipe', 'w'], 2 => ['pipe', 'w']],
+                $pipes,
+                null,
+                ['APP_DEBUG' => '1'] + \getenv(),
+            );
+            self::assertIsResource($process);
+
+            $stdout = (string) \stream_get_contents($pipes[1]);
+            $stderr = (string) \stream_get_contents($pipes[2]);
+            \fclose($pipes[1]);
+            \fclose($pipes[2]);
+            \proc_close($process);
+
+            self::assertStringNotContainsString('Fatal error', $stdout . $stderr, 'PHP did not print it');
+            self::assertStringContainsString("  RuntimeException\n  a config file threw", \str_replace("\r\n", "\n", $stderr));
+        } finally {
+            @\unlink($base . '/config/broken.php');
+            @\unlink($base . '/run.php');
+            @\rmdir($base . '/config');
+            @\rmdir($base);
+        }
+    }
+
     public function test_it_returns_an_application_that_has_not_booted(): void
     {
         $app = $this->application();
@@ -186,6 +232,12 @@ final class BootstrapTest extends TestCase
             'mcp.http.path',
             'mcp.allow_guests',
             'mcp.log.enabled',
+            'openapi.title',
+            'openapi.version',
+            'openapi.route',
+            'openapi.docs',
+            'openapi.meta',
+            'openapi.runtime',
             'localization.country_header',
             'app.editor',
             'app.memory_limit',
@@ -209,7 +261,7 @@ final class BootstrapTest extends TestCase
         self::assertSame(
             [
                 'app', 'http', 'mail', 'database', 'assets', 'storage', 'cache', 'queue', 'security', 'auth', 'session',
-                'scheduler', 'system', 'mcp', 'logging', 'observability', 'localization', 'templates', 'modules', 'features',
+                'scheduler', 'system', 'mcp', 'openapi', 'logging', 'observability', 'localization', 'templates', 'modules', 'features',
             ],
             \array_keys($config->all()),
         );

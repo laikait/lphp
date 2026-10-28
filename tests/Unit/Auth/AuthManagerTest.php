@@ -11,7 +11,10 @@ use App\Engine\Auth\AuthManager;
 use App\Engine\Auth\Identity;
 use App\Engine\Auth\Password;
 use App\Engine\Hook\HookEngine;
+use App\Engine\Http\HttpException;
 use App\Engine\Http\Request;
+use App\Engine\Security\Counters\MemoryStore;
+use App\Engine\Security\RateLimiter;
 use App\Engine\Security\Secret;
 use App\Engine\Session\SessionManager;
 use App\Engine\Session\Stores\ArrayStore;
@@ -56,7 +59,7 @@ final class AuthManagerTest extends TestCase
         }
     }
 
-    private function manager(Request $request = null, bool $withToken = true): AuthManager
+    private function manager(?Request $request = null, bool $withToken = true): AuthManager
     {
         $authenticators = $withToken ? [new TokenAuthenticator($this->provider)] : [];
         $authenticators[] = new SessionAuthenticator($this->sessions, $this->provider);
@@ -161,6 +164,142 @@ final class AuthManagerTest extends TestCase
         self::assertNull($manager->attempt('ada', new Secret('wrong')));
         self::assertNull($manager->attempt('nobody', new Secret('wrong')));
         self::assertSame(['auth.failed', 'auth.failed'], $this->fired);
+    }
+
+    // ---- guessing --------------------------------------------------------------
+
+    private function throttled(RateLimiter $limiter, string $ip = '203.0.113.7'): AuthManager
+    {
+        $manager = new AuthManager(
+            $this->provider,
+            $this->passwords,
+            [new SessionAuthenticator($this->sessions, $this->provider)],
+            $this->sessions,
+            $this->hooks,
+            limiter: $limiter,
+        );
+
+        $request = Request::create('POST', '/login', ['server' => ['REMOTE_ADDR' => $ip]]);
+        $this->sessions->onRequest($request);
+        $manager->onRequest($request);
+
+        return $manager;
+    }
+
+    /**
+     * One address guessing one account: five tries, then 429 -- and the right
+     * password arriving after that gets the same 429 rather than a login, so a
+     * guess past the limit tells the attacker nothing.
+     */
+    public function test_guessing_one_accounts_password_is_throttled(): void
+    {
+        $this->withPassword('7', 'ada', 'correct horse');
+        $limiter = new RateLimiter(new MemoryStore());
+        $manager = $this->throttled($limiter);
+
+        for ($i = 0; $i < 5; ++$i) {
+            self::assertNull($manager->attempt('ada', new Secret('guess ' . $i)));
+        }
+
+        try {
+            $manager->attempt('ada', new Secret('correct horse'));
+            self::fail('the sixth try was checked');
+        } catch (HttpException $e) {
+            self::assertSame(429, $e->status());
+            self::assertArrayHasKey('Retry-After', $e->headers());
+        }
+    }
+
+    /** A different address is still allowed, and so is the right password before the limit. */
+    public function test_the_strict_limit_is_per_account_and_address(): void
+    {
+        $this->withPassword('7', 'ada', 'correct horse');
+        $limiter = new RateLimiter(new MemoryStore());
+
+        for ($i = 0; $i < 5; ++$i) {
+            $this->throttled($limiter, '203.0.113.7')->attempt('ada', new Secret('guess'));
+        }
+
+        self::assertNotNull($this->throttled($limiter, '198.51.100.9')->attempt('ada', new Secret('correct horse')));
+    }
+
+    /** Mistyping and then getting it right starts the count again. */
+    public function test_the_right_password_clears_the_strict_count(): void
+    {
+        $this->withPassword('7', 'ada', 'correct horse');
+        $limiter = new RateLimiter(new MemoryStore());
+        $manager = $this->throttled($limiter);
+
+        for ($i = 0; $i < 4; ++$i) {
+            $manager->attempt('ada', new Secret('typo'));
+        }
+
+        self::assertNotNull($manager->attempt('ada', new Secret('correct horse')));
+
+        for ($i = 0; $i < 4; ++$i) {
+            self::assertNull($manager->attempt('ada', new Secret('typo')), 'still counting from zero');
+        }
+    }
+
+    /** One address trying a list of accounts ("spraying") meets the per-address limit. */
+    public function test_spraying_many_accounts_from_one_address_is_throttled(): void
+    {
+        $limiter = new RateLimiter(new MemoryStore());
+
+        for ($i = 0; $i < 30; ++$i) {
+            self::assertNull($this->throttled($limiter)->attempt('user' . $i, new Secret('Summer2026!')));
+        }
+
+        $this->expectException(HttpException::class);
+
+        $this->throttled($limiter)->attempt('user-31', new Secret('Summer2026!'));
+    }
+
+    /** A missing account counts the same as a wrong password, or the limit itself would enumerate. */
+    public function test_a_missing_account_is_counted_like_a_real_one(): void
+    {
+        $limiter = new RateLimiter(new MemoryStore());
+        $manager = $this->throttled($limiter);
+
+        for ($i = 0; $i < 5; ++$i) {
+            $manager->attempt('nobody', new Secret('x'));
+        }
+
+        $this->expectException(HttpException::class);
+
+        $manager->attempt('nobody', new Secret('x'));
+    }
+
+    /**
+     * A missing account costs what a wrong password costs, at whatever cost is
+     * configured. A fixed dummy hash -- as there used to be -- has a fixed
+     * cost, and stopped matching the moment the cost was raised.
+     */
+    public function test_a_missing_account_costs_the_same_as_a_wrong_password_at_any_cost(): void
+    {
+        $passwords = new Password(['cost' => 6]);
+        $hash = $passwords->hash(new Secret('right'));
+
+        $time = static function (\Closure $verify): float {
+            $best = \PHP_FLOAT_MAX;
+
+            for ($i = 0; $i < 3; ++$i) {
+                $start = \hrtime(true);
+                $verify();
+                $best = \min($best, (\hrtime(true) - $start) / 1e6);
+            }
+
+            return $best;
+        };
+
+        $missing = $time(static fn() => $passwords->verify(new Secret('x'), null));
+        $wrong = $time(static fn() => $passwords->verify(new Secret('x'), $hash));
+
+        // Cost 6, not 10, on purpose: the old fixed dummy was bcrypt at cost
+        // 10, so a missing account took ~16x as long as a wrong password here.
+        // Within a factor of two is "the same".
+        self::assertGreaterThan($wrong / 2, $missing);
+        self::assertLessThan($wrong * 2, $missing);
     }
 
     public function test_a_suspended_account_cannot_log_in(): void

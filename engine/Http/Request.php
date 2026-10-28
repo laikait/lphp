@@ -52,12 +52,14 @@ final class Request
         private readonly array $server,
         private readonly array $attributes = [],
         private readonly array $trustedProxies = [],
+        private readonly bool $bodyTooLarge = false,
     ) {}
 
     /**
      * @param list<string> $trustedProxies
+     * @param int|null     $maxBodyBytes   read at most this much of the body; see readBody()
      */
-    public static function fromGlobals(?string $basePath = null, array $trustedProxies = []): self
+    public static function fromGlobals(?string $basePath = null, array $trustedProxies = [], ?int $maxBodyBytes = null): self
     {
         /** @var array<string, mixed> $server */
         $server = $_SERVER;
@@ -70,7 +72,7 @@ final class Request
         /** @var array<string, mixed> $files */
         $files = $_FILES;
 
-        $body = (string) \file_get_contents('php://input');
+        [$body, $tooLarge] = self::readBody($maxBodyBytes);
 
         return self::build(
             method: self::readMethod($server),
@@ -83,7 +85,52 @@ final class Request
             files: UploadedFile::normalizeAll($files),
             basePath: $basePath,
             trustedProxies: $trustedProxies,
+            bodyTooLarge: $tooLarge,
         );
+    }
+
+    /**
+     * The raw body, read no further than the limit.
+     *
+     * The size limit used to be judged from Content-Length after the whole
+     * body had already been read into memory -- and a request without the
+     * header (chunked transfer) was not judged at all. One byte past the limit
+     * is read, so "exactly the limit" and "over it" can be told apart, and
+     * what is over is dropped rather than kept: RequestLimits answers 413 for
+     * it before anything parses it.
+     *
+     * @param string $source php://input; a file in a test, since the CLI has no request body
+     *
+     * @return array{string, bool} the body, and whether it was over the limit
+     */
+    private static function readBody(?int $maxBytes, string $source = 'php://input'): array
+    {
+        if ($maxBytes === null || $maxBytes <= 0) {
+            return [(string) \file_get_contents($source), false];
+        }
+
+        $stream = @\fopen($source, 'rb');
+
+        if ($stream === false) {
+            return ['', false];
+        }
+
+        try {
+            $body = (string) \stream_get_contents($stream, $maxBytes + 1);
+        } finally {
+            \fclose($stream);
+        }
+
+        return \strlen($body) > $maxBytes ? ['', true] : [$body, false];
+    }
+
+    /**
+     * Whether the body was longer than the limit fromGlobals() was given, and
+     * so was not kept. RequestLimits turns this into a 413.
+     */
+    public function bodyTooLarge(): bool
+    {
+        return $this->bodyTooLarge;
     }
 
     /**
@@ -98,7 +145,8 @@ final class Request
      *     files?: array<string, UploadedFile|list<UploadedFile>>,
      *     server?: array<string, mixed>,
      *     basePath?: string,
-     *     trustedProxies?: list<string>
+     *     trustedProxies?: list<string>,
+     *     maxBodyBytes?: int
      * } $options
      */
     public static function create(string $method, string $uri, array $options = []): self
@@ -119,6 +167,16 @@ final class Request
 
         if (\is_array($rawBody) && $rawBody !== [] && !isset($headers['content-type'])) {
             $headers['content-type'] = 'application/x-www-form-urlencoded';
+        }
+
+        // The same rule fromGlobals() applies to the input stream, so a test
+        // can build the request a client sent too much for.
+        $maxBodyBytes = $options['maxBodyBytes'] ?? null;
+        $bodyTooLarge = \is_int($maxBodyBytes) && $maxBodyBytes > 0 && \strlen($body) > $maxBodyBytes;
+
+        if ($bodyTooLarge) {
+            $body = '';
+            $parsedBody = [];
         }
 
         $query = $options['query'] ?? [];
@@ -145,6 +203,7 @@ final class Request
             files: $options['files'] ?? [],
             basePath: $options['basePath'] ?? null,
             trustedProxies: $options['trustedProxies'] ?? [],
+            bodyTooLarge: $bodyTooLarge,
         );
     }
 
@@ -168,6 +227,7 @@ final class Request
         array $files,
         ?string $basePath,
         array $trustedProxies,
+        bool $bodyTooLarge = false,
     ): self {
         $uri = \is_string($server['REQUEST_URI'] ?? null) ? $server['REQUEST_URI'] : '/';
         $resolvedBase = $basePath ?? self::deriveBasePath($server);
@@ -185,6 +245,7 @@ final class Request
             files: $files,
             server: $server,
             trustedProxies: $trustedProxies,
+            bodyTooLarge: $bodyTooLarge,
         );
     }
 
@@ -518,6 +579,33 @@ final class Request
         return isset($this->headers[Headers::normalize($name)]);
     }
 
+    /**
+     * Whether If-None-Match names this entity tag: the tag itself, its weak
+     * form (W/"…", which is what a compressing proxy turns a strong tag
+     * into), or "*". Null when the header is absent, so a caller can fall
+     * back to If-Modified-Since; RFC 9110 says to ignore that one otherwise.
+     *
+     * @param string $etag quoted, as sent: "\"abc\""
+     */
+    public function matchesEtag(string $etag): ?bool
+    {
+        $noneMatch = $this->header('If-None-Match');
+
+        if ($noneMatch === null || $noneMatch === '') {
+            return null;
+        }
+
+        foreach (\explode(',', $noneMatch) as $candidate) {
+            $candidate = \trim($candidate);
+
+            if ($candidate === '*' || $candidate === $etag || $candidate === 'W/' . $etag) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
     /** @return array<string, string> keyed by the canonical header name */
     public function headers(): array
     {
@@ -818,6 +906,7 @@ final class Request
             server: $this->server,
             attributes: $attributes,
             trustedProxies: $this->trustedProxies,
+            bodyTooLarge: $this->bodyTooLarge,
         );
     }
 }

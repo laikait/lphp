@@ -95,6 +95,47 @@ final class TwoFactorTest extends TestCase
         self::assertTrue($this->auth()->guest());
     }
 
+    /**
+     * Two requests carrying the same code at the same moment both read the
+     * last step before either records it. The provider cannot tell them
+     * apart; the claim on the shared counter store can.
+     */
+    public function test_one_code_sent_twice_at_once_logs_in_once(): void
+    {
+        $code = Totp::code($this->secret);
+        $this->twoFactor()->attempt('ada@example.test', new Secret('pw'));
+        self::assertNotNull($this->twoFactor()->challenge($code));
+
+        $this->auth()->logout();
+        $this->accounts->forgetStep('ada');
+        $this->twoFactor()->attempt('ada@example.test', new Secret('pw'));
+
+        self::assertNull($this->twoFactor()->challenge($code), 'the second request with the same code');
+        self::assertTrue($this->auth()->guest());
+    }
+
+    /** The same for a recovery code: one use, however many requests race for it. */
+    public function test_one_recovery_code_sent_twice_at_once_logs_in_once(): void
+    {
+        $bob = $this->accounts->byId('bob') ?? throw new \LogicException();
+        $enrolment = $this->twoFactor()->begin($bob);
+        $codes = $this->twoFactor()->confirm($bob, Totp::code($enrolment->secret));
+        self::assertIsArray($codes);
+        $code = $codes[0];
+        $hashes = $this->accounts->recoveryCodes($bob);
+
+        $this->twoFactor()->attempt('bob@example.test', new Secret('pw'));
+        self::assertNotNull($this->twoFactor()->challenge($code));
+
+        // The racing request read the list before the first removed the code.
+        $this->auth()->logout();
+        $this->accounts->replaceRecoveryCodes($bob, $hashes);
+        $this->twoFactor()->attempt('bob@example.test', new Secret('pw'));
+
+        self::assertNull($this->twoFactor()->challenge($code));
+        self::assertTrue($this->auth()->guest());
+    }
+
     public function test_five_wrong_codes_and_the_password_is_needed_again(): void
     {
         $this->twoFactor()->attempt('ada@example.test', new Secret('pw'));

@@ -20,9 +20,31 @@ $module->routes(static function (RouteCollector $routes): void {
 | `group($prefix, $routes, $name, $meta)` | a prefix, a name prefix and shared meta |
 | `->name(…)` | the name `url()` uses. Names must be unique |
 | `->where($param, $regex)` · `->whereMany([...])` | what a parameter may contain |
-| `->meta([...])` | `auth`, `can`, `csrf`, `rate_limit`, `signed`, and anything of your own |
+| `->meta([...])` | `auth`, `can`, `csrf`, `rate_limit`, `signed`, `theme`, [`openapi`](openapi.md), and anything of your own |
 
 `php laika route:list` prints every route, its module and its access.
+
+### A theme for a route or a group
+
+`theme` works on one route and on a group, like any meta key:
+
+```php
+$routes->get('/pricing', ShowPricing::class)->meta(['theme' => 'default']);
+
+$routes->group('/app', static function (RouteCollector $app): void {
+    $app->get('/', Dashboard::class);                                     // app/default
+    $app->get('/print', PrintView::class)->meta(['theme' => 'print']);    // the route wins
+    $app->group('/beta', static function (RouteCollector $beta): void {
+        $beta->get('/', BetaHome::class);                                 // app/beta
+    }, 'beta.', ['theme' => 'app/beta']);
+}, 'app.', ['theme' => '/app/default/']);
+```
+
+A route's own meta is merged over its group's, and an inner group's over the
+outer one's, so the nearest declaration wins. Slashes at either end are
+trimmed, so `/app/default/` is the theme `app/default`. The theme must be
+registered (see [Themes](templates.md#themes)); naming one that is not is an
+error, not a fallback.
 
 ## Handlers
 

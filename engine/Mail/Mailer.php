@@ -8,6 +8,7 @@ use App\Engine\Filter\FilterEngine;
 use App\Engine\Hook\HookEngine;
 use App\Engine\Queue\Queue;
 use App\Engine\Template\TemplateManager;
+use App\Engine\Template\ThemeRegistry;
 
 /**
  * Sends email.
@@ -41,6 +42,8 @@ final class Mailer
         private readonly ?FilterEngine $filters = null,
         private readonly ?HookEngine $hooks = null,
         private readonly ?Queue $queue = null,
+        /** Switched off while a view renders; see render(). */
+        private readonly ?ThemeRegistry $themes = null,
     ) {}
 
     public function transport(): Transport
@@ -92,16 +95,33 @@ final class Mailer
         return $this->queue->push(new SendMessageJob($message), $queue, $delay);
     }
 
+    /**
+     * Render the view, with no theme, whatever page is sending it.
+     *
+     * An email is rendered when it is sent: in this request when the queue is
+     * "sync", in a worker otherwise. A worker has no request and so no theme,
+     * so letting the request's theme apply here would make the same password
+     * reset look different depending on the queue driver. Emails therefore
+     * always come from templates/emails/ (or a module's templates), and the
+     * theme the page was using is given back afterwards for the rest of it.
+     */
     private function render(Message $message): Message
     {
         if ($message->view === null || $this->templates === null) {
             return $message;
         }
 
-        $html = $this->templates->render($message->view, $message->viewData);
-        $text = $this->templates->exists($message->view . '.text')
-            ? $this->templates->render($message->view . '.text', $message->viewData)
-            : null;
+        $previous = $this->themes?->active();
+        $this->themes?->use(null);
+
+        try {
+            $html = $this->templates->render($message->view, $message->viewData);
+            $text = $this->templates->exists($message->view . '.text')
+                ? $this->templates->render($message->view . '.text', $message->viewData)
+                : null;
+        } finally {
+            $this->themes?->use($previous);
+        }
 
         return $message->rendered($html, $text);
     }

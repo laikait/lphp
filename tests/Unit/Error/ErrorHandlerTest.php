@@ -332,19 +332,177 @@ final class ErrorHandlerTest extends TestCase
         }
     }
 
-    public function test_debug_mode_leaves_php_free_to_speak(): void
+    /**
+     * Debug too. A fatal is printed by PHP before the shutdown handler runs, so
+     * with display_errors on the debug page came after PHP's message, or --
+     * once those bytes had gone out -- not at all. The framework renders every
+     * error; PHP displaying it as well can only get in the way.
+     */
+    public function test_debug_mode_keeps_php_quiet_too(): void
     {
-        $before = \ini_get('display_errors');
+        $handler = $this->handler(true);
 
         try {
-            $this->handler(true)->register();
+            $handler->register();
 
-            self::assertSame('1', \ini_get('display_errors'));
+            self::assertSame('0', \ini_get('display_errors'));
+            self::assertSame('0', \ini_get('display_startup_errors'));
+        } finally {
+            $handler->unregister();
+        }
+    }
+
+    /** For a caller that switched handle_errors off after Bootstrap registered. */
+    public function test_unregistering_gives_php_its_handlers_back(): void
+    {
+        $before = \ini_get('display_errors');
+        $previousError = static fn(): bool => false;
+        $previousException = static function (\Throwable $e): void {};
+
+        \set_error_handler($previousError);
+        \set_exception_handler($previousException);
+
+        try {
+            $handler = $this->handler(false);
+            $handler->register();
+
+            self::assertTrue($handler->isRegistered());
+
+            $handler->unregister();
+
+            self::assertFalse($handler->isRegistered());
+            self::assertSame($previousError, \set_error_handler(null), 'the error handler from before');
+            self::assertSame($previousException, \set_exception_handler(null), 'the exception handler from before');
+            self::assertSame($before, \ini_get('display_errors'));
         } finally {
             \restore_error_handler();
+            \restore_error_handler();
             \restore_exception_handler();
-            @\ini_set('display_errors', $before === false ? '1' : $before);
+            \restore_exception_handler();
         }
+    }
+
+    // ---- rendering an uncaught error ------------------------------------------
+
+    /**
+     * Run $render with a capture buffer at the handler's floor and stale output
+     * above it, as a request that printed something before failing would have.
+     *
+     * @param \Closure(ErrorHandler): void $render
+     */
+    private function captured(bool $debug, \Closure $render, ?HookEngine $hooks = null): string
+    {
+        \ob_start();
+        $handler = new ErrorHandler(
+            new Config(['app' => ['debug' => $debug]]),
+            $hooks ?? $this->hooks,
+            outputFloor: \ob_get_level(),
+            // As in a web request, where nothing has gone out yet. The real
+            // headers_sent() is true here once PHPUnit has printed anything,
+            // which made these tests pass or fail by what ran before them.
+            headersSent: static fn(): bool => false,
+        );
+
+        \ob_start();
+        echo 'STALE-OUTPUT';
+        \ob_start();
+        echo 'MORE-STALE-OUTPUT';
+
+        $render($handler);
+
+        return (string) \ob_get_clean();
+    }
+
+    /** A stray echo before the failure must not come out ahead of the page. */
+    public function test_an_uncaught_error_discards_what_was_printed_before_it(): void
+    {
+        $page = $this->captured(false, static function (ErrorHandler $handler): void {
+            $handler->renderForBrowser(new \RuntimeException('boom'));
+        });
+
+        self::assertStringNotContainsString('STALE-OUTPUT', $page);
+        self::assertStringStartsWith('<!DOCTYPE html>', $page);
+    }
+
+    /**
+     * The kernel path: an exception caught and rendered by toResponse() while
+     * the handler owns the process. The page it is sent with must not have the
+     * handler's echo in front of it either.
+     */
+    public function test_a_registered_handler_discards_stale_output_when_it_builds_a_response(): void
+    {
+        $page = $this->captured(false, static function (ErrorHandler $handler): void {
+            $handler->register();
+
+            try {
+                $handler->toResponse(new \RuntimeException('boom'))->send();
+            } finally {
+                $handler->unregister();
+            }
+        });
+
+        self::assertStringNotContainsString('STALE-OUTPUT', $page);
+        self::assertStringStartsWith('<!DOCTYPE html>', $page);
+    }
+
+    /** Not registered -- a test, a caller of its own -- the caller's buffers are left alone. */
+    public function test_an_unregistered_handler_leaves_the_callers_buffers_alone(): void
+    {
+        $page = $this->captured(false, static function (ErrorHandler $handler): void {
+            $handler->toResponse(new \RuntimeException('boom'));
+            echo \ob_get_level() > 0 ? '|still-buffered' : '';
+            \ob_end_flush();
+            \ob_end_flush();
+        });
+
+        self::assertStringContainsString('STALE-OUTPUT', $page);
+        self::assertStringContainsString('|still-buffered', $page);
+    }
+
+    /**
+     * The error page itself failing -- here, a listener on error.reported that
+     * throws -- still ends in a page, never in PHP's own message.
+     */
+    public function test_an_error_page_that_fails_still_ends_in_a_plain_500(): void
+    {
+        $hooks = new HookEngine();
+        $hooks->add('error.reported', static function (): void {
+            throw new \LogicException('the reporter broke');
+        });
+
+        $render = static function (ErrorHandler $handler): void {
+            $handler->renderForBrowser(new \RuntimeException('the original'));
+        };
+
+        $production = $this->captured(false, $render, $hooks);
+
+        self::assertStringContainsString('500 Internal Server Error', $production);
+        self::assertStringNotContainsString('the original', $production, 'production names neither');
+        self::assertStringNotContainsString('STALE-OUTPUT', $production);
+
+        $debug = $this->captured(true, $render, $hooks);
+
+        self::assertStringContainsString('RuntimeException', $debug);
+        self::assertStringContainsString('the original', $debug);
+        self::assertStringContainsString('LogicException', $debug);
+        self::assertStringContainsString('the reporter broke', $debug);
+    }
+
+    /** Escaped like every other page: a message can carry request data. */
+    public function test_the_plain_500_escapes_what_it_names(): void
+    {
+        $hooks = new HookEngine();
+        $hooks->add('error.reported', static function (): void {
+            throw new \LogicException('<script>alert(2)</script>');
+        });
+
+        $page = $this->captured(true, static function (ErrorHandler $handler): void {
+            $handler->renderForBrowser(new \RuntimeException('<img src=x onerror=alert(1)>'));
+        }, $hooks);
+
+        self::assertStringNotContainsString('<script>', $page);
+        self::assertStringNotContainsString('<img', $page);
+        self::assertStringContainsString('&lt;script&gt;', $page);
     }
 
     /**

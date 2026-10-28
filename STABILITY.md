@@ -2,12 +2,12 @@
 
 What an application or a module may build on, and what it may not. Specification
 §53 asks for every API to be marked **Experimental**, **Internal**, **Stable** or
-**Deprecated**, and warns against promising stability too early. This file is
-that marking.
+**Deprecated**. This file is that marking.
 
 `tests/Architecture/DocumentationTest.php` holds it to the code: every class
 under `engine/` must resolve to exactly one level below, every row must still
-match something, nothing may be Stable before 1.0.0, and no shipped module — nor
+match something, a Deprecated row must name its replacement and its removal
+version, and no shipped module — nor
 the showcase modules in `tests/Fixtures/Showcase/` — may use an Internal class.
 
 ## The four levels
@@ -15,16 +15,15 @@ the showcase modules in `tests/Fixtures/Showcase/` — may use an Internal class
 | Level | Meaning | May change in |
 |---|---|---|
 | **Stable** | The contract. Changing it takes a deprecation first and a major version. | a major release only |
-| **Experimental** | Public and meant to be used, but not yet promised. | any minor release before 1.0.0, always with an entry in [`UPGRADING.md`](UPGRADING.md); never in a patch release |
+| **Experimental** | Public and meant to be used, but new: not yet promised. Nothing has this level today; an addition may start here until it is promoted. | any minor release, always with an entry in [`UPGRADING.md`](UPGRADING.md); never in a patch release |
 | **Internal** | Wiring. Public only because PHP has no package visibility. | any release, including a patch, with no notice |
-| **Deprecated** | Still works, has a replacement, and names the release that removes it. | removed no earlier than the next minor (before 1.0) or major (after) |
+| **Deprecated** | Still works, has a replacement, and names the release that removes it. | removed no earlier than the next major release, after being deprecated in a minor one |
 
-**Nothing is Stable yet.** The framework has not yet been used by an
-application that was not written alongside it — the demo application of Phase 29
-is deferred — and a promise made before that is a promise about guesses. The
-first release that promotes anything will say so. What is expected to be
-promoted is marked *1.0 candidate* in the notes below; that is an intention, not
-a guarantee.
+**Everything that was Experimental is Stable as of 3.2.0.** Every class and surface
+marked Stable below is a promise: it changes only in a major release, and only
+after a deprecation in a minor one. Internal is not promised. A new public API may
+be added as Experimental and is promoted by an explicit entry in
+[`CHANGELOG.md`](CHANGELOG.md).
 
 **Nothing is Deprecated yet.** When something is, it gets all four of: a
 `@deprecated` tag naming the replacement and the removal version, a row here, a
@@ -36,7 +35,7 @@ needed, is a log record on a `deprecation` channel.
 
 ### What decides the level
 
-- **Experimental** — what `module.php`, a handler, a command, a job, a template or
+- **Stable** — what `module.php`, a handler, a command, a job, a template or
   a store implementation is written against: the types those receive, return,
   implement or catch.
 - **Internal** — what only `Bootstrap` constructs or only the engine calls:
@@ -45,26 +44,26 @@ needed, is a log record on a `deprecation` channel.
   configuration rather than by class.
 
 A class that is Internal is not worse code. It is code that must stay free to
-change, so that the Experimental surface can stay still.
+change, so that the Stable surface can stay still.
 
 ## Surfaces that are not classes
 
 | Surface | Level | Notes |
 |---|---|---|
-| The `module.php` contract: a closure receiving `ModuleContext` | Experimental | 1.0 candidate |
-| The ten global helpers (`add_hook` … `template`) | Experimental | 1.0 candidate; the set is closed |
-| Hook and filter **names** ([Lifecycle extension points](docs/reference/hooks-and-filters.md#lifecycle-extension-points)) | Experimental | 1.0 candidate; a test compares that table with what the engine fires |
-| Arguments each hook and filter passes | Experimental | adding a trailing argument is not a break; reordering or removing one is |
-| Route metadata keys: `auth`, `can`, `csrf`, `rate_limit`, `signed`, `api`, `version`, `deprecated`, `sunset` | Experimental | |
-| Configuration keys and their defaults (`Bootstrap::defaults()`) | Experimental | pinned by `BootstrapTest` |
-| Environment variables (`.env.example`) | Experimental | a test fails if one is undocumented |
-| Console command names, options and exit codes (0, 1, 2, 127) | Experimental | scripts and cron lines depend on these |
-| The JSON error document: `status`, `title`, `message` first, additions under their own keys | Experimental | 1.0 candidate |
-| Response headers: `X-Request-Id`, `X-Correlation-Id`, `X-Api-Version`, `Deprecation`, `Sunset`, `RateLimit-*`, `Retry-After` | Experimental | |
-| `Server-Timing` and the `profile` log record's shape | Experimental | newest; the most likely to change |
-| Asset URLs: `/assets/{core,template,module}/…` | Experimental | 1.0 candidate; URLs end up in caches and emails |
-| Module ids (the folder name under `modules/`; `Shared` is fixed), template namespaces (`@<Name>`) and the default template's names (`layout`, `home`, `errors/404`, `errors/error`) with the data they are given | Experimental | |
-| Translation files (`lang/<locale>.php`, `lang/countries.php`, a module's `lang/`), key namespaces (`<Module>.`, e.g. `Shared.`, `Billing.`), the `language` cookie and the `local` filter | Experimental | |
+| The `module.php` contract: a closure receiving `ModuleContext` | Stable | |
+| The ten global helpers (`add_hook` … `template`) | Stable | the set is closed |
+| Hook and filter **names** ([Lifecycle extension points](docs/reference/hooks-and-filters.md#lifecycle-extension-points)) | Stable | a test compares that table with what the engine fires |
+| Arguments each hook and filter passes | Stable | adding a trailing argument is not a break; reordering or removing one is |
+| Route metadata keys: `auth`, `can`, `csrf`, `rate_limit`, `signed`, `api`, `version`, `deprecated`, `sunset`, `openapi` | Stable | |
+| Configuration keys and their defaults (`Bootstrap::defaults()`) | Stable | pinned by `BootstrapTest` |
+| Environment variables (`.env.example`) | Stable | a test fails if one is undocumented |
+| Console command names, options and exit codes (0, 1, 2, 127) | Stable | scripts and cron lines depend on these |
+| The JSON error document: `status`, `title`, `message` first, additions under their own keys | Stable | |
+| Response headers: `X-Request-Id`, `X-Correlation-Id`, `X-Api-Version`, `Deprecation`, `Sunset`, `RateLimit-*`, `Retry-After` | Stable | |
+| `Server-Timing` and the `profile` log record's shape | Stable | |
+| Asset URLs: `/assets/{core,template,module}/…` | Stable | URLs end up in caches and emails |
+| Module ids (the folder name under `modules/`; `Shared` is fixed), template namespaces (`@<Name>`) and the default template's names (`layout`, `home`, `errors/404`, `errors/error`) with the data they are given | Stable | |
+| Translation files (`lang/<locale>.php`, `lang/countries.php`, a module's `lang/`), key namespaces (`<Module>.`, e.g. `Shared.`, `Billing.`), the `language` cookie and the `local` filter | Stable | |
 | Cache files under `system/Cache/` (`config.php`, `modules.php`) | Internal | rebuilt by `cache:warm`; never read across versions |
 | **Persisted formats**: a queued job's envelope (`QueuedJob::toArray()`), a session record, a rate-limit counter, `framework.json` (the release manifest an application keeps) | Internal | **with one promise**: a release must read what the previous release wrote, because a deployment does not drain its queue or log everybody out |
 
@@ -77,59 +76,59 @@ namespace beats a shorter one.
 | Class or namespace | Level | Notes |
 |---|---|---|
 | `App\Engine\Asset\*` | Internal | |
-| `App\Engine\Asset\AssetException` | Experimental | |
-| `App\Engine\Asset\AssetKind` | Experimental | |
-| `App\Engine\Asset\AssetManager` | Experimental | 1.0 candidate: `core()`, `template()`, `module()`, `url()` |
-| `App\Engine\Asset\AssetReference` | Experimental | |
-| `App\Engine\Asset\AssetRegistry` | Experimental | `register()` for directories that are not modules |
-| `App\Engine\Asset\AssetSource` | Experimental | |
+| `App\Engine\Asset\AssetException` | Stable | |
+| `App\Engine\Asset\AssetKind` | Stable | |
+| `App\Engine\Asset\AssetManager` | Stable | `core()`, `template()`, `module()`, `url()` |
+| `App\Engine\Asset\AssetReference` | Stable | |
+| `App\Engine\Asset\AssetRegistry` | Stable | `register()` for directories that are not modules |
+| `App\Engine\Asset\AssetSource` | Stable | |
 | `App\Engine\Auth\*` | Internal | |
-| `App\Engine\Auth\AccessCollector` | Experimental | |
-| `App\Engine\Auth\Account` | Experimental | |
-| `App\Engine\Auth\AuthException` | Experimental | |
-| `App\Engine\Auth\AuthManager` | Experimental | |
-| `App\Engine\Auth\Authenticators\TokenAuthenticator` | Experimental | `fingerprint()`, which a `TokenProvider` looks tokens up by |
-| `App\Engine\Auth\Authorizer` | Experimental | its method list is frozen by a test |
-| `App\Engine\Auth\Capability` | Experimental | |
-| `App\Engine\Auth\EmailVerifiable` | Experimental | |
-| `App\Engine\Auth\EmailVerification` | Experimental | |
-| `App\Engine\Auth\Identity` | Experimental | |
-| `App\Engine\Auth\Password` | Experimental | |
-| `App\Engine\Auth\PasswordReset` | Experimental | |
-| `App\Engine\Auth\PasswordResettable` | Experimental | |
-| `App\Engine\Auth\Social\*` | Experimental | `Provider` and `SocialAccounts` are the extension points |
-| `App\Engine\Auth\TokenProvider` | Experimental | |
-| `App\Engine\Auth\Totp` | Experimental | RFC 6238; checked against its test vectors |
-| `App\Engine\Auth\TwoFactor` | Experimental | |
-| `App\Engine\Auth\TwoFactorAccounts` | Experimental | |
-| `App\Engine\Auth\TwoFactorEnrolment` | Experimental | |
-| `App\Engine\Auth\TwoFactorResult` | Experimental | |
-| `App\Engine\Auth\UserProvider` | Experimental | 1.0 candidate; its method list is frozen by a test |
-| `App\Engine\Bootstrap\Bootstrap` | Experimental | `create()`, `settings()` and `defaults()`, for embedding and tests |
-| `App\Engine\Cache\*` | Experimental | |
+| `App\Engine\Auth\AccessCollector` | Stable | |
+| `App\Engine\Auth\Account` | Stable | |
+| `App\Engine\Auth\AuthException` | Stable | |
+| `App\Engine\Auth\AuthManager` | Stable | |
+| `App\Engine\Auth\Authenticators\TokenAuthenticator` | Stable | `fingerprint()`, which a `TokenProvider` looks tokens up by |
+| `App\Engine\Auth\Authorizer` | Stable | its method list is frozen by a test |
+| `App\Engine\Auth\Capability` | Stable | |
+| `App\Engine\Auth\EmailVerifiable` | Stable | |
+| `App\Engine\Auth\EmailVerification` | Stable | |
+| `App\Engine\Auth\Identity` | Stable | |
+| `App\Engine\Auth\Password` | Stable | |
+| `App\Engine\Auth\PasswordReset` | Stable | |
+| `App\Engine\Auth\PasswordResettable` | Stable | |
+| `App\Engine\Auth\Social\*` | Stable | `Provider` and `SocialAccounts` are the extension points |
+| `App\Engine\Auth\TokenProvider` | Stable | |
+| `App\Engine\Auth\Totp` | Stable | RFC 6238; checked against its test vectors |
+| `App\Engine\Auth\TwoFactor` | Stable | |
+| `App\Engine\Auth\TwoFactorAccounts` | Stable | |
+| `App\Engine\Auth\TwoFactorEnrolment` | Stable | |
+| `App\Engine\Auth\TwoFactorResult` | Stable | |
+| `App\Engine\Auth\UserProvider` | Stable | its method list is frozen by a test |
+| `App\Engine\Bootstrap\Bootstrap` | Stable | `create()`, `settings()` and `defaults()`, for embedding and tests |
+| `App\Engine\Cache\*` | Stable | |
 | `App\Engine\Cache\CacheTableMigration` | Internal | run by `migrate` while `cache.store` is `database` |
 | `App\Engine\Cache\Stores\*` | Internal | selected by name: `CACHE_STORE=array\|file\|database\|null` |
 | `App\Engine\Cli\*` | Internal | |
-| `App\Engine\Cli\Command` | Experimental | what `CommandCollector::add()` returns |
-| `App\Engine\Cli\CommandCollector` | Experimental | |
-| `App\Engine\Cli\ConsoleException` | Experimental | |
-| `App\Engine\Cli\Input` | Experimental | |
-| `App\Engine\Cli\Output` | Experimental | |
+| `App\Engine\Cli\Command` | Stable | what `CommandCollector::add()` returns |
+| `App\Engine\Cli\CommandCollector` | Stable | |
+| `App\Engine\Cli\ConsoleException` | Stable | |
+| `App\Engine\Cli\Input` | Stable | |
+| `App\Engine\Cli\Output` | Stable | |
 | `App\Engine\Config\*` | Internal | |
-| `App\Engine\Config\Config` | Experimental | 1.0 candidate |
-| `App\Engine\Config\ConfigurationException` | Experimental | |
-| `App\Engine\Config\Env` | Experimental | config files call it |
-| `App\Engine\Container\*` | Experimental | |
-| `App\Engine\Core\*` | Experimental | `Application` and its execution context, for embedding |
+| `App\Engine\Config\Config` | Stable | |
+| `App\Engine\Config\ConfigurationException` | Stable | |
+| `App\Engine\Config\Env` | Stable | config files call it |
+| `App\Engine\Container\*` | Stable | |
+| `App\Engine\Core\*` | Stable | `Application` and its execution context, for embedding |
 | `App\Engine\Core\HttpKernel` | Internal | |
-| `App\Engine\Data\*` | Experimental | |
+| `App\Engine\Data\*` | Stable | |
 | `App\Engine\Data\Bulk` | Internal | |
-| `App\Engine\Data\BulkWrites` | Experimental | new in the first release |
+| `App\Engine\Data\BulkWrites` | Stable | |
 | `App\Engine\Data\Criterion` | Internal | |
 | `App\Engine\Data\Cursor` | Internal | what a cursor string holds; the string itself is opaque |
 | `App\Engine\Data\Order` | Internal | |
 | `App\Engine\Data\Seek` | Internal | built by `cursor()` and `chunk()` |
-| `App\Engine\Database\*` | Experimental | |
+| `App\Engine\Database\*` | Stable | |
 | `App\Engine\Database\ConnectionConfig` | Internal | |
 | `App\Engine\Database\Grammar` | Internal | the only place SQL is built; `Grammar::for()` picks the dialect |
 | `App\Engine\Database\MySqlGrammar` | Internal | |
@@ -139,102 +138,108 @@ namespace beats a shorter one.
 | `App\Engine\Database\SqlServerGrammar` | Internal | |
 | `App\Engine\Database\SqliteGrammar` | Internal | |
 | `App\Engine\Dispatch\*` | Internal | |
-| `App\Engine\Dispatch\DispatchException` | Experimental | |
-| `App\Engine\Error\*` | Experimental | |
+| `App\Engine\Dispatch\DispatchException` | Stable | |
+| `App\Engine\Error\*` | Stable | |
 | `App\Engine\Error\ErrorHandler` | Internal | |
 | `App\Engine\Error\ErrorPage` | Internal | an application's page is a template, not a subclass |
-| `App\Engine\Feature\*` | Experimental | `Features`; see [Feature flags](docs/reference/features.md) |
-| `App\Engine\Filter\*` | Experimental | |
-| `App\Engine\Hook\*` | Experimental | |
-| `App\Engine\Http\*` | Experimental | |
+| `App\Engine\Feature\*` | Stable | `Features`; see [Feature flags](docs/reference/features.md) |
+| `App\Engine\Filter\*` | Stable | |
+| `App\Engine\Hook\*` | Stable | |
+| `App\Engine\Http\*` | Stable | |
 | `App\Engine\Http\Negotiator` | Internal | reached through `Request::negotiate()` |
-| `App\Engine\Localization\*` | Experimental | |
+| `App\Engine\Localization\*` | Stable | |
 | `App\Engine\Localization\AcceptLanguage` | Internal | used by `LocaleResolver` |
 | `App\Engine\Localization\TranslationLoader` | Internal | used by `Localization` |
 | `App\Engine\Logging\*` | Internal | |
-| `App\Engine\Logging\Level` | Experimental | |
-| `App\Engine\Logging\LogRecord` | Experimental | what a `LogWriter` receives |
+| `App\Engine\Logging\Level` | Stable | |
+| `App\Engine\Logging\LogRecord` | Stable | what a `LogWriter` receives |
 | `App\Engine\Logging\LogTableMigration` | Internal | run by `migrate` while `logging.writers` names `database`; its columns are what a query of the log reads |
-| `App\Engine\Logging\LogWriter` | Experimental | |
-| `App\Engine\Logging\Logger` | Experimental | 1.0 candidate |
-| `App\Engine\Logging\LoggingException` | Experimental | |
-| `App\Engine\Mail\*` | Experimental | `Mailer`, `Message`, the transports; a queued `SendMessageJob` (with its `Message`) is a persisted format |
+| `App\Engine\Logging\LogWriter` | Stable | |
+| `App\Engine\Logging\Logger` | Stable | |
+| `App\Engine\Logging\LoggingException` | Stable | |
+| `App\Engine\Mail\*` | Stable | `Mailer`, `Message`, the transports; a queued `SendMessageJob` (with its `Message`) is a persisted format |
 | `App\Engine\Mail\MimeBuilder` | Internal | used by `Mailer` |
-| `App\Engine\MCP\*` | Experimental | what a tool, resource or prompt implements, returns or throws, and what an `mcp.*` hook receives; see [MCP](docs/reference/mcp.md) |
+| `App\Engine\MCP\*` | Stable | what a tool, resource or prompt implements, returns or throws, and what an `mcp.*` hook receives; see [MCP](docs/reference/mcp.md) |
 | `App\Engine\MCP\McpAuthorizer` | Internal | a permission is an auth capability |
 | `App\Engine\MCP\McpConfig` | Internal | built by `Bootstrap` from `mcp.*` |
 | `App\Engine\MCP\McpRegistry` | Internal | declare with `$module->mcp()`, read with `mcp:list` |
-| `App\Engine\MCP\McpServer` | Experimental | `handle()`, for tests |
+| `App\Engine\MCP\McpServer` | Stable | `handle()`, for tests |
 | `App\Engine\MCP\PlainData` | Internal | |
 | `App\Engine\MCP\Prompt\PromptProvider` | Internal | |
 | `App\Engine\MCP\Protocol\*` | Internal | |
-| `App\Engine\MCP\Protocol\Response` | Experimental | what `mcp.response.created` passes |
+| `App\Engine\MCP\Protocol\Response` | Stable | what `mcp.response.created` passes |
 | `App\Engine\MCP\Resource\ResourceReader` | Internal | |
 | `App\Engine\MCP\Tool\ToolRunner` | Internal | |
 | `App\Engine\MCP\Transport\*` | Internal | selected by `mcp.transports` |
-| `App\Engine\Migration\*` | Experimental | what a migration or seeder file implements (`Migration`, `Reversible`, `Seeder`) and what a failed run throws |
+| `App\Engine\Migration\*` | Stable | what a migration or seeder file implements (`Migration`, `Reversible`, `Seeder`) and what a failed run throws |
 | `App\Engine\Migration\MigrationFile` | Internal | the name rule is documented; the class is not |
 | `App\Engine\Migration\MigrationRepository` | Internal | the tracking table's layout is the runner's |
 | `App\Engine\Migration\Migrator` | Internal | run through `migrate`, `migrate:status` and `migrate:rollback` |
 | `App\Engine\Migration\SeederFile` | Internal | the name rule is documented; the class is not |
 | `App\Engine\Migration\SeedRunner` | Internal | run through `db:seed` |
 | `App\Engine\MCP\Validation\*` | Internal | the schema subset is documented; the validator is not |
-| `App\Engine\Model\*` | Experimental | |
+| `App\Engine\Model\*` | Stable | |
 | `App\Engine\Model\Attributes` | Internal | |
 | `App\Engine\Module\*` | Internal | |
-| `App\Engine\Module\ModuleContext` | Experimental | 1.0 candidate |
-| `App\Engine\Module\ModuleException` | Experimental | |
-| `App\Engine\Module\ModuleKind` | Experimental | |
-| `App\Engine\Module\ModuleRegistry` | Experimental | `isEnabled()` and friends, from `onBoot` |
-| `App\Engine\Network\*` | Experimental | addresses, CIDR blocks and masks; see [IP addresses](docs/reference/network.md) |
+| `App\Engine\Module\ModuleContext` | Stable | |
+| `App\Engine\Module\ModuleException` | Stable | |
+| `App\Engine\Module\ModuleKind` | Stable | |
+| `App\Engine\Module\ModuleRegistry` | Stable | `isEnabled()` and friends, from `onBoot` |
+| `App\Engine\Network\*` | Stable | addresses, CIDR blocks and masks; see [IP addresses](docs/reference/network.md) |
 | `App\Engine\Network\Bytes` | Internal | byte arithmetic behind `IpAddress` and `Cidr` |
-| `App\Engine\Observability\*` | Experimental | newest; the most likely to change |
+| `App\Engine\Observability\*` | Stable | |
 | `App\Engine\Observability\Report` | Internal | |
+| `App\Engine\OpenApi\*` | Stable | `OpenApiGenerator::generate()` and `json()`, and what a meta mistake throws; see [OpenAPI](docs/reference/openapi.md) |
+| `App\Engine\OpenApi\OpenApiDocs` | Internal | registered by `openapi.docs`; the bundled Swagger UI version may change in any release |
+| `App\Engine\OpenApi\OpenApiEndpoint` | Internal | registered by `openapi.route` |
+| `App\Engine\OpenApi\OpenApiRoutes` | Internal | |
+| `App\Engine\OpenApi\OpenApiState` | Internal | written by `openapi:docs` and `openapi:auth`; the file's layout is theirs |
+| `App\Engine\OpenApi\SchemaConverter` | Internal | the mapping is documented; the class is not |
 | `App\Engine\Queue\*` | Internal | |
-| `App\Engine\Queue\Job` | Experimental | |
-| `App\Engine\Queue\Queue` | Experimental | |
-| `App\Engine\Queue\QueueException` | Experimental | |
-| `App\Engine\Queue\QueueStore` | Experimental | a conformance suite defines it |
-| `App\Engine\Queue\QueuedJob` | Experimental | a persisted format — see above |
+| `App\Engine\Queue\Job` | Stable | |
+| `App\Engine\Queue\Queue` | Stable | |
+| `App\Engine\Queue\QueueException` | Stable | |
+| `App\Engine\Queue\QueueStore` | Stable | a conformance suite defines it |
+| `App\Engine\Queue\QueuedJob` | Stable | a persisted format — see above |
 | `App\Engine\Queue\QueueTableMigration` | Internal | run by `migrate` while `queue.store` is `database`; its columns are a persisted format too |
-| `App\Engine\Routing\*` | Experimental | |
+| `App\Engine\Routing\*` | Stable | |
 | `App\Engine\Routing\MatchStatus` | Internal | |
 | `App\Engine\Routing\RouteMatch` | Internal | |
 | `App\Engine\Scheduler\*` | Internal | |
-| `App\Engine\Scheduler\Schedule` | Experimental | what `ScheduleCollector` returns |
-| `App\Engine\Scheduler\ScheduleCollector` | Experimental | |
-| `App\Engine\Scheduler\ScheduleLock` | Experimental | a conformance suite defines it |
-| `App\Engine\Scheduler\ScheduleOutcome` | Experimental | |
-| `App\Engine\Scheduler\ScheduleResult` | Experimental | what `schedule.finished` passes |
-| `App\Engine\Scheduler\SchedulerException` | Experimental | |
-| `App\Engine\Schema\*` | Experimental | |
+| `App\Engine\Scheduler\Schedule` | Stable | what `ScheduleCollector` returns |
+| `App\Engine\Scheduler\ScheduleCollector` | Stable | |
+| `App\Engine\Scheduler\ScheduleLock` | Stable | a conformance suite defines it |
+| `App\Engine\Scheduler\ScheduleOutcome` | Stable | |
+| `App\Engine\Scheduler\ScheduleResult` | Stable | what `schedule.finished` passes |
+| `App\Engine\Scheduler\SchedulerException` | Stable | |
+| `App\Engine\Schema\*` | Stable | |
 | `App\Engine\Security\*` | Internal | |
-| `App\Engine\Security\CounterStore` | Experimental | a conformance suite defines it |
-| `App\Engine\Security\Csrf` | Experimental | `token()`, for forms |
-| `App\Engine\Security\Encrypter` | Experimental | `encrypt()`, `decrypt()`; the `v1.` token format is persisted, so a release must decrypt what the previous one wrote |
-| `App\Engine\Security\RateLimit` | Experimental | |
-| `App\Engine\Security\Secret` | Experimental | |
-| `App\Engine\Security\SecurityException` | Experimental | |
-| `App\Engine\Security\SignedUrl` | Experimental | `sign()`, `verify()`; `Routing\UrlSigner` for named routes |
-| `App\Engine\Security\Signer` | Experimental | `hmac()` is for a protocol's own key (S3, webhooks); `sign()` for this application's |
-| `App\Engine\Security\UploadPolicy` | Experimental | |
-| `App\Engine\Security\Webhook` | Experimental | |
-| `App\Engine\Security\Webhooks` | Experimental | `receive()`, `release()`; the formats are configuration |
-| `App\Engine\Session\*` | Experimental | |
+| `App\Engine\Security\CounterStore` | Stable | a conformance suite defines it |
+| `App\Engine\Security\Csrf` | Stable | `token()`, for forms |
+| `App\Engine\Security\Encrypter` | Stable | `encrypt()`, `decrypt()`; the `v1.` token format is persisted, so a release must decrypt what the previous one wrote |
+| `App\Engine\Security\RateLimit` | Stable | |
+| `App\Engine\Security\Secret` | Stable | |
+| `App\Engine\Security\SecurityException` | Stable | |
+| `App\Engine\Security\SignedUrl` | Stable | `sign()`, `verify()`; `Routing\UrlSigner` for named routes |
+| `App\Engine\Security\Signer` | Stable | `hmac()` is for a protocol's own key (S3, webhooks); `sign()` for this application's |
+| `App\Engine\Security\UploadPolicy` | Stable | |
+| `App\Engine\Security\Webhook` | Stable | |
+| `App\Engine\Security\Webhooks` | Stable | `receive()`, `release()`; the formats are configuration |
+| `App\Engine\Session\*` | Stable | |
 | `App\Engine\Session\SessionId` | Internal | |
 | `App\Engine\Session\SessionManager` | Internal | |
 | `App\Engine\Session\SessionTableMigration` | Internal | run by `migrate` while `session.store` is `database` |
 | `App\Engine\Session\Stores\*` | Internal | selected by name: `SESSION_STORE=file\|database\|memory` |
-| `App\Engine\Storage\*` | Experimental | `Disk` is defined by its conformance suite; see [Storage](docs/reference/storage.md) |
+| `App\Engine\Storage\*` | Stable | `Disk` is defined by its conformance suite; see [Storage](docs/reference/storage.md) |
 | `App\Engine\Storage\Contents` | Internal | |
 | `App\Engine\Storage\StoragePath` | Internal | the path rule every disk applies |
 | `App\Engine\Support\*` | Internal | |
-| `App\Engine\Support\QrCode` | Experimental | `svg()`, `encode()`, `matrix()` |
-| `App\Engine\System\*` | Experimental | the newest API here; see [System operations](docs/reference/system.md) |
+| `App\Engine\Support\QrCode` | Stable | `svg()`, `encode()`, `matrix()` |
+| `App\Engine\System\*` | Stable | see [System operations](docs/reference/system.md) |
 | `App\Engine\System\Command\CommandSlot` | Internal | held by the executor and a `Process` |
 | `App\Engine\System\Command\Invocation` | Internal | |
 | `App\Engine\System\SystemConfig` | Internal | built by `Bootstrap` from `system.*` |
-| `App\Engine\Template\*` | Experimental | |
+| `App\Engine\Template\*` | Stable | |
 | `App\Engine\Template\PhpTemplateEngine` | Internal | registered by `Bootstrap` |
 | `App\Engine\Template\TemplateRegistry` | Internal | |
 | `App\Engine\Template\TemplateSource` | Internal | |

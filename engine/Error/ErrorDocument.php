@@ -160,6 +160,35 @@ final class ErrorDocument implements \JsonSerializable
         ];
     }
 
+    /**
+     * The shape of toArray() as a JSON Schema, for API descriptions.
+     *
+     * Here rather than in whatever describes the API, so the one place that
+     * builds an error body is also the one place that says what it looks
+     * like. Details are open: a validation error adds "fields", a 429 adds
+     * "retry_after", and a client must not be told it will never see them.
+     *
+     * @return array<string, mixed>
+     */
+    public static function schema(): array
+    {
+        return [
+            'type' => 'object',
+            'required' => ['error'],
+            'properties' => [
+                'error' => [
+                    'type' => 'object',
+                    'required' => ['status', 'title', 'message'],
+                    'properties' => [
+                        'status' => ['type' => 'integer'],
+                        'title' => ['type' => 'string'],
+                        'message' => ['type' => 'string'],
+                    ],
+                ],
+            ],
+        ];
+    }
+
     /** @return array<string, mixed> */
     public function jsonSerialize(): array
     {

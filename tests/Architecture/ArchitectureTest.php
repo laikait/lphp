@@ -1032,6 +1032,8 @@ final class ArchitectureTest extends TestCase
             'TemplateRegistry.php',
             'TemplateSource.php',
             'TemplateView.php',
+            'ThemeProvider.php',
+            'ThemeRegistry.php',
             'TwigTemplateEngine.php',
         ];
 
@@ -1573,7 +1575,11 @@ final class ArchitectureTest extends TestCase
             'engine/Cli/Commands/MigrateRollbackCommand.php',
             'engine/Cli/Commands/MigrateStatusCommand.php',
             'engine/Cli/Commands/ModuleListCommand.php',
+            'engine/Cli/Commands/ModuleMakeCommand.php',
             'engine/Cli/Commands/NginxMakeCommand.php',
+            'engine/Cli/Commands/OpenApiAuthCommand.php',
+            'engine/Cli/Commands/OpenApiDocsCommand.php',
+            'engine/Cli/Commands/OpenApiExportCommand.php',
             'engine/Cli/Commands/QueueFailedCommand.php',
             'engine/Cli/Commands/QueueStatusCommand.php',
             'engine/Cli/Commands/QueueWorkCommand.php',
@@ -1696,13 +1702,14 @@ final class ArchitectureTest extends TestCase
     }
 
     /**
-     * The console generates nothing.
+     * The console generates one file, and only that one.
      *
      * make:controller and friends are how a framework stops being a library you
      * call and becomes a thing you live inside: the generated file has a shape
      * the framework then quietly depends on, and the shape is undocumented
      * because the generator is the documentation. Every command here answers a
-     * question instead.
+     * question instead, except module:make, which writes the module.php that
+     * modules.md documents line for line and nothing beside it.
      */
     public function test_no_command_writes_source_code(): void
     {
@@ -1710,11 +1717,18 @@ final class ArchitectureTest extends TestCase
             'about',
             'help',
             'module:list',
+            // The one generator: module.php, the documented skeleton, plus only the --with parts.
+            'module:make',
             'nginx:make',
             'queue:failed',
             'queue:status',
             'queue:work',
             'route:list',
+            // Writes a JSON description of the routes, never code.
+            'openapi:export',
+            // Write the docs switches to system/Runtime, never code.
+            'openapi:docs',
+            'openapi:auth',
             'schedule:list',
             'schedule:run',
             'schedule:unlock',

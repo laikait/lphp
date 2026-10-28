@@ -108,10 +108,11 @@ php laika up
 - **Always `cache:clear` before `cache:warm`.** Adding or removing a module, or
   editing anything in `config/`, is **not** noticed on its own. Changing an
   environment variable is.
-- **`security:check`** exits with 1 on a real problem — debug on in production,
-  rate-limit counters in memory — so it can stop a deployment. Warnings, such as
-  a missing `APP_KEY` or a route that changes data and requires nobody, are
-  printed without stopping it. Read them.
+- **`security:check`** exits with 1 on a real problem in production, so it can
+  stop a deployment: debug on, no `APP_KEY`, rate-limit counters in memory, the
+  HTTP MCP endpoint with neither `APP_URL` nor `trusted_hosts`, or the API docs
+  open to anyone. Warnings, such as a route that changes data and requires
+  nobody, are printed without stopping it. Read them.
 - **Restart the queue workers**, so they run the new code. (`--max-time` makes
   them restart by themselves eventually, but not immediately.)
 - **Read [`UPGRADING.md`](../../UPGRADING.md)** when the framework itself changed.
@@ -126,7 +127,7 @@ to confirm the web server still serves no source files.
 ## Maintenance mode
 
 ```bash
-php laika down --retry=120 --message="Back at 14:00 UTC" --allow=203.0.113.7,10.0.0.0/8 --secret=preview-token
+php laika down --retry=120 --message="Back at 14:00 UTC" --allow=203.0.113.7,10.0.0.0/8 --secret=preview-token-2026-10
 php laika up
 ```
 

@@ -10,7 +10,9 @@ explains each.
 |---|---|
 | CSRF | a form post that did not come from your own page |
 | Request size limit | a body larger than `security.max_request_bytes`, with 413 |
-| Security headers | framing, content sniffing, referrer leakage |
+| Security headers | framing, content sniffing, referrer leakage, camera/microphone/location access |
+| Content-Security-Policy | an injected script on an HTML page (while debug is off) |
+| Login throttle | password guessing, one account or many ([Authentication](auth.md#logging-in)) |
 | Escaping | HTML in a template that came from a user |
 
 **Yours to decide:**
@@ -19,7 +21,8 @@ explains each.
 |---|---|
 | Rate limits | `meta(['rate_limit' => '60/1m'])` on a route |
 | What an upload may be | `UploadPolicy`, at the endpoint that takes one |
-| Content-Security-Policy, HSTS | off by default; see [Headers](#headers-and-the-two-that-are-off-on-purpose) |
+| Content-Security-Policy | on HTML pages while debug is off, unless configured; see [Headers](#headers) |
+| HSTS | off by default, HTTPS only; see [Headers](#headers) |
 | `APP_KEY` | set one |
 
 Check what a deployment actually has:
@@ -123,6 +126,13 @@ requests; what is lost is that one guarantee. **The framework says which mode it
 is in** rather than implying the stronger one, and an application boots either
 way.
 
+A missing key costs more than CSRF signing, and none of it is visible, which is
+why **`security:check` fails a production deployment without one**:
+
+- cached values and queued jobs are no longer sealed, so whoever can write the
+  cache directory, the cache table or the queue decides what is `unserialize()`d;
+- `Encrypter`, encrypted cookies and social sign-in refuse to run.
+
 `security:key` **prints and does not write.** Every other framework's equivalent
 edits `.env`, and that convenience is exactly wrong here: silently replacing a
 live key invalidates every token and session the application has issued. A
@@ -225,8 +235,9 @@ again.
   than `tolerance` seconds old or early (default 300) is a 400. Every id is also
   remembered for `remember` seconds (default a day) through the cache's atomic
   `add()`, and a second delivery of it comes back with `duplicate` true. Answer
-  it 200 and do nothing. That needs a cache every process shares, `file` or
-  `database`: the default `array` store forgets everything when the request ends.
+  it 200 and do nothing. That needs a store every process shares: the `file` or
+  `database` cache, or, with the default `array` cache (which forgets when the
+  request ends), a file store of its own in `system/Cache/webhooks/`.
 - **If queuing fails after `receive()`**, call `$webhooks->release($event)` and
   answer 500. The sender's retry is then processed instead of being treated as
   a duplicate.
@@ -354,7 +365,9 @@ worse than none, because it reads as though this class were what stands between
 ## Request size, and the failure that looks like a bug
 
 Bodies over `security.max_request_bytes` are refused with 413 before anything
-reads them. Unbounded bodies are how one client exhausts a server's memory.
+parses them. Unbounded bodies are how one client exhausts a server's memory.
+The body is read no further than one byte past the limit, so this holds for a
+chunked request too, which carries no `Content-Length` to judge it by.
 
 The second check is the one worth having. **When an upload exceeds
 `post_max_size`, PHP does not fail.** It hands the script an empty `$_POST` and
@@ -377,11 +390,18 @@ what is dangerous depends on where a value ends up. Before a handler runs:
 - strings are normalised to NFC, so the same word typed on two keyboards is the
   same bytes;
 - a JSON body nested deeper than 32 levels reads as malformed;
+- a `Host` header that is not a host name, an IPv4 address or a bracketed IPv6
+  address (optionally with a port) is refused with 400, whatever else is set:
+  `evil.example/x`, a space or a quote is never what a browser sends;
 - with `security.trusted_hosts` set (`['example.com', '*.example.com']`), any
   other `Host` header is refused with 400. It is empty by default, which
   `security:check` warns about.
 
-## Headers, and the two that are off on purpose
+Absolute links (password reset, email verification, OAuth callbacks) are built
+from `APP_URL`, never from the `Host` header, so a forged `Host` cannot put the
+attacker's domain into a link the application emails.
+
+## Headers
 
 These go on every response, error pages included — the ones most likely to be
 reached by somebody probing, and the ones a per-route mechanism would miss:
@@ -391,18 +411,35 @@ X-Content-Type-Options: nosniff
 X-Frame-Options: SAMEORIGIN
 Referrer-Policy: strict-origin-when-cross-origin
 Cross-Origin-Opener-Policy: same-origin
+Permissions-Policy: camera=(), microphone=(), geolocation=(), payment=()
 ```
 
 **An existing header is never overwritten.** A handler that set its own policy
 has thought about it harder than a default can, and the asset server's
 deliberately strict CSP would otherwise be loosened.
 
-**Content-Security-Policy is off by default**, and that is a refusal rather than
-an oversight. A useful policy names this application's own script and style
-sources; a generic one is either so loose it permits what it exists to stop, or
-so strict it breaks the first page with an inline handler — and the one that
-gets switched off in a hurry is worse than the one never claimed.
-`security:check` says out loud that there is not one.
+**Nothing names the framework.** There is no `X-Powered-By` and no `X-Engine`:
+a header saying which framework answered tells a scanner which advisories to
+try first. `http.headers => ['X-Engine' => 'LPHP']` sends one if you want it.
+
+**HTML pages get a Content-Security-Policy when debug is off and none is
+configured:**
+
+```
+default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline';
+img-src 'self' data:; object-src 'none'; base-uri 'self';
+frame-ancestors 'self'; form-action 'self'
+```
+
+Scripts only from this origin, so an injected `<script>` or `onclick` does not
+run; no plugins; nothing can frame the page or point its forms elsewhere.
+Inline styles are allowed (the built-in error page has one, and a style cannot
+run code). JSON, assets and downloads do not get it: nothing runs in them.
+
+- An application that loads a script from a CDN, or writes inline script, sets
+  its own in `security.headers.csp`, which replaces the default everywhere.
+- `security.headers.csp => ''` sends none at all; `security:check` warns.
+- With debug on it is not sent: the debug page is itself inline script.
 
 **HSTS is off by default, and only ever sent over HTTPS.** It is the one header
 here that cannot be taken back: a browser that has seen it refuses plain HTTP
@@ -419,7 +456,7 @@ other project on that hostname.
 | "field is required" for a field you filled in | The upload exceeded `post_max_size` | Raise `post_max_size` and `upload_max_filesize` |
 | 429 while developing | Rate-limit counters are files that outlive the process | Delete `system/Security` |
 | A webhook is refused with 400 | The wrong secret, a body changed by a proxy, or a clock more than five minutes out | Check the secret and the clock |
-| Every webhook comes back as a duplicate, or none ever does | Ids are remembered in the cache; the `array` store remembers nothing between requests | Use the `file` or `database` cache store |
+| Every webhook comes back as a duplicate, or none ever does | Ids are remembered for `remember` seconds, in the cache or, with the `array` cache, in `system/Cache/webhooks/` | Check that directory is writable, and that the sender sends a fresh id per event |
 | `security:check` exits 1 | Debug is on in production, or counters are in memory | It names the failure |
 | An upload is refused with several messages | `check()` returns every problem at once | Fix them together |
 

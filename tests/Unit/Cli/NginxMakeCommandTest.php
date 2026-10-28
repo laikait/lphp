@@ -79,6 +79,24 @@ final class NginxMakeCommandTest extends TestCase
         self::assertStringContainsString('$document_root/index.php;', $conf);
     }
 
+    /**
+     * ^~ makes nginx skip the regex locations, so the top-level dotfile rule
+     * never reached /assets/core/: public/assets/.git or a stray .env there
+     * would have been served. The rule is repeated inside, with nosniff,
+     * since nothing served there passes through PHP.
+     */
+    public function test_the_direct_assets_location_keeps_dotfiles_out_and_adds_nosniff(): void
+    {
+        $block = NginxMakeCommand::serverBlock('example.com', '/srv/app', '80', 'unix:/run/php-fpm.sock');
+
+        $start = \strpos($block, 'location ^~ /assets/core/ {');
+        self::assertIsInt($start);
+        $assets = \substr($block, $start, (int) \strpos($block, "\n    }", $start) - $start);
+
+        self::assertStringContainsString('location ~ /\. { deny all; }', $assets);
+        self::assertStringContainsString('add_header X-Content-Type-Options "nosniff" always;', $assets);
+    }
+
     public function test_the_root_can_be_the_one_on_the_server_rather_than_this_one(): void
     {
         $this->make(root: '/srv/app/');

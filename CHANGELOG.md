@@ -13,6 +13,47 @@ public, is in [`STABILITY.md`](STABILITY.md).
 
 ### Added
 
+- **`php laika module:make <Name>`.** Creates `modules/<Name>/module.php`, the
+  skeleton [Modules](docs/reference/modules.md#start-a-new-module) documents, and
+  nothing else. The name is a valid module id, optionally with one group folder
+  (`Plugins/Billing`: id `Billing`, loaded once `modules/Plugins` is in
+  `modules.paths`: the command creates `config/modules.php` when there is none,
+  and prints the line to add when there is one). It never overwrites,
+  and a folder differing only by case counts as taken. `--with=http,model,database,seeder,templates,assets,lang`
+  (or `all`) also writes one starter file per part you name (with `http` and
+  `database` together, the handler lists the rows of the module's table), and nothing for
+  parts you do not. It is the framework's single
+  generator: there is still no `make:controller` and the architecture test that
+  pins the command list now includes it.
+- **OpenAPI descriptions.** Routes with `'openapi' => true` or an array of
+  details (summary, tags, path/query/header parameters, a `Schema` body,
+  responses) are described as an OpenAPI 3.1 document, with the schemas their
+  handlers validate with and the 401/403/429 answers the framework's guards give
+  on their behalf. `php laika openapi:export` prints it, and `openapi.route`
+  serves it as an ordinary, guardable route; `security:check` fails when that
+  route is open in production. Unmarked routes never appear. See
+  [OpenAPI](docs/reference/openapi.md).
+- **An API docs page.** `openapi.docs` (e.g. `/docs`) serves Swagger UI over that
+  description, behind the same `openapi.meta` access rule. Swagger UI 5.33.1
+  (Apache-2.0) is bundled with its `LICENSE` and `NOTICE` and served by the
+  framework itself, so the page works offline and under the default CSP, and
+  calls no third party.
+- **Console switches for the API docs.** `php laika openapi:docs --enable|--disable`
+  turns the page and its description on or off, and `php laika openapi:auth
+  --enable [--can=…]|--disable` decides whether they need a login, without
+  editing config. Written to `system/Runtime/openapi.json` like `down`, per
+  machine, and winning over `config/openapi.php`; `openapi.runtime => false`
+  ignores them.
+- **Template themes.** `templates/<theme>/` and `templates/<area>/<theme>/`, each
+  with views and an `assets/` folder, registered in `templates.themes` or by a
+  `templates.theme_provider` class (which may read the database) and never
+  discovered. `asset()->template('admin/dark', 'css/app.css')` reads only that
+  theme's `assets/`; a route or group with `meta(['theme' => 'admin/dark'])`
+  searches the theme's views before `templates/`, layouts and error pages
+  included; `templates.error_themes` picks the theme for errors raised before a
+  route matched. Emails always render without a theme, so a queued and an
+  inline one are the same. See [Templates](docs/reference/templates.md#themes).
+
 - **Sub-directory translations.** `setLocale('admin/bn')` reads
   `lang/admin/bn.php`, then `lang/admin/en.php`, then the files of `lang/`;
   `Localization::directory()` returns the directory. Only a caller can choose
@@ -139,8 +180,76 @@ public, is in [`STABILITY.md`](STABILITY.md).
   `security:check` warns while the application is down. See
   [Running](docs/operations/running.md#maintenance-mode).
 
+### Changed
+
+- **Every public API is Stable.** Everything [`STABILITY.md`](STABILITY.md)
+  marked Experimental is now Stable: changing it takes a deprecation in a minor
+  release and a major version. Internal classes and persisted formats are
+  unchanged, and the Experimental level stays available for new additions.
+- **`@assets/…` is not a template name.** Its override folder would be
+  `templates/assets/`, which holds static files. Breaking only for a module
+  whose id is `assets`: see [`UPGRADING.md`](UPGRADING.md).
+
+### Fixed
+
+- **An asset's `?v=` follows the file without `cache:clear`.** The cached
+  content hash is keyed by the file's size and modification time too, so a
+  deploy that forgot to clear the cache no longer keeps sending the old token
+  for a URL browsers cache as immutable for a year.
+- **In debug, Whoops is the only error page.** `display_errors` is off in debug
+  too, so PHP no longer prints a fatal (out of memory, timeout) ahead of Whoops
+  or instead of it; out-of-memory and timeout fatals get the headroom to render
+  and a 500 instead of a 200; the handler is installed before `.env` and
+  `config/*.php` are read, so a file that throws there gets Whoops too; output a
+  handler printed before failing is discarded; and when Whoops cannot render,
+  the plain page says why (an unknown `APP_EDITOR`, for example). See
+  [Errors](docs/reference/errors.md#the-debug-page-whoops).
+
 ### Security
 
+- **Logins are throttled by the framework.** `AuthManager::attempt()` and
+  `verify()` count failed passwords per account and address (`5/15m`), per
+  address (`30/15m`) and per account (`100/1h`), and answer 429 past a limit
+  before checking the password. Before, a login route without `rate_limit`
+  allowed unlimited guessing. See [Authentication](docs/reference/auth.md#logging-in).
+- **A missing account takes as long as a wrong password at any cost.** The
+  fixed dummy hash was bcrypt cost 10, so with a higher cost (or PHP 8.4's
+  default of 12) a missing account answered about four times faster, which told
+  a stranger which accounts exist.
+- **The request body is read no further than the limit**, so a chunked body
+  with no `Content-Length` is refused with 413 rather than read whole.
+- **A `Host` header that is not a host name is refused with 400**, whatever
+  `trusted_hosts` says.
+- **No store keeps a session id.** The database store's `id` column, the file
+  store's names and every stored record hold the id's SHA-256.
+- **Two-factor codes and recovery codes are claimed atomically**, so one code
+  sent by two requests at once logs in once.
+- **Webhook replays are caught with the default cache.** When the cache
+  forgets between requests (the `array` store), delivery ids are remembered
+  in `system/Cache/webhooks/` instead, so a replay is a duplicate rather than
+  new. Before, de-duplication was silently off.
+- **The HTTP MCP endpoint checks `Origin` against `APP_URL`** when it is set,
+  which DNS rebinding cannot satisfy; `security:check` fails when the endpoint
+  is on with neither `APP_URL` nor `trusted_hosts`.
+- **HTML pages get a Content-Security-Policy** while debug is off and none is
+  configured (scripts from this origin only), and every response gets
+  `Permissions-Policy: camera=(), microphone=(), geolocation=(), payment=()`.
+- **`X-Engine: LPHP` is no longer sent**, so responses do not name the framework.
+- **`security:check` fails a production deployment without `APP_KEY`**, which
+  leaves CSRF unsigned and cache and queue entries unsealed.
+- **The local disk refuses paths Windows reads differently**: `:`, a segment
+  ending in `.` or a space, and device names such as `CON`.
+- **S3 objects are stored as `application/octet-stream` unless their type cannot
+  run script**, so an uploaded page cannot run on the bucket's origin.
+- **Smaller fixes:** uploads whose contents cannot be identified are refused;
+  `Message::header()` refuses the headers the mailer writes, in any case; SMTP
+  refuses to send a password unencrypted to another machine; the SSRF guard
+  treats NAT64, 6to4 and IPv4-compatible addresses as non-public; the
+  maintenance bypass limits wrong guesses, needs a 16-character secret and can
+  no longer redirect off-site; static files get `nosniff` from
+  `public/.htaccess`; the generated nginx block refuses dotfiles under
+  `/assets/core/`; systemd unit values refuse line breaks; the development
+  server never serves a Windows alias of a PHP file.
 - **Social sign-in no longer skips two-factor.** `SocialLogin::login()` called
   `AuthManager::login()` directly, so an account with two-factor turned on was
   logged in by the provider alone — or by anybody who opened a provider account
