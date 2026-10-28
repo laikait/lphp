@@ -490,4 +490,5 @@ final class ModuleMakeTest extends TestCase
         // A template with no handler to give it rows must not read any.
         $this->make('Orphan', with: 'database,templates');
         self::assertStringNotContainsString('$rows', (string) \file_get_contents($this->base . '/modules/Orphan/Templates/index.php'));
-    }}
+    }
+}
