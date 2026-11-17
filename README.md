@@ -30,7 +30,7 @@ To see which extensions you have, run `php -m`.
 
 ```bash
 composer install     # download the framework's dependencies
-composer serve       # start a development server
+php laika serve      # start a development server (or: composer serve)
 ```
 
 Open `http://127.0.0.1:8080/`. You should see **Your application is running**.
