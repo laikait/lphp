@@ -34,7 +34,7 @@ use App\Engine\Template\ThemeRegistry;
  */
 final class Application
 {
-    public const VERSION = '3.2.1';
+    public const VERSION = '3.2.2';
 
     private bool $booted = false;
 

@@ -1,0 +1,21 @@
+version: 2
+
+updates:
+  # Security advisories for Composer packages open a pull request on their own;
+  # this schedule is for ordinary updates, kept to one grouped PR a week.
+  - package-ecosystem: composer
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      composer-minor-and-patch:
+        update-types:
+          - minor
+          - patch
+
+  # The workflows pin each action to a commit, so they never move on their own.
+  # This is what notices a new release or a fixed action.
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly

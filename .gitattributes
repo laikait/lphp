@@ -1,3 +1,8 @@
+# Text is stored and checked out with LF on every machine. Windows' autocrlf
+# would otherwise give a working tree of CRLF files, which php-cs-fixer (and the
+# changelog test) reject; .editorconfig says LF as well.
+* text=auto eol=lf
+
 # What `composer create-project` and a release archive leave out.
 #
 # Only what belongs to this repository rather than to an application built from
