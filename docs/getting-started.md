@@ -35,14 +35,16 @@ list.
 
 ```bash
 composer install
-composer serve
+php laika serve          # or: composer serve
 ```
+
+`php laika serve --host=0.0.0.0 --port=9000` changes where it listens.
 
 **You should see:** open `http://127.0.0.1:8080/` in a browser, and the page says
 **Your application is running**. (On XAMPP, `http://localhost/framework/` works
 too.)
 
-Leave `composer serve` running in this terminal. Open a second terminal in the
+Leave `php laika serve` running in this terminal. Open a second terminal in the
 same folder for every command below.
 
 See what is there so far:

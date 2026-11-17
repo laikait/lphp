@@ -179,6 +179,7 @@ uses, under the module name `engine`. The kernel has no idea they exist: delete
 |---|---|
 | `cache:clear` | Delete the configuration, module, template and application caches. |
 | `cache:warm` | Build the production boot path: the configuration and discovery caches. |
+| `cache:rebuild` | `cache:clear` then `cache:warm`, in one step. If warming fails the caches stay cleared and it exits 1. |
 | `config:cache` | Compile `config/` and the defaults into one cached file. |
 
 **Background work**
@@ -206,6 +207,7 @@ uses, under the module name `engine`. The kernel has no idea they exist: delete
 
 | Command | Does |
 |---|---|
+| `serve` | Run the development server in the foreground, like `composer serve`; `--host` (default `127.0.0.1`), `--port` (default `8080`). Development only. |
 | `nginx:make` | Write the nginx server block for this application to `nginx.conf`. |
 | `log:status` | Where records go, and whether they are getting there. |
 | `system:cron:install` | Install the crontab line that runs `schedule:run` every minute. |

@@ -7,7 +7,13 @@ composer cs:fix     # apply it
 composer stan       # PHPStan level 8
 composer test       # PHPUnit
 composer bench      # benchmarks; not part of the gate -- see Performance
+composer audit      # known advisories in what is installed (--no-dev for what ships)
 ```
+
+`composer audit` is not part of `composer check`, because it asks Packagist and
+its answer changes without a commit. CI runs it on every push, pull request and
+weekly: an advisory in a production dependency fails the build, and one in a
+development tool is reported without failing it. Dependabot proposes the updates.
 
 There is no coverage gate, because neither Xdebug nor PCOV is assumed to be
 present. The gate is `composer check`: clean coding standard, clean level 8,

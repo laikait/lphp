@@ -1,0 +1,52 @@
+name: Dependency security audit
+
+on:
+  push:
+    branches:
+      - beta
+      - main
+  pull_request:
+  # Advisories are published against code that has not changed, so a quiet
+  # repository still needs checking.
+  schedule:
+    - cron: '17 4 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  Audit:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 #v7.0.1
+
+      - uses: shivammathur/setup-php@f3e473d116dcccaddc5834248c87452386958240 #v2
+        with:
+          php-version: '8.2'
+          coverage: none
+          tools: composer:v2
+
+      # composer.lock is not committed (see .gitignore), so there is nothing for
+      # `composer audit --locked` to read. Install first and audit what was
+      # installed: the versions a fresh `composer create-project` would resolve today.
+      #
+      # What a deployment installs. A known advisory here fails the build: it
+      # is code that runs in production.
+      - name: Install production dependencies
+        run: composer install --no-dev --no-progress --no-interaction --no-scripts
+
+      - name: Audit production dependencies
+        run: composer audit --no-dev
+
+      # Development tools (PHPUnit, PHPStan, PHP-CS-Fixer) never reach a
+      # deployment, so an advisory in one is reported without failing the build.
+      # It still shows up in the log, and Dependabot proposes the update.
+      - name: Install development dependencies
+        continue-on-error: true
+        run: composer install --no-progress --no-interaction --no-scripts
+
+      - name: Audit development dependencies
+        continue-on-error: true
+        run: composer audit

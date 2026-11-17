@@ -30,7 +30,7 @@ To see which extensions you have, run `php -m`.
 
 ```bash
 composer install     # download the framework's dependencies
-composer serve       # start a development server
+php laika serve      # start a development server (or: composer serve)
 ```
 
 Open `http://127.0.0.1:8080/`. You should see **Your application is running**.
@@ -116,6 +116,11 @@ Modules are the main way to split an application; hooks and filters are how
 modules extend each other; and database access is written out rather than
 hidden behind an ORM.
 
+## Security
+
+Report vulnerabilities privately, not in a public issue: see [SECURITY.md](SECURITY.md).
+
 ## License
 
-MIT. See [LICENSE](LICENSE).
+MIT. See [LICENSE](LICENSE). The bundled Swagger UI (`engine/OpenApi/ui/`) is
+Apache-2.0 and keeps its own license; see [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).

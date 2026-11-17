@@ -142,6 +142,42 @@ final class PerformanceSliceTest extends TestCase
         self::assertStringContainsString('config cached, modules cached', $about);
     }
 
+    /** A stale cache is replaced, not kept: clear runs first, then warm builds from disk. */
+    public function test_cache_rebuild_clears_then_warms(): void
+    {
+        $base = $this->productionTree();
+        $this->console($this->treeApplication($base), 'cache:warm');
+
+        // Something left over that only a clear would remove.
+        \file_put_contents($base . '/system/Cache/templates-stale', 'x');
+        $stale = ModuleRegistry::cacheFile($base);
+        \file_put_contents($stale, '<?php return [];');
+
+        [$status, $output] = $this->console($this->treeApplication($base), 'cache:rebuild');
+
+        self::assertSame(ConsoleKernel::SUCCESS, $status, $output);
+        self::assertLessThan(\strpos($output, 'Boot path cached'), \strpos($output, 'cleared'), 'clear is reported before warm');
+        self::assertFileExists(ConfigCache::file($base));
+        self::assertFileExists($stale);
+
+        $manager = $this->treeApplication($base)->boot()->container()->get(ModuleManager::class);
+        self::assertTrue($manager->discoveredFromCache());
+        self::assertSame(['Shared', 'Alpha', 'Beta', 'Zeta'], $manager->registry()->ids(), 'the stale module cache was replaced');
+    }
+
+    public function test_cache_rebuild_in_a_debug_process_clears_and_then_fails(): void
+    {
+        $base = $this->productionTree();
+        $this->console($this->treeApplication($base), 'cache:warm');
+
+        [$status, $output] = $this->console($this->treeApplication($base, ['app' => ['debug' => true]]), 'cache:rebuild');
+
+        self::assertSame(1, $status);
+        self::assertStringContainsString('APP_DEBUG', $output);
+        self::assertFileDoesNotExist(ConfigCache::file($base));
+        self::assertFileDoesNotExist(ModuleRegistry::cacheFile($base));
+    }
+
     public function test_cache_warm_refuses_in_a_debug_process(): void
     {
         $base = $this->productionTree();

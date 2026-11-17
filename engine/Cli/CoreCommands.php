@@ -9,6 +9,7 @@ use App\Engine\Cli\Commands\AssetListCommand;
 use App\Engine\Cli\Commands\AuthAccessCommand;
 use App\Engine\Cli\Commands\AuthHashCommand;
 use App\Engine\Cli\Commands\CacheClearCommand;
+use App\Engine\Cli\Commands\CacheRebuildCommand;
 use App\Engine\Cli\Commands\CacheWarmCommand;
 use App\Engine\Cli\Commands\ConfigCacheCommand;
 use App\Engine\Cli\Commands\ConfigListCommand;
@@ -39,6 +40,7 @@ use App\Engine\Cli\Commands\ScheduleRunCommand;
 use App\Engine\Cli\Commands\ScheduleUnlockCommand;
 use App\Engine\Cli\Commands\SecurityCheckCommand;
 use App\Engine\Cli\Commands\SecurityKeyCommand;
+use App\Engine\Cli\Commands\ServeCommand;
 use App\Engine\Cli\Commands\SessionGcCommand;
 use App\Engine\Cli\Commands\SystemCronInstallCommand;
 use App\Engine\Cli\Commands\SystemCronListCommand;
@@ -104,6 +106,12 @@ final class CoreCommands
             ->argument('name', 'Billing, or Plugins/Billing to put it in a group folder. The module id is the last part.')
             ->option('with', 'Also create: http, model, database, seeder, templates, assets, lang, or all (comma-separated).')
             ->note('Writes module.php only and never overwrites. A grouped module loads once modules/<Group> is in modules.paths: it creates config/modules.php for that, or tells you what to add to an existing one.');
+
+        $commands->add('serve', ServeCommand::class)
+            ->describe('Run the development server in the foreground, like composer serve.')
+            ->option('host', 'The address to listen on.', default: '127.0.0.1')
+            ->option('port', 'The port to listen on.', default: '8080')
+            ->note('For development only: it handles one request at a time. Production uses nginx or Apache with public/ as the root.');
 
         $commands->add('route:list', RouteListCommand::class)
             ->describe('List every registered route and its owning module.')
@@ -345,5 +353,9 @@ final class CoreCommands
         $commands->add('cache:warm', CacheWarmCommand::class)
             ->describe('Build the production boot path: the configuration and module discovery caches.')
             ->note('Refuses with APP_DEBUG on, because a debug process never reads the module cache.');
+
+        $commands->add('cache:rebuild', CacheRebuildCommand::class)
+            ->describe('Clear every cache, then warm the production boot path.')
+            ->note('cache:clear followed by cache:warm. If warming fails (APP_DEBUG on, say) the caches stay cleared and the exit code is 1.');
     }
 }

@@ -13,6 +13,16 @@ public, is in [`STABILITY.md`](STABILITY.md).
 
 ### Added
 
+- **`php laika serve`.** Runs the development server in the foreground, the same
+  way `composer serve` does (`public/` as the root, the `server` router), so
+  Composer is not needed to start the application. `--host` and `--port` default
+  to `127.0.0.1` and `8080`. Development only; it warns when debug is off. The
+  process is started by `engine/System/Process/DevServer`, the one layer allowed
+  to start one, outside the command policy because it is a fixed program run by
+  a person at a terminal.
+- **`php laika cache:rebuild`.** `cache:clear` then `cache:warm` in one step, the
+  whole cache part of a deployment. If warming fails (`APP_DEBUG` on, for
+  instance) the caches stay cleared and it exits 1.
 - **`php laika module:make <Name>`.** Creates `modules/<Name>/module.php`, the
   skeleton [Modules](docs/reference/modules.md#start-a-new-module) documents, and
   nothing else. The name is a valid module id, optionally with one group folder
@@ -192,6 +202,10 @@ public, is in [`STABILITY.md`](STABILITY.md).
 
 ### Fixed
 
+- **The development server showed a fatal error.** The `server` router started
+  with a `#!/usr/bin/env php` line, which the built-in server prints as output,
+  so `declare(strict_types=1)` was no longer the first statement. The line is
+  gone; `composer serve` and `php laika serve` both serve pages again.
 - **An asset's `?v=` follows the file without `cache:clear`.** The cached
   content hash is keyed by the file's size and modification time too, so a
   deploy that forgot to clear the cache no longer keeps sending the old token
