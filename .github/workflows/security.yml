@@ -28,15 +28,25 @@ jobs:
           coverage: none
           tools: composer:v2
 
+      # composer.lock is not committed (see .gitignore), so there is nothing for
+      # `composer audit --locked` to read. Install first and audit what was
+      # installed: the versions a fresh `composer create-project` would resolve today.
+      #
       # What a deployment installs. A known advisory here fails the build: it
-      # is code that runs in production. --locked audits composer.lock, the
-      # exact versions installed, not whatever composer.json would resolve to today.
+      # is code that runs in production.
+      - name: Install production dependencies
+        run: composer install --no-dev --no-progress --no-interaction --no-scripts
+
       - name: Audit production dependencies
-        run: composer audit --locked --no-dev
+        run: composer audit --no-dev
 
       # Development tools (PHPUnit, PHPStan, PHP-CS-Fixer) never reach a
       # deployment, so an advisory in one is reported without failing the build.
       # It still shows up in the log, and Dependabot proposes the update.
+      - name: Install development dependencies
+        continue-on-error: true
+        run: composer install --no-progress --no-interaction --no-scripts
+
       - name: Audit development dependencies
         continue-on-error: true
-        run: composer audit --locked
+        run: composer audit

@@ -7,7 +7,7 @@ composer cs:fix     # apply it
 composer stan       # PHPStan level 8
 composer test       # PHPUnit
 composer bench      # benchmarks; not part of the gate -- see Performance
-composer audit      # known advisories in composer.lock (--no-dev for what ships)
+composer audit      # known advisories in what is installed (--no-dev for what ships)
 ```
 
 `composer audit` is not part of `composer check`, because it asks Packagist and

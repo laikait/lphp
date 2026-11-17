@@ -48,9 +48,9 @@ Out of scope:
 
 ## Dependencies
 
-`composer audit` checks `composer.lock` against known advisories. CI runs it on
+`composer audit` checks the installed Composer packages against known advisories. CI runs it on
 every push and pull request and once a week, and Dependabot proposes updates. You
-can run it yourself with `composer audit --locked`.
+can run it yourself with `composer audit`.
 
 ## Hardening an installation
 
